@@ -1,0 +1,607 @@
+const features = require("../structure/features.js"),
+    delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
+    Game = require("../structure/game.js"),
+    cards = require("../structure/cards.js")
+module.exports = class BlackJack extends Game {
+    constructor(info) {
+        super(info)
+        this.cards = [...cards, ...cards, ...cards],
+        this.betsCollector = null,
+        this.dealer = null
+    }
+
+    async SendMessage(type, player, info) {
+        switch(type) {
+            case "deckRestored":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("AQUA")
+                        .setFooter("Game deck has been shuffled and restored", this.client.user.displayAvatarURL)
+                )
+            break
+            case "maxPlayers":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("RED")
+                        .setFooter(`${player.tag}, access denied: maximum number of players reached for this game`, player.displayAvatarURL)
+                )
+            break
+            case "playerAdded":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("BLUE")
+                        .setFooter(`${player.tag} joined this game | Stack: ${setSeparator(player.stack)}$`, player.displayAvatarURL)
+                )
+            break
+            case "playerRemoved":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("BLUE")
+                        .setFooter(`${player.tag} left this game`, player.displayAvatarURL)
+                )
+            break
+            case "delete":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("RED")
+                        .setFooter(`Game deleted: bets not placed/all players left`)
+                )
+            break
+            case "stand":
+            case "hit":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor(`${type == "hit" ? "PURPLE" : "LUMINOUS_VIVID_PINK"}`)
+                        .setFooter(`${player.tag} ${type == "hit" ? "hit" : "stand"}s`, player.displayAvatarURL)
+                )
+            break
+            case "double":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("ORANGE")
+                        .setFooter(`${player.tag} doubles (-${setSeparator(player.bets.initial)}$)`, player.displayAvatarURL)
+                )
+            break
+            case "split":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("AQUA")
+                        .setFooter(`${player.tag} splits hand (-${setSeparator(player.bets.initial)}$)`, player.displayAvatarURL)
+                )
+            break
+            case "insurance":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("ORANGE")
+                        .setFooter(`${player.tag} has bought insurance (-${setSeparator(parseInt(player.bets.initial/2))}$)`, player.displayAvatarURL)
+                )
+            break
+            case "insuranceRefund":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("GREEN")
+                        .setFooter(`${player.tag} has been refunded due to insurance (+${setSeparator(player.bets.initial)}$)`, player.displayAvatarURL)
+                )
+            break
+            case "dealerHit":
+            case "dealerStand":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor(`${type == "dealerHit" ? "PURPLE" : "LUMINOUS_VIVID_PINK"}`)
+                        .setFooter(`Dealer ${type == "dealerHit" ? "hit" : "stand"}s`, this.client.user.displayAvatarURL)
+                )
+            break
+            case "dealerBusted":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor(`RED`)
+                        .setFooter(`Dealer busted!`, this.client.user.displayAvatarURL)
+                )
+            break
+            case "showDealer":
+                this.dealer.display = await this.CardReplacer(this.dealer.cards)
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("BLUE")
+                        .setThumbnail(this.client.user.displayAvatarURL)
+                        .addField(`Dealer's cards`, `Dealer will stand on 17 or higher\n\n**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : ""} ${this.dealer.BJ ? "[Blackjack]" : ""}`)
+                )
+            break
+            case "showStartingCards":
+                for (let player of this.inGamePlayers) 
+                    player.hands[0].display = await this.CardReplacer(player.hands[0].cards)
+                this.dealer.display = await this.CardReplacer(this.dealer.cards)
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("BLUE")
+                        .addField("All cards", `${this.inGamePlayers.map((pl) => {
+                            return `${pl} - ${pl.hands[0].display.join(" ")} - Bet ${setSeparator(pl.bets.initial)}$`
+                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display[0]} (???)`)
+                )
+            break
+            case "showFinalResults":
+                for (let player of this.inGamePlayers) 
+                    player.hands[0].display = await this.CardReplacer(player.hands[0].cards)
+                this.dealer.display = await this.CardReplacer(this.dealer.cards)
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("BLUE")
+                        .setThumbnail(this.client.displayAvatarURL)
+                        .addField(`Final results | Round #${this.hands}`, `${this.inGamePlayers.map((pl) => {
+                            return pl.hands.map((hand) => {
+                                return `${pl} **(hand #${pl.hands.indexOf(hand) + 1}):** ${hand.display.join(" ")} - Value: ${hand.value} ${hand.busted ? "[Busted]" : hand.BJ ? "[BJ]" : ""} - Winning (net value): ${hand.push || hand.busted ? 0 : (this.dealer.busted ? setSeparator(this.GetNetValue(hand.BJ ? (hand.push ? hand.bet : parseInt(hand.bet * 2.5)) : hand.bet * 2, pl)) : (this.dealer.value > hand.value ? 0 : setSeparator(this.GetNetValue(hand.BJ ? (hand.push ? hand.bet : parseInt(hand.bet * 2.5)) : hand.bet * 2, pl))))}$ [+${setSeparator(pl.status.won.expEarned/pl.hands.length)}XP] ${hand.push ? "(Push)" : ""}`
+                            }).join("\n") || "-"
+                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display.join(" ")} - Value: ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : this.dealer.BJ ? "[BJ]" : ""}`)
+                )
+            break
+            case "displayInfo":
+                this.dealer.display = await this.CardReplacer(this.dealer.cards)
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("GOLD")
+                        .setThumbnail(player.displayAvatarURL)
+                        .addField(`Your cards | ${player.tag}`, `${player.hands.map((hand) => {
+                            return `**Hand #${player.hands.indexOf(hand) + 1} ${player.hands.indexOf(hand) == player.status.currentHand ? "(current)" : ""}:** ${hand.display.join(" ")} | Value: ${hand.value} ${hand.busted ? "[Busted]" : hand.BJ ? "[BJ]" : ""}`
+                        }).join("\n") || "-"}\n\n**Options (hand #${player.status.currentHand + 1}):** ${player.availableOptions.join(" - ")} ${info ? "*standing automatically*" : ""}`)
+                        .setFooter(`Dealer's cards: ${this.dealer.display[0]} (???) | Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.status.insurance ? "yes" : "no"} | 30s left`, this.client.user.displayAvatarURL)
+                )
+            break
+            case "noRemaining":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("ORANGE")
+                        .setFooter("No util players left, proceding to next hand", this.client.user.displayAvatarURL)
+                )
+            break
+            case "busted":
+                this.channel.send(                                                                  
+                    new Discord.RichEmbed()
+                    .setColor("RED")
+                    .addField("Busted!", `Hand #${player.hands.indexOf(info) + 1} - ${info.display.join(" ")} - Value: ${info.value} - Busted`)
+                    .setFooter(`${player.tag} | Total bet: ${setSeparator(player.bets.total)}$`, player.displayAvatarURL)
+                )
+            break
+            case "noMoneyBet":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("RED")
+                        .setFooter(`${player.tag}, you can not afford to bet this amount of money`, player.displayAvatarURL)
+                )
+            break
+            case "betsOpened":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("GREEN")
+                        .addField(`Bets opened | Round #${this.hands}`, "Players, please place your bets using **bet [amount]**\nIf no amount is supplied, it will automatically be set to the minimum required")
+                        .addField("Available stacks", `${this.players.filter((p) => {
+                            return !p.newEntry
+                        }).map((p) => {
+                            return `${p} - Stack: ${setSeparator(p.stack)}$`
+                        }).join("\n") || "-"}`)
+                        .setFooter(`You have got 30 seconds | Deck remaining cards: ${this.cards.length}`)
+                )
+            break
+            case "bet":
+                let rp = this.players.filter((pl) => {
+                    return !pl.newEntry && pl.bets.initial < 1
+                }).length
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("AQUA")
+                        .setFooter(`${player.tag} bet ${setSeparator(player.bets.initial)}$ ${rp > 0 ? `| Waiting for ${rp} players`: ""}`, player.displayAvatarURL)
+                )
+            break
+            case "betsClosed":
+                this.channel.send(
+                    new Discord.RichEmbed()
+                        .setColor("RED")
+                        .addField(`Bets closed | Round #${this.hands}`, `Either the time is over or all the players have placed their bets`)
+                        .setFooter("Your cards will be shown in a moment")
+                )
+            break
+        }
+    }
+
+    async NextHand() {
+        if (!this.playing) return
+        
+        await this.Reset()
+        if (this.hands < 1) await this.Shuffle(this.cards)
+
+        if (this.cards.length < 25) {
+            this.cards = [...cards, ...cards, ...cards]
+            await this.Shuffle(this.cards)
+            await this.SendMessage("deckRestored")
+            await delay(2000)
+        }
+
+        for (let player of this.players) {
+            if (this.hands > 0 && player.stack < this.minBet) {
+                this.RemovePlayer(player)
+                continue
+            }
+            player.data.last_played = new Date
+            player.hands = []
+            player.status = {
+                current: false,
+                currentHand: 0,
+                insurance: false,
+                won: {
+                    grossValue: 0,
+                    netValue: 0,
+                    expEarned: 0
+                }
+            }
+            player.bets = {
+                initial: 0,
+                total: 0
+            }
+        }
+
+        this.dealer = {
+            cards: [],
+            value: 0,
+            pair: false,
+            display: []
+        }
+
+        this.hands++
+
+        this.AwaitBets()
+    }
+
+    async AwaitBets() {
+        this.betsCollector = await this.channel.createMessageCollector(m => 
+            !m.author.bot && m.content.toLowerCase().startsWith("bet") && this.GetPlayer(m.author.id)
+        , {
+            time: 30000
+        })
+        this.SendMessage("betsOpened")
+        this.betsCollector.on("collect", async(mess) => {
+            if (mess.deletable) mess.delete()
+            let player = this.GetPlayer(mess.author.id),
+                bet = features.inputConverter(mess.content.toLowerCase().split(" ")[1]) || this.minBet
+            if (bet < this.minBet) return
+            if (player.stack < bet) return this.SendMessage("noMoneyBet", player)
+            player.bets.initial = bet
+            player.bets.total += bet
+            player.stack -= bet
+            player.data.money -= bet
+            let assigned = await this.PickRandom(this.cards, 2)
+            player.hands.push({
+                cards: assigned,
+                value: 0,
+                pair: false,
+                busted: false,
+                BJ: false,
+                push: false,
+                bet: player.bets.initial,
+                display: []
+            })
+            if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
+            await DR.updateUserData(player.id, DR.resolveDBUser(player))
+            await this.SendMessage("bet", player)
+            let remaining = this.players.filter((player) => {
+                return player.bets ? player.bets.initial < 1 : true == false
+            }).length
+            if (remaining < 1) this.betsCollector.stop()
+        })
+        this.betsCollector.on("end", async(coll, reason) => {
+            await this.SendMessage("betsClosed")
+            await delay(1000)
+            await this.UpdateInGame()
+            if (this.inGamePlayers.length < 1 && this.playing) return this.Stop()
+            if (!this.collector) await this.CreateOptions()
+            this.betsCollector = null
+            if (this.inGamePlayers.length > 1) {
+                await delay(2000)
+                this.SendMessage("showStartingCards")
+            }
+            this.dealer.cards = await this.PickRandom(this.cards, 2)
+            await delay(2000)
+            this.NextPlayer()
+        })
+    }
+
+    async NextPlayer(player, auto) {
+        if (!this.playing) return
+        await this.UpdateInGame()
+        let currentPlayer = player ? player : this.inGamePlayers[0]
+        currentPlayer.status.current = true
+        currentPlayer.availableOptions = await this.GetAvailableOptions(currentPlayer, currentPlayer.status.currentHand)
+        this.timer = setTimeout(() => {
+            this.Action("stand", currentPlayer, currentPlayer.status.currentHand)
+        }, 30 * 1000)
+
+        await this.UpdateDisplay(currentPlayer.hands)
+        if (currentPlayer.hands[currentPlayer.status.currentHand].BJ || auto) {
+            clearTimeout(this.timer)
+            this.timer = null
+            currentPlayer.availableOptions = []
+            await delay(2000)
+            this.SendMessage("displayInfo", currentPlayer, true)
+            await delay(3500)
+            return this.Action("stand", currentPlayer, currentPlayer.status.currentHand, true)
+        }
+        await delay(2000)
+        this.SendMessage("displayInfo", currentPlayer)
+    }
+
+    async UpdateDisplay(hands) {
+        for (let hand of hands) {
+            hand.display = await this.CardReplacer(hand.cards)
+        }
+        return hands
+    }
+
+    async CreateOptions() {
+        let options = ["stand", "hit", "double", "split", "insurance"]
+        this.collector = this.channel.createMessageCollector(m => 
+            !m.author.bot && options.includes(m.content.toLowerCase())
+                && this.GetPlayer(m.author.id)
+        )
+        this.collector.on("collect", (mess) => {
+            if (mess.deletable) mess.delete()
+            let player = this.GetPlayer(mess.author.id)
+            if (!player.status.current) return
+            this.Action(mess.content.toLowerCase(), player, player.status.currentHand)
+        })
+    }
+
+    async ComputeHandsValue(player, dealer) {
+        var inspectHand = (hand) => {
+            let aces = hand.cards.filter((card) => {
+                return card.split("")[0] == "A"
+            }).length
+            hand.value = 0
+
+            for (let card of hand.cards) {
+                let firstCard = hand.cards[0].split("")[0],
+                    secondCard = hand.cards[1].split("")[0]
+
+                if (hand.cards.length == 2 && !hand.pair && firstCard == secondCard) hand.pair = true
+                if (!hand.pair && hand.cards.length == 2 && aces == 1 && (player ? player.hands.length < 2 : true == true)) {
+                    let fig = hand.cards.filter((card) => {
+                        return ["K", "Q", "J", "T"].includes(card.split("")[0])
+                    }).length
+                    if (fig > 0) hand.BJ = true
+                }
+
+                let val = parseInt(card.split("")[0])
+                if (!isNaN(val)) hand.value += val
+                    else if (card.split("")[0] == "A") hand.value += 11
+                        else hand.value += 10                
+            }
+            while (hand.value > 21 && aces > 0) {
+                hand.value -= 10
+                aces--
+            }
+            if (hand.value > 21) hand.busted = true
+                else hand.busted = false
+            return hand
+        }
+        if (player) {
+            for (let hand of player.hands)
+                await inspectHand(hand)
+        } else if (dealer) {
+            await inspectHand(dealer)
+        }
+    }
+
+    async GetAvailableOptions(player, h) {
+        this.ComputeHandsValue(player)
+        let available = [],
+        hand = player.hands[h]
+        available.push("stand")
+        if (player.hands.length > 1 && player.hands[0].cards[0].split("")[0] == "A") return available
+        available.push("hit")
+        if (hand.cards.length < 3 && player.stack >= player.bets.initial) available.push("double")
+        if (hand.pair && player.hands.length < 4 && player.stack >= player.bets.initial) available.push("split")
+        if (this.dealer.cards[0].split("")[0] == "A" && !player.status.insurance && hand.cards.length < 3 && player.stack >= parseInt(player.bets.initial/2)) available.push("insurance")
+        return available
+    }
+
+    async Action(type, player, hand, automatic) {
+        if (!player.availableOptions.includes(type) && !automatic) return
+        if (this.timer) clearTimeout(this.timer)
+        this.timer = null
+        await this.ComputeHandsValue(player)
+        await this.SendMessage(type, player)
+        switch(type) {
+            case `stand`:
+            break
+            case `hit`:
+                player.hands[hand].cards = player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
+                await this.ComputeHandsValue(player)
+                if (!player.hands[hand].busted) return this.NextPlayer(player)
+            break
+            case `double`:
+                player.hands[hand].cards = player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
+                player.stack -= player.bets.initial
+                player.bets.total += player.bets.initial
+                player.hands[hand].bet += player.bets.initial
+                await this.ComputeHandsValue(player)
+                if (!player.hands[hand].busted) return this.NextPlayer(player, true)
+            break
+            case `split`:
+                let removedCard = await player.hands[hand].cards.splice(1, 1)
+                player.hands[hand].pair = false
+                player.hands.push({
+                    cards: removedCard.concat(await this.PickRandom(this.cards, 1)),
+                    value: 0,
+                    pair: false,
+                    busted: false,
+                    BJ: false,
+                    push: false,
+                    bet: player.bets.initial,
+                    display: []
+                })
+                player.hands[hand].cards = await player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
+                await this.ComputeHandsValue(player)
+                player.stack -= player.bets.initial
+                player.bets.total += player.bets.initial
+                return this.NextPlayer(player)
+            break
+            case `insurance`:
+                player.stack -= parseInt(player.bets.initial / 2)
+                player.status.insurance = true
+                return this.NextPlayer(player)
+            break
+        }
+
+        await delay(2000)
+        this.ComputeHandsValue(player)
+        await this.UpdateDisplay(player.hands)
+
+        if (player.hands[hand].busted) 
+            this.SendMessage("busted", player, player.hands[hand])
+
+        if (player.hands[hand + 1]) {
+            player.status.currentHand++
+            this.NextPlayer(player)
+        } else {
+            player.status.current = false
+            let next = this.inGamePlayers[this.inGamePlayers.indexOf(player) + 1]
+            if (next) this.NextPlayer(next)
+                else this.DealerAction()
+        }
+    }
+
+    async DealerAction() {
+        await this.ComputeHandsValue(null, this.dealer)
+        await this.UpdateInGame()
+
+        let remainingPlayers = this.inGamePlayers.filter((pl) => {
+            return pl.hands.some((hand) => {
+                return !hand.busted
+            })
+        })
+
+        if (remainingPlayers.length < 1) {
+            this.SendMessage("noRemaining")
+            for (let player of this.inGamePlayers) {
+                player.status.won.expEarned += 10
+                await this.CheckExp(player.status.won.expEarned, player)
+                await DR.updateUserData(player.id, DR.resolveDBUser(player))
+            }
+            return this.NextHand()
+        }
+
+        //if (this.dealer.value > 21) this.dealer.busted = true
+
+        this.SendMessage("showDealer")
+        await delay(2000)
+
+        if (this.dealer.value < 17) {
+            this.dealer.cards = this.dealer.cards.concat(await this.PickRandom(this.cards, 1))
+            await this.ComputeHandsValue(null, this.dealer)
+            await this.SendMessage("dealerHit")
+            await delay(2000)
+            return this.DealerAction()
+        }
+
+        if (!this.dealer.busted) await this.SendMessage("dealerStand")
+            else this.SendMessage("dealerBusted")
+        await delay(2000)
+
+        for (let player of this.inGamePlayers) {
+                player.status.won.expEarned += 10
+                player.data.hands_played++
+            if (this.dealer.BJ && player.status.insurance) {
+                player.stack += player.bets.initial
+                player.data.money += player.bets.initial
+                this.SendMessage("insuranceRefund", player)
+                await delay(1000)
+            } 
+            for (let hand of player.hands) {
+                let wf = 1
+                if (hand.busted) continue
+                if (this.dealer.busted || hand.value > this.dealer.value) wf = 2
+                if (!this.dealer.busted && hand.value < this.dealer.value) continue
+                if (!this.dealer.busted && hand.BJ && hand.value != this.dealer.value) wf = 2.5
+                if (!this.dealer.busted && hand.value == this.dealer.value) hand.push = true
+                player.status.won.grossValue += (hand.bet * wf)
+                let winning = hand.push ? (hand.bet * wf) : this.GetNetValue(hand.bet * wf, player)
+                player.stack += winning
+                player.data.money += winning
+                player.status.won.netValue += winning
+            }
+            if (player.status.won.grossValue > 0) {
+                player.data.hands_won++
+                player.status.won.expEarned += parseInt((Math.log(player.status.won.grossValue)) * (1.2 + (Math.sqrt(player.status.won.grossValue) * 0.003)) + 10)
+            }
+            if (player.status.won.grossValue > player.data.biggest_won) player.data.biggest_won = player.status.won.grossValue
+            await this.CheckExp(player.status.won.expEarned, player)
+            await DR.updateUserData(player.id, DR.resolveDBUser(player))
+        }
+
+        this.SendMessage("showFinalResults")
+        this.UpdateInGame()
+        await delay(4500)
+        let available = this.players.filter((pl) => {
+            return pl.stack > 0
+        })
+        if (this.playing && available.length < 1) return this.Stop()
+        this.NextHand()
+    }
+
+    GetNetValue(grossValue, player) {
+        return grossValue - parseInt(grossValue * (features.applyUpgrades("with-holding", player.data.withholding_upgrade, 0.0003 * 8, 0.00002 * 2.5)))
+    }
+
+    async AddPlayer(player) {
+        if (this.players.length == this.maxPlayers) return this.SendMessage("maxPlayers", player)
+        if (this.GetPlayer(player.id)) return
+        player.newEntry = true
+        await this.players.push(player)
+        await this.SendMessage("playerAdded", player)
+    }
+
+    async RemovePlayer(player) {
+        if (!this.GetPlayer(player.id)) return
+        await this.players.splice(this.players.indexOf(player), 1)
+        await this.SendMessage("playerRemoved", player)
+        if (this.players.length < 1) this.Stop()
+    }
+
+    UpdateInGame() {
+        return this.inGamePlayers = this.players.filter((pl) => {
+            return !pl.newEntry && (pl.bets ? pl.bets.initial > 0 : false == true)
+        })
+    }
+
+    async Reset () {
+        for (let player of this.players) {
+            await delete player.bets
+            await delete player.status
+            await delete player.hands
+            await delete player.newEntry
+        }
+    }
+    async Stop() {
+        await this.Reset()
+        this.playing = false
+        if (this.channel.collector) this.channel.collector.stop()
+        if (this.betsCollector) this.betsCollector.stop()
+        this.channel.collector = null
+        this.betsCollector = null
+        if (this.collector) this.collector.stop()
+        if (this.timer) clearTimeout(this.timer)
+        this.timer = null
+        this.collector = null
+        this.channel.game = null
+        if (this.channel.prevRL && this.channel.manageable) this.channel.setRateLimitPerUser(this.channel.prevRL)
+        return this.SendMessage("delete")
+    }
+
+    async Run() {
+        if (!this.playing) {
+            if (this.channel.manageable) {
+                if (this.channel.RateLimitPerUser) this.channel.prevRL = this.channel.RateLimitPerUser
+                this.channel.setRateLimitPerUser(4)
+            } 
+            this.playing = true
+            this.NextHand()
+        }
+    }
+}

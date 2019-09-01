@@ -1,0 +1,8 @@
+{
+    "id": "DISCORD_CLIENT_ID",
+    "secret": "DISCORD_CLIENT_SECRET",
+    "token": "DISCORD_BOT_TOKEN",
+    "owner": "OWNER_USER_ID",
+    "prefix": "!!"
+}
+

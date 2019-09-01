@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+web/node_modules/
+config.json
+.env
+.env.local
+web/dist/
+
