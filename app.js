@@ -1,16 +1,31 @@
 try {
+    const { Client, GatewayIntentBits, Partials, Collection, REST } = require("discord.js")
     global.Discord = require("discord.js")
-    global.app = new Discord.Client()
-    
+    global.app = new Client({
+        intents: [
+            GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.MessageContent
+        ],
+        partials: [Partials.Channel, Partials.Message]
+    })
+
     const EventEmitter = require("events")
 
     class ws extends EventEmitter {};
     const webSocket = new ws();
 
     app.config = require("./config.json")
-    app.commands = []
+    app.commands = new Collection()
+    app.slashCommands = new Collection()
     app.connection = null
     global.DR = require("./util/datahandler.js")
+    app.rest = new REST({ version: "10" }).setToken(app.config.token)
+
+    const CommandRouter = require("./util/commandRouter.js")
+    app.commandRouter = new CommandRouter(app)
+    app.commands = app.commandRouter.messageCommands
+    app.slashCommands = app.commandRouter.slashCommands
 
     app.init = async() => {
         await require("./util/eventloader.js")(app)
@@ -22,7 +37,12 @@ try {
             return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")
         }
     
-        app.login(app.config.token)
+        try {
+            await app.login(app.config.token)
+        } catch (loginError) {
+            console.error("Failed to login to Discord:", loginError)
+            process.exit(1)
+        }
     }
 
     app.init()

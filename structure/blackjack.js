@@ -11,194 +11,237 @@ module.exports = class BlackJack extends Game {
     }
 
     async SendMessage(type, player, info) {
+        const channel = this.channel
+        const clientAvatar = this.client.user.displayAvatarURL({ extension: "png" })
+        const sendEmbed = async(embed) => channel.send({ embeds: [embed] })
         switch(type) {
-            case "deckRestored":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("AQUA")
-                        .setFooter("Game deck has been shuffled and restored", this.client.user.displayAvatarURL)
-                )
-            break
-            case "maxPlayers":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("RED")
-                        .setFooter(`${player.tag}, access denied: maximum number of players reached for this game`, player.displayAvatarURL)
-                )
-            break
-            case "playerAdded":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("BLUE")
-                        .setFooter(`${player.tag} joined this game | Stack: ${setSeparator(player.stack)}$`, player.displayAvatarURL)
-                )
-            break
-            case "playerRemoved":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("BLUE")
-                        .setFooter(`${player.tag} left this game`, player.displayAvatarURL)
-                )
-            break
-            case "delete":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("RED")
-                        .setFooter(`Game deleted: bets not placed/all players left`)
-                )
-            break
+            case "deckRestored": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Aqua)
+                    .setFooter({ text: "Game deck has been shuffled and restored", iconURL: clientAvatar })
+                await sendEmbed(embed)
+            break }
+            case "maxPlayers": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({
+                        text: `${player.tag}, access denied: maximum number of players reached for this game`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "playerAdded": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Blue)
+                    .setFooter({
+                        text: `${player.tag} joined this game | Stack: ${setSeparator(player.stack)}$`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "playerRemoved": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Blue)
+                    .setFooter({
+                        text: `${player.tag} left this game`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "delete": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({ text: "Game deleted: bets not placed/all players left" })
+                await sendEmbed(embed)
+            break }
             case "stand":
-            case "hit":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor(`${type == "hit" ? "PURPLE" : "LUMINOUS_VIVID_PINK"}`)
-                        .setFooter(`${player.tag} ${type == "hit" ? "hit" : "stand"}s`, player.displayAvatarURL)
-                )
-            break
-            case "double":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("ORANGE")
-                        .setFooter(`${player.tag} doubles (-${setSeparator(player.bets.initial)}$)`, player.displayAvatarURL)
-                )
-            break
-            case "split":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("AQUA")
-                        .setFooter(`${player.tag} splits hand (-${setSeparator(player.bets.initial)}$)`, player.displayAvatarURL)
-                )
-            break
-            case "insurance":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("ORANGE")
-                        .setFooter(`${player.tag} has bought insurance (-${setSeparator(parseInt(player.bets.initial/2))}$)`, player.displayAvatarURL)
-                )
-            break
-            case "insuranceRefund":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("GREEN")
-                        .setFooter(`${player.tag} has been refunded due to insurance (+${setSeparator(player.bets.initial)}$)`, player.displayAvatarURL)
-                )
-            break
+            case "hit": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(type == "hit" ? Discord.Colors.Purple : Discord.Colors.LuminousVividPink)
+                    .setFooter({
+                        text: `${player.tag} ${type == "hit" ? "hit" : "stand"}s`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "double": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Orange)
+                    .setFooter({
+                        text: `${player.tag} doubles (-${setSeparator(player.bets.initial)}$)`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "split": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Aqua)
+                    .setFooter({
+                        text: `${player.tag} splits hand (-${setSeparator(player.bets.initial)}$)`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "insurance": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Orange)
+                    .setFooter({
+                        text: `${player.tag} has bought insurance (-${setSeparator(parseInt(player.bets.initial / 2))}$)`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "insuranceRefund": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Green)
+                    .setFooter({
+                        text: `${player.tag} has been refunded due to insurance (+${setSeparator(player.bets.initial)}$)`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
             case "dealerHit":
-            case "dealerStand":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor(`${type == "dealerHit" ? "PURPLE" : "LUMINOUS_VIVID_PINK"}`)
-                        .setFooter(`Dealer ${type == "dealerHit" ? "hit" : "stand"}s`, this.client.user.displayAvatarURL)
-                )
-            break
-            case "dealerBusted":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor(`RED`)
-                        .setFooter(`Dealer busted!`, this.client.user.displayAvatarURL)
-                )
-            break
-            case "showDealer":
+            case "dealerStand": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(type == "dealerHit" ? Discord.Colors.Purple : Discord.Colors.LuminousVividPink)
+                    .setFooter({ text: `Dealer ${type == "dealerHit" ? "hit" : "stand"}s`, iconURL: clientAvatar })
+                await sendEmbed(embed)
+            break }
+            case "dealerBusted": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({ text: "Dealer busted!", iconURL: clientAvatar })
+                await sendEmbed(embed)
+            break }
+            case "showDealer": {
                 this.dealer.display = await this.CardReplacer(this.dealer.cards)
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("BLUE")
-                        .setThumbnail(this.client.user.displayAvatarURL)
-                        .addField(`Dealer's cards`, `Dealer will stand on 17 or higher\n\n**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : ""} ${this.dealer.BJ ? "[Blackjack]" : ""}`)
-                )
-            break
-            case "showStartingCards":
-                for (let player of this.inGamePlayers) 
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Blue)
+                    .setThumbnail(clientAvatar)
+                    .addFields({
+                        name: `Dealer's cards`,
+                        value: `Dealer will stand on 17 or higher\n\n**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : ""} ${this.dealer.BJ ? "[Blackjack]" : ""}`
+                    })
+                await sendEmbed(embed)
+            break }
+            case "showStartingCards": {
+                for (let player of this.inGamePlayers)
                     player.hands[0].display = await this.CardReplacer(player.hands[0].cards)
                 this.dealer.display = await this.CardReplacer(this.dealer.cards)
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("BLUE")
-                        .addField("All cards", `${this.inGamePlayers.map((pl) => {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Blue)
+                    .addFields({
+                        name: "All cards",
+                        value: `${this.inGamePlayers.map((pl) => {
                             return `${pl} - ${pl.hands[0].display.join(" ")} - Bet ${setSeparator(pl.bets.initial)}$`
-                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display[0]} (???)`)
-                )
-            break
-            case "showFinalResults":
-                for (let player of this.inGamePlayers) 
+                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display[0]} (???)`
+                    })
+                await sendEmbed(embed)
+            break }
+            case "showFinalResults": {
+                for (let player of this.inGamePlayers)
                     player.hands[0].display = await this.CardReplacer(player.hands[0].cards)
                 this.dealer.display = await this.CardReplacer(this.dealer.cards)
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("BLUE")
-                        .setThumbnail(this.client.displayAvatarURL)
-                        .addField(`Final results | Round #${this.hands}`, `${this.inGamePlayers.map((pl) => {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Blue)
+                    .setThumbnail(this.client.user.displayAvatarURL({ extension: "png" }))
+                    .addFields({
+                        name: `Final results | Round #${this.hands}`,
+                        value: `${this.inGamePlayers.map((pl) => {
                             return pl.hands.map((hand) => {
-                                return `${pl} **(hand #${pl.hands.indexOf(hand) + 1}):** ${hand.display.join(" ")} - Value: ${hand.value} ${hand.busted ? "[Busted]" : hand.BJ ? "[BJ]" : ""} - Winning (net value): ${hand.push || hand.busted ? 0 : (this.dealer.busted ? setSeparator(this.GetNetValue(hand.BJ ? (hand.push ? hand.bet : parseInt(hand.bet * 2.5)) : hand.bet * 2, pl)) : (this.dealer.value > hand.value ? 0 : setSeparator(this.GetNetValue(hand.BJ ? (hand.push ? hand.bet : parseInt(hand.bet * 2.5)) : hand.bet * 2, pl))))}$ [+${setSeparator(pl.status.won.expEarned/pl.hands.length)}XP] ${hand.push ? "(Push)" : ""}`
+                                return `${pl} **(hand #${pl.hands.indexOf(hand) + 1}):** ${hand.display.join(" ")} - Value: ${hand.value} ${hand.busted ? "[Busted]" : hand.BJ ? "[BJ]" : ""} - Winning (net value): ${hand.push || hand.busted ? 0 : (this.dealer.busted ? setSeparator(this.GetNetValue(hand.BJ ? (hand.push ? hand.bet : parseInt(hand.bet * 2.5)) : hand.bet * 2, pl)) : (this.dealer.value > hand.value ? 0 : setSeparator(this.GetNetValue(hand.BJ ? (hand.push ? hand.bet : parseInt(hand.bet * 2.5)) : hand.bet * 2, pl))))}$ [+${setSeparator(pl.status.won.expEarned / pl.hands.length)}XP] ${hand.push ? "(Push)" : ""}`
                             }).join("\n") || "-"
-                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display.join(" ")} - Value: ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : this.dealer.BJ ? "[BJ]" : ""}`)
-                )
-            break
-            case "displayInfo":
+                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display.join(" ")} - Value: ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : this.dealer.BJ ? "[BJ]" : ""}`
+                    })
+                await sendEmbed(embed)
+            break }
+            case "displayInfo": {
                 this.dealer.display = await this.CardReplacer(this.dealer.cards)
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("GOLD")
-                        .setThumbnail(player.displayAvatarURL)
-                        .addField(`Your cards | ${player.tag}`, `${player.hands.map((hand) => {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Gold)
+                    .setThumbnail(player.displayAvatarURL({ extension: "png" }))
+                    .addFields({
+                        name: `Your cards | ${player.tag}`,
+                        value: `${player.hands.map((hand) => {
                             return `**Hand #${player.hands.indexOf(hand) + 1} ${player.hands.indexOf(hand) == player.status.currentHand ? "(current)" : ""}:** ${hand.display.join(" ")} | Value: ${hand.value} ${hand.busted ? "[Busted]" : hand.BJ ? "[BJ]" : ""}`
-                        }).join("\n") || "-"}\n\n**Options (hand #${player.status.currentHand + 1}):** ${player.availableOptions.join(" - ")} ${info ? "*standing automatically*" : ""}`)
-                        .setFooter(`Dealer's cards: ${this.dealer.display[0]} (???) | Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.status.insurance ? "yes" : "no"} | 30s left`, this.client.user.displayAvatarURL)
-                )
-            break
-            case "noRemaining":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("ORANGE")
-                        .setFooter("No util players left, proceding to next hand", this.client.user.displayAvatarURL)
-                )
-            break
-            case "busted":
-                this.channel.send(                                                                  
-                    new Discord.RichEmbed()
-                    .setColor("RED")
-                    .addField("Busted!", `Hand #${player.hands.indexOf(info) + 1} - ${info.display.join(" ")} - Value: ${info.value} - Busted`)
-                    .setFooter(`${player.tag} | Total bet: ${setSeparator(player.bets.total)}$`, player.displayAvatarURL)
-                )
-            break
-            case "noMoneyBet":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("RED")
-                        .setFooter(`${player.tag}, you can not afford to bet this amount of money`, player.displayAvatarURL)
-                )
-            break
-            case "betsOpened":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("GREEN")
-                        .addField(`Bets opened | Round #${this.hands}`, "Players, please place your bets using **bet [amount]**\nIf no amount is supplied, it will automatically be set to the minimum required")
-                        .addField("Available stacks", `${this.players.filter((p) => {
-                            return !p.newEntry
-                        }).map((p) => {
-                            return `${p} - Stack: ${setSeparator(p.stack)}$`
-                        }).join("\n") || "-"}`)
-                        .setFooter(`You have got 30 seconds | Deck remaining cards: ${this.cards.length}`)
-                )
-            break
-            case "bet":
+                        }).join("\n") || "-"}\n\n**Options (hand #${player.status.currentHand + 1}):** ${player.availableOptions.join(" - ")} ${info ? "*standing automatically*" : ""}`
+                    })
+                    .setFooter({
+                        text: `Dealer's cards: ${this.dealer.display[0]} (???) | Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.status.insurance ? "yes" : "no"} | 30s left`,
+                        iconURL: clientAvatar
+                    })
+                await sendEmbed(embed)
+            break }
+            case "noRemaining": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Orange)
+                    .setFooter({ text: "No util players left, proceding to next hand", iconURL: clientAvatar })
+                await sendEmbed(embed)
+            break }
+            case "busted": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .addFields({
+                        name: "Busted!",
+                        value: `Hand #${player.hands.indexOf(info) + 1} - ${info.display.join(" ")} - Value: ${info.value} - Busted`
+                    })
+                    .setFooter({
+                        text: `${player.tag} | Total bet: ${setSeparator(player.bets.total)}$`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "noMoneyBet": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({
+                        text: `${player.tag}, you can not afford to bet this amount of money`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "betsOpened": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Green)
+                    .addFields(
+                        {
+                            name: `Bets opened | Round #${this.hands}`,
+                            value: "Players, please place your bets using **bet [amount]**\nIf no amount is supplied, it will automatically be set to the minimum required"
+                        },
+                        {
+                            name: "Available stacks",
+                            value: `${this.players.filter((p) => {
+                                return !p.newEntry
+                            }).map((p) => {
+                                return `${p} - Stack: ${setSeparator(p.stack)}$`
+                            }).join("\n") || "-"}`
+                        }
+                    )
+                    .setFooter({ text: `You have got 30 seconds | Deck remaining cards: ${this.cards.length}` })
+                await sendEmbed(embed)
+            break }
+            case "bet": {
                 let rp = this.players.filter((pl) => {
                     return !pl.newEntry && pl.bets.initial < 1
                 }).length
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("AQUA")
-                        .setFooter(`${player.tag} bet ${setSeparator(player.bets.initial)}$ ${rp > 0 ? `| Waiting for ${rp} players`: ""}`, player.displayAvatarURL)
-                )
-            break
-            case "betsClosed":
-                this.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("RED")
-                        .addField(`Bets closed | Round #${this.hands}`, `Either the time is over or all the players have placed their bets`)
-                        .setFooter("Your cards will be shown in a moment")
-                )
-            break
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Aqua)
+                    .setFooter({
+                        text: `${player.tag} bet ${setSeparator(player.bets.initial)}$ ${rp > 0 ? `| Waiting for ${rp} players` : ""}`.trim(),
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "betsClosed": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .addFields({
+                        name: `Bets closed | Round #${this.hands}`,
+                        value: `Either the time is over or all the players have placed their bets`
+                    })
+                    .setFooter({ text: "Your cards will be shown in a moment" })
+                await sendEmbed(embed)
+            break }
         }
     }
 
@@ -251,9 +294,8 @@ module.exports = class BlackJack extends Game {
     }
 
     async AwaitBets() {
-        this.betsCollector = await this.channel.createMessageCollector(m => 
-            !m.author.bot && m.content.toLowerCase().startsWith("bet") && this.GetPlayer(m.author.id)
-        , {
+        this.betsCollector = this.channel.createMessageCollector({
+            filter: (m) => !m.author.bot && m.content.toLowerCase().startsWith("bet") && this.GetPlayer(m.author.id),
             time: 30000
         })
         this.SendMessage("betsOpened")
@@ -336,10 +378,10 @@ module.exports = class BlackJack extends Game {
 
     async CreateOptions() {
         let options = ["stand", "hit", "double", "split", "insurance"]
-        this.collector = this.channel.createMessageCollector(m => 
-            !m.author.bot && options.includes(m.content.toLowerCase())
+        this.collector = this.channel.createMessageCollector({
+            filter: (m) => !m.author.bot && options.includes(m.content.toLowerCase())
                 && this.GetPlayer(m.author.id)
-        )
+        })
         this.collector.on("collect", (mess) => {
             if (mess.deletable) mess.delete()
             let player = this.GetPlayer(mess.author.id)

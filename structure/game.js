@@ -56,11 +56,13 @@ module.exports = class Game {
     }
 
     NextLevelMessage(player) {
-        return this.channel.send(
-            new Discord.RichEmbed()
-                .setColor("GREEN")
-                .setFooter(`${player.tag} you have reached level ${player.data.level} | Your award: ${setSeparator(features.getLevelReward(player.data.level))}$`, player.displayAvatarURL)
-        )
+        const embed = new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.Green)
+            .setFooter({
+                text: `${player.tag} you have reached level ${player.data.level} | Your award: ${setSeparator(features.getLevelReward(player.data.level))}$`,
+                iconURL: player.displayAvatarURL({ extension: "png" })
+            })
+        return this.channel.send({ embeds: [embed] })
     }
 
     async CheckExp(earned, player) {

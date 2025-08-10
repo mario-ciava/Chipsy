@@ -1,11 +1,14 @@
 const ev = (event) => require(`../events/${event}`)
 module.exports = (client) => {
     client
-        .on("ready", () => {
-            ev("ready")(client)
+        .on("ready", async() => {
+            await ev("ready")(client)
         })
-        .on("message", (msg) => {
-            ev("msg")(msg)
+        .on("messageCreate", async(msg) => {
+            await ev("msg")(msg)
+        })
+        .on("interactionCreate", async(interaction) => {
+            await ev("interaction")(interaction)
         })
     process
         .on("uncaughtException", (err) => {

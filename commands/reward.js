@@ -1,22 +1,35 @@
+const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
-exports.run = async(msg) => {
-    let rewardDate = msg.author.data.next_reward ? new Date(msg.author.data.next_reward) : new Date()
-    if (new Date().getTime() < rewardDate.getTime()) return msg.channel.send(
-        new Discord.RichEmbed().setColor("RED")
-            .addField("Too soon!", `${msg.author}, you can not redeem your reward yet, please come back later.`)
-            .setFooter(`Next reward: ${rewardDate.toString()}`, msg.author.displayAvatarURL)
-        )
-    let amount = await features.applyUpgrades("reward-amount", msg.author.data.reward_amount_upgrade)
+
+const run = async(msg) => {
+    const rewardDate = msg.author.data.next_reward ? new Date(msg.author.data.next_reward) : new Date()
+    if (new Date().getTime() < rewardDate.getTime()) {
+        const embed = new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.Red)
+            .addFields({ name: "Too soon!", value: `${msg.author}, you can not redeem your reward yet, please come back later.` })
+            .setFooter({ text: `Next reward: ${rewardDate.toString()}`, iconURL: msg.author.displayAvatarURL({ extension: "png" }) })
+        return msg.channel.send({ embeds: [embed] })
+    }
+    const amount = await features.applyUpgrades("reward-amount", msg.author.data.reward_amount_upgrade)
     msg.author.data.money += amount
     msg.author.data.next_reward = new Date(new Date().getTime() + (features.applyUpgrades("reward-time", msg.author.data.reward_time_upgrade) * 60 * 60 * 1000))
     await DR.updateUserData(msg.author.id, DR.resolveDBUser(msg.author))
-    msg.channel.send(
-        new Discord.RichEmbed().setColor("GREEN")
-            .setFooter(`${msg.author.tag}, you have been awarded ${setSeparator(amount)}$`, msg.author.displayAvatarURL)
-    )
+    const embed = new Discord.EmbedBuilder()
+        .setColor(Discord.Colors.Green)
+        .setFooter({
+            text: `${msg.author.tag}, you have been awarded ${setSeparator(amount)}$`,
+            iconURL: msg.author.displayAvatarURL({ extension: "png" })
+        })
+    msg.channel.send({ embeds: [embed] })
 }
 
-exports.config = {
-    "name": "reward",
-    "params": []
+module.exports = {
+    name: "reward",
+    data: new SlashCommandBuilder()
+        .setName("reward")
+        .setDescription("Redeem your periodic reward."),
+    dmPermission: false,
+    async execute({ message }) {
+        await run(message)
+    }
 }

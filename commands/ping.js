@@ -1,17 +1,30 @@
-exports.run = (msg) => {
-    msg.channel.send(
-        new Discord.RichEmbed().setColor("RANDOM")
-            .setFooter("Ping?!")
-    ).then((m) => {
-        m.embeds[0].footer.text = null
-        m.edit(
-            new Discord.RichEmbed(m.embeds[0])
-                .setFooter(`${msg.author.tag} | Pong!! (${(m.createdTimestamp - msg.createdTimestamp).toFixed()}ms) | Websocket: ${msg.client.ping.toFixed()}ms`, msg.author.avatarURL)
-        )
-    })
+const { SlashCommandBuilder } = require("discord.js")
+
+const run = async(msg) => {
+    const iconURL = msg.author.displayAvatarURL({ extension: "png" })
+    const loadingEmbed = new Discord.EmbedBuilder()
+        .setColor(Math.floor(Math.random() * 0xffffff))
+        .setFooter({ text: "Ping?!" })
+
+    const sentMessage = await msg.channel.send({ embeds: [loadingEmbed] })
+    const latency = (sentMessage.createdTimestamp - msg.createdTimestamp).toFixed()
+    const pongEmbed = new Discord.EmbedBuilder()
+        .setColor(loadingEmbed.data.color ?? Math.floor(Math.random() * 0xffffff))
+        .setFooter({
+            text: `${msg.author.tag} | Pong!! (${latency}ms) | Websocket: ${msg.client.ws.ping.toFixed()}ms`,
+            iconURL
+        })
+
+    await sentMessage.edit({ embeds: [pongEmbed] })
 }
 
-exports.config = {
-    "name": "ping",
-    "params": []
+module.exports = {
+    name: "ping",
+    data: new SlashCommandBuilder()
+        .setName("ping")
+        .setDescription("Show the bot latency."),
+    dmPermission: false,
+    async execute({ message }) {
+        await run(message)
+    }
 }

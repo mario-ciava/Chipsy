@@ -1,75 +1,138 @@
-var BlackJack = require("../structure/blackjack.js"),
-    features = require("../structure/features.js")
+const { SlashCommandBuilder } = require("discord.js")
+const BlackJack = require("../structure/blackjack.js")
+const features = require("../structure/features.js")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
-exports.run = (msg) => {
-    if (msg.channel.game) return msg.channel.send(
-        new Discord.RichEmbed()
-            .setColor("RED")
-            .setFooter(`${msg.author.tag}, access denied: a game is already existing in this channel`, msg.author.avatarURL)
-    )
+const run = async(msg) => {
+    if (!Array.isArray(msg.params)) msg.params = []
+
+    if (!msg.params[0]) {
+        const embed = new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.Red)
+            .setFooter({
+                text: `${msg.author.tag}, access denied: you must specify the minimum bet amount.`,
+                iconURL: msg.author.displayAvatarURL({ extension: "png" })
+            })
+        return msg.channel.send({ embeds: [embed] })
+    }
+
+    if (msg.channel.game) {
+        const embed = new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.Red)
+            .setFooter({
+                text: `${msg.author.tag}, access denied: a game is already existing in this channel`,
+                iconURL: msg.author.displayAvatarURL({ extension: "png" })
+            })
+        return msg.channel.send({ embeds: [embed] })
+    }
     msg.params[0] = features.inputConverter(msg.params[0])
     msg.params[1] = features.inputConverter(msg.params[1])
-    if (msg.params[1] > 7 || msg.params[1] < 1) return msg.channel.send(
-        new Discord.RichEmbed()
-            .setColor("RED")
-            .setFooter(`${msg.author.tag}, access denied: maximum number of players must be between 1 and 7`, msg.author.avatarURL)
-    )
+    if (msg.params[1] > 7 || msg.params[1] < 1) {
+        const embed = new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.Red)
+            .setFooter({
+                text: `${msg.author.tag}, access denied: maximum number of players must be between 1 and 7`,
+                iconURL: msg.author.displayAvatarURL({ extension: "png" })
+            })
+        return msg.channel.send({ embeds: [embed] })
+    }
     msg.channel.game = new BlackJack({
         message: msg,
         minBet: msg.params[0],
         maxPlayers: msg.params[1] || 7,
         maxBuyIn: msg.params[0] * 100
     })
-    msg.channel.send(
-        new Discord.RichEmbed()
-            .setColor("GREEN")
-            .addField("Blackjack ❤", "Your game has been created", false)
-            .addField("Players [0] 🤑", `-`, true)
-            .addField("Other info 💰", `Min buy-in: ${setSeparator(msg.channel.game.minBuyIn)}$\nMax buy-in: ${setSeparator(msg.channel.game.maxBuyIn)}$\nMinimum bet: ${setSeparator(msg.channel.game.minBet)}$`, true)
-            .addField("Options ⚙", "Type **join [buy-in-amount]** to join this game any moment\nType **leave** to leave this game any moment", false)
-            .addField("Be aware ⚠", "If you leave the game while playing, you will lose your bet on the table\nIf all the players leave, the game will be stopped")
-            .setFooter("30 Seconds left")
-    ).then(async(m) => {
-        msg.channel.collector = msg.channel.createMessageCollector((mess) => {
+    const buildGameEmbed = () => {
+        const players = msg.channel.game?.players || []
+        return new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.Green)
+            .addFields(
+                { name: "Blackjack ❤", value: "Your game has been created", inline: false },
+                { name: `Players [${players.length}] 🤑`, value: `${players.join(", ") || "-"}`, inline: true },
+                {
+                    name: "Other info 💰",
+                    value: `Min buy-in: ${setSeparator(msg.channel.game.minBuyIn)}$\nMax buy-in: ${setSeparator(msg.channel.game.maxBuyIn)}$\nMinimum bet: ${setSeparator(msg.channel.game.minBet)}$`,
+                    inline: true
+                },
+                {
+                    name: "Options ⚙",
+                    value: "Type **join [buy-in-amount]** to join this game any moment\nType **leave** to leave this game any moment",
+                    inline: false
+                },
+                {
+                    name: "Be aware ⚠",
+                    value: "If you leave the game while playing, you will lose your bet on the table\nIf all the players leave, the game will be stopped",
+                    inline: false
+                }
+            )
+            .setFooter({ text: "30 Seconds left" })
+    }
+    const statusMessage = await msg.channel.send({ embeds: [buildGameEmbed()] })
+    msg.channel.collector = msg.channel.createMessageCollector({
+        filter: (mess) => {
             return !mess.author.bot && (mess.content.toLowerCase().startsWith("join") || mess.content.toLowerCase() == "leave")
-        })
-        msg.channel.collector.on("collect", async(mess) => {
-            if (!mess.author.data) await app.SetData(mess.author)
-            if (!mess.author.data) return
-            let cont = mess.content.toLowerCase().split(" ")
-            let action = cont[0]
-                value = features.inputConverter(cont[1])
-            if (action == "join") {
-                if (mess.author.data.money < msg.channel.game.minBuyIn || (!isNaN(value) && mess.author.data.money < value)) return msg.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("RED")
-                        .setFooter(`${mess.author.tag}, access denied: your money must be at least equal or higher than the minimum buy-in`, mess.author.avatarURL)
-                )
-                if (!value) value = msg.channel.game.minBuyIn
-                if (value < msg.channel.game.minBuyIn || value > msg.channel.game.maxBuyIn) return msg.channel.send(
-                    new Discord.RichEmbed()
-                        .setColor("RED")
-                        .setFooter(`${mess.author.tag}, access denied: your buy-in is not in the allowed range for this game`)
-                )
-                mess.author.stack = value
-                await msg.channel.game.AddPlayer(mess.author)
-            } else await msg.channel.game.RemovePlayer(mess.author)
-            if (!msg.channel.game) return
-            m.embeds[0].fields[1].name = `Players [${msg.channel.game.players.length}] 🤑`
-            m.embeds[0].fields[1].value = `${msg.channel.game.players.join(", ") || "-"}`
-            m.edit(new Discord.RichEmbed(m.embeds[0]))
-            if (mess.deletable) mess.delete()
-        })
-        await delay(30000)
-        if (!msg.channel.game || msg.channel.game.playing) return
-        if (msg.channel.game.players.length > 0) msg.channel.game.Run()
-            else msg.channel.game.Stop()
+        }
     })
+    msg.channel.collector.on("collect", async(mess) => {
+        if (!mess.author.data) await app.SetData(mess.author)
+        if (!mess.author.data) return
+        let cont = mess.content.toLowerCase().split(" ")
+        let action = cont[0]
+            value = features.inputConverter(cont[1])
+        if (action == "join") {
+            if (mess.author.data.money < msg.channel.game.minBuyIn || (!isNaN(value) && mess.author.data.money < value)) {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({
+                        text: `${mess.author.tag}, access denied: your money must be at least equal or higher than the minimum buy-in`,
+                        iconURL: mess.author.displayAvatarURL({ extension: "png" })
+                    })
+                return msg.channel.send({ embeds: [embed] })
+            }
+            if (!value) value = msg.channel.game.minBuyIn
+            if (value < msg.channel.game.minBuyIn || value > msg.channel.game.maxBuyIn) {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({
+                        text: `${mess.author.tag}, access denied: your buy-in is not in the allowed range for this game`
+                    })
+                return msg.channel.send({ embeds: [embed] })
+            }
+            mess.author.stack = value
+            await msg.channel.game.AddPlayer(mess.author)
+        } else await msg.channel.game.RemovePlayer(mess.author)
+        if (!msg.channel.game) return
+        await statusMessage.edit({ embeds: [buildGameEmbed()] })
+        if (mess.deletable) mess.delete()
+    })
+    await delay(30000)
+    if (!msg.channel.game || msg.channel.game.playing) return
+    if (msg.channel.game.players.length > 0) msg.channel.game.Run()
+        else msg.channel.game.Stop()
 }
 
-exports.config = {
-    "name": "blackjack",
-    "params": ["minBet"]
+module.exports = {
+    name: "blackjack",
+    data: new SlashCommandBuilder()
+        .setName("blackjack")
+        .setDescription("Start a blackjack game in the current channel.")
+        .addStringOption((option) =>
+            option
+                .setName("minbet")
+                .setDescription("Minimum bet required to join the table (supports shorthand like 10k).")
+                .setRequired(true)
+        )
+        .addIntegerOption((option) =>
+            option
+                .setName("maxplayers")
+                .setDescription("Maximum number of players (1-7).")
+                .setRequired(false)
+                .setMinValue(1)
+                .setMaxValue(7)
+        ),
+    dmPermission: false,
+    async execute({ message }) {
+        await run(message)
+    }
 }
 
 //play <minBet> [maxPlayers]
