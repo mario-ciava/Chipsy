@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require("discord.js")
 const Texas = require("../structure/texas.js")
 const features = require("../structure/features.js")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
-const run = async(msg) => {
+const runTexas = async(msg) => {
     if (!Array.isArray(msg.params)) msg.params = []
 
     if (!msg.params[0]) {
@@ -107,28 +107,34 @@ const run = async(msg) => {
         else msg.channel.game.Stop()
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("texas")
+    .setDescription("Start a texas hold'em poker game in the current channel.")
+    .addStringOption((option) =>
+        option
+            .setName("minbet")
+            .setDescription("Minimum bet required to join the table (supports shorthand like 10k).")
+            .setRequired(true)
+    )
+    .addIntegerOption((option) =>
+        option
+            .setName("maxplayers")
+            .setDescription("Maximum number of players (2-9).")
+            .setRequired(false)
+            .setMinValue(2)
+            .setMaxValue(9)
+    )
+
 module.exports = {
-    name: "texas",
-    data: new SlashCommandBuilder()
-        .setName("texas")
-        .setDescription("Start a texas hold'em poker game in the current channel.")
-        .addStringOption((option) =>
-            option
-                .setName("minbet")
-                .setDescription("Minimum bet required to join the table (supports shorthand like 10k).")
-                .setRequired(true)
-        )
-        .addIntegerOption((option) =>
-            option
-                .setName("maxplayers")
-                .setDescription("Maximum number of players (2-9).")
-                .setRequired(false)
-                .setMinValue(2)
-                .setMaxValue(9)
-        ),
-    dmPermission: false,
-    async execute({ message }) {
-        await run(message)
+    config: {
+        name: "texas",
+        aliases: ["holdem"],
+        description: "Start a texas hold'em poker game in the current channel.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        await runTexas(message)
     }
 }
 

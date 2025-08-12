@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require("discord.js")
 const BlackJack = require("../structure/blackjack.js")
 const features = require("../structure/features.js")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
-const run = async(msg) => {
+const runBlackjack = async(msg) => {
     if (!Array.isArray(msg.params)) msg.params = []
 
     if (!msg.params[0]) {
@@ -110,28 +110,34 @@ const run = async(msg) => {
         else msg.channel.game.Stop()
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("blackjack")
+    .setDescription("Start a blackjack game in the current channel.")
+    .addStringOption((option) =>
+        option
+            .setName("minbet")
+            .setDescription("Minimum bet required to join the table (supports shorthand like 10k).")
+            .setRequired(true)
+    )
+    .addIntegerOption((option) =>
+        option
+            .setName("maxplayers")
+            .setDescription("Maximum number of players (1-7).")
+            .setRequired(false)
+            .setMinValue(1)
+            .setMaxValue(7)
+    )
+
 module.exports = {
-    name: "blackjack",
-    data: new SlashCommandBuilder()
-        .setName("blackjack")
-        .setDescription("Start a blackjack game in the current channel.")
-        .addStringOption((option) =>
-            option
-                .setName("minbet")
-                .setDescription("Minimum bet required to join the table (supports shorthand like 10k).")
-                .setRequired(true)
-        )
-        .addIntegerOption((option) =>
-            option
-                .setName("maxplayers")
-                .setDescription("Maximum number of players (1-7).")
-                .setRequired(false)
-                .setMinValue(1)
-                .setMaxValue(7)
-        ),
-    dmPermission: false,
-    async execute({ message }) {
-        await run(message)
+    config: {
+        name: "blackjack",
+        aliases: ["bj"],
+        description: "Start a blackjack game in the current channel.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        await runBlackjack(message)
     }
 }
 

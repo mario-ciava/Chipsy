@@ -8,28 +8,53 @@ class CommandRouter {
     }
 
     register(command) {
-        const name = (command.name || command.data?.name || "").toLowerCase()
-        if (!name) return
+        const config = command.config || {}
+        const name = typeof config.name === "string" ? config.name.toLowerCase() : ""
+
+        if (!name) {
+            throw new Error("Command registration failed: command name is missing or invalid.")
+        }
+
+        const handler = command.run || command.execute
+        if (typeof handler !== "function") {
+            throw new Error(`Command registration failed for '${config.name}': missing executable handler.`)
+        }
 
         this.messageCommands.set(name, command)
 
-        if (command.data && typeof command.data.toJSON === "function") {
-            this.slashCommands.set(command.data.name, command)
+        const aliases = Array.isArray(config.aliases) ? config.aliases : []
+        for (const alias of aliases) {
+            if (typeof alias !== "string") continue
+            const aliasKey = alias.toLowerCase()
+            if (!aliasKey || aliasKey === name) continue
+            this.messageCommands.set(aliasKey, command)
+        }
+
+        const slashCommand = config.slashCommand || command.data
+        const slashName = typeof slashCommand?.name === "string" ? slashCommand.name.toLowerCase() : name
+
+        if (slashCommand && typeof slashCommand.toJSON === "function") {
+            this.slashCommands.set(slashName, command)
         }
     }
 
     getSlashCommandPayloads() {
         const payloads = []
+        const seen = new Set()
         for (const command of this.slashCommands.values()) {
-            const data = command.data
+            if (seen.has(command)) continue
+            seen.add(command)
+
+            const config = command.config || {}
+            const data = config.slashCommand || command.data
             if (!data || typeof data.toJSON !== "function") continue
 
-            if (command.defaultMemberPermissions !== undefined && typeof data.setDefaultMemberPermissions === "function") {
-                data.setDefaultMemberPermissions(command.defaultMemberPermissions)
+            if (config.defaultMemberPermissions !== undefined && typeof data.setDefaultMemberPermissions === "function") {
+                data.setDefaultMemberPermissions(config.defaultMemberPermissions)
             }
 
-            if (command.dmPermission !== undefined && typeof data.setDMPermission === "function") {
-                data.setDMPermission(command.dmPermission)
+            if (config.dmPermission !== undefined && typeof data.setDMPermission === "function") {
+                data.setDMPermission(config.dmPermission)
             }
 
             payloads.push(data.toJSON())
@@ -59,7 +84,7 @@ class CommandRouter {
         }
 
         try {
-            await command.execute({
+            await (command.run || command.execute)({
                 type: "message",
                 message,
                 args: message.params,
@@ -73,15 +98,16 @@ class CommandRouter {
     async handleInteraction(interaction) {
         if (!interaction.isChatInputCommand()) return
 
-        const command = this.slashCommands.get(interaction.commandName)
+        const command = this.slashCommands.get(interaction.commandName.toLowerCase())
         if (!command) return
 
         const args = this.resolveInteractionArgs(interaction)
         const messageAdapter = this.createMessageAdapter(interaction, args)
 
         try {
-            const shouldDefer = command.defer !== undefined ? command.defer : true
-            const deferEphemeral = command.deferEphemeral !== undefined ? command.deferEphemeral : true
+            const config = command.config || {}
+            const shouldDefer = config.defer !== undefined ? config.defer : true
+            const deferEphemeral = config.deferEphemeral !== undefined ? config.deferEphemeral : true
             if (shouldDefer && !interaction.deferred && !interaction.replied) {
                 await interaction.deferReply({ ephemeral: deferEphemeral })
             }
@@ -107,7 +133,7 @@ class CommandRouter {
         }
 
         try {
-            await command.execute({
+            await (command.run || command.execute)({
                 type: "interaction",
                 interaction,
                 message: messageAdapter,

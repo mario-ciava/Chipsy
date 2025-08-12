@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
 
-const run = async(msg) => {
+const runReward = async(msg) => {
     const rewardDate = msg.author.data.next_reward ? new Date(msg.author.data.next_reward) : new Date()
     if (new Date().getTime() < rewardDate.getTime()) {
         const embed = new Discord.EmbedBuilder()
@@ -23,13 +23,19 @@ const run = async(msg) => {
     msg.channel.send({ embeds: [embed] })
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("reward")
+    .setDescription("Redeem your periodic reward.")
+
 module.exports = {
-    name: "reward",
-    data: new SlashCommandBuilder()
-        .setName("reward")
-        .setDescription("Redeem your periodic reward."),
-    dmPermission: false,
-    async execute({ message }) {
-        await run(message)
+    config: {
+        name: "reward",
+        aliases: ["daily"],
+        description: "Redeem your periodic reward.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        await runReward(message)
     }
 }

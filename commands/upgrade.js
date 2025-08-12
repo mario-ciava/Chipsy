@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
 
-const run = async(msg) => {
+const runUpgrade = async(msg) => {
     const options = ["💛", "💚", "💙", "❌"],
         confirm = ["✅", "❌"],
         info = msg.author.data
@@ -139,13 +139,19 @@ const run = async(msg) => {
     })
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("upgrade")
+    .setDescription("Open the Chipsy upgrade panel.")
+
 module.exports = {
-    name: "upgrade",
-    data: new SlashCommandBuilder()
-        .setName("upgrade")
-        .setDescription("Open the Chipsy upgrade panel."),
-    dmPermission: false,
-    async execute({ message }) {
-        await run(message)
+    config: {
+        name: "upgrade",
+        aliases: ["upgrades"],
+        description: "Open the Chipsy upgrade panel.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        await runUpgrade(message)
     }
 }

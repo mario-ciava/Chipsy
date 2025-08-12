@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require("discord.js")
 
-const run = async(msg) => {
+const executePing = async(msg) => {
     const iconURL = msg.author.displayAvatarURL({ extension: "png" })
     const loadingEmbed = new Discord.EmbedBuilder()
         .setColor(Math.floor(Math.random() * 0xffffff))
@@ -18,13 +18,19 @@ const run = async(msg) => {
     await sentMessage.edit({ embeds: [pongEmbed] })
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("Show the bot latency.")
+
 module.exports = {
-    name: "ping",
-    data: new SlashCommandBuilder()
-        .setName("ping")
-        .setDescription("Show the bot latency."),
-    dmPermission: false,
-    async execute({ message }) {
-        await run(message)
+    config: {
+        name: "ping",
+        aliases: [],
+        description: "Show the bot latency.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        await executePing(message)
     }
 }

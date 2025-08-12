@@ -6,7 +6,7 @@ const setSeparator = (number) => {
     return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")
 }
 
-const run = (msg) => {
+const runProfile = (msg) => {
     const avatarURL = msg.author.displayAvatarURL({ extension: "png" })
     const embed = new Discord.EmbedBuilder()
         .setColor(Discord.Colors.Gold)
@@ -45,13 +45,19 @@ const run = (msg) => {
     msg.channel.send({ embeds: [embed] })
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("profile")
+    .setDescription("Show your Chipsy profile.")
+
 module.exports = {
-    name: "profile",
-    data: new SlashCommandBuilder()
-        .setName("profile")
-        .setDescription("Show your Chipsy profile."),
-    dmPermission: false,
-    async execute({ message }) {
-        run(message)
+    config: {
+        name: "profile",
+        aliases: ["stats"],
+        description: "Show your Chipsy profile.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        runProfile(message)
     }
 }

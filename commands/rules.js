@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require("discord.js")
 
-const run = (msg) => {
+const runRules = (msg) => {
     const game = (msg.params[0] || "").toLowerCase()
 
     if (game !== "blackjack") {
@@ -23,20 +23,26 @@ const run = (msg) => {
     })
 }
 
+const slashCommand = new SlashCommandBuilder()
+    .setName("rules")
+    .setDescription("Show the rules for a supported game.")
+    .addStringOption((option) =>
+        option
+            .setName("game")
+            .setDescription("Select the game to display rules for.")
+            .setRequired(true)
+            .addChoices({ name: "Blackjack", value: "blackjack" })
+    )
+
 module.exports = {
-    name: "rules",
-    data: new SlashCommandBuilder()
-        .setName("rules")
-        .setDescription("Show the rules for a supported game.")
-        .addStringOption((option) =>
-            option
-                .setName("game")
-                .setDescription("Select the game to display rules for.")
-                .setRequired(true)
-                .addChoices({ name: "Blackjack", value: "blackjack" })
-        ),
-    dmPermission: false,
-    async execute({ message }) {
-        run(message)
+    config: {
+        name: "rules",
+        aliases: ["rule"],
+        description: "Show the rules for a supported game.",
+        dmPermission: false,
+        slashCommand
+    },
+    async run({ message }) {
+        runRules(message)
     }
 }
