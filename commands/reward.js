@@ -1,5 +1,7 @@
+const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
+const setSeparator = require("../util/setSeparator")
 
 const runReward = async(msg) => {
     const rewardDate = msg.author.data.next_reward ? new Date(msg.author.data.next_reward) : new Date()
@@ -10,10 +12,15 @@ const runReward = async(msg) => {
             .setFooter({ text: `Next reward: ${rewardDate.toString()}`, iconURL: msg.author.displayAvatarURL({ extension: "png" }) })
         return msg.channel.send({ embeds: [embed] })
     }
+    const dataHandler = msg.client?.dataHandler
+    if (!dataHandler) {
+        throw new Error("Data handler is not available on the client.")
+    }
+
     const amount = await features.applyUpgrades("reward-amount", msg.author.data.reward_amount_upgrade)
     msg.author.data.money += amount
     msg.author.data.next_reward = new Date(new Date().getTime() + (features.applyUpgrades("reward-time", msg.author.data.reward_time_upgrade) * 60 * 60 * 1000))
-    await DR.updateUserData(msg.author.id, DR.resolveDBUser(msg.author))
+    await dataHandler.updateUserData(msg.author.id, dataHandler.resolveDBUser(msg.author))
     const embed = new Discord.EmbedBuilder()
         .setColor(Discord.Colors.Green)
         .setFooter({

@@ -1,5 +1,7 @@
-const cards = require("./cards.js"),
-    features = require("../structure/features.js")
+const Discord = require("discord.js")
+const setSeparator = require("../util/setSeparator")
+const cards = require("./cards.js")
+const features = require("../structure/features.js")
 module.exports = class Game {
     constructor(info) {
         if (!info) return
@@ -9,6 +11,10 @@ module.exports = class Game {
         this.maxBuyIn = info.maxBuyIn || info.minBet * 40 || null
         this.maxPlayers = info.maxPlayers || null
         this.client = info.message.client
+        this.dataHandler = this.client?.dataHandler
+        if (!this.dataHandler) {
+            throw new Error("Data handler is not available on the client.")
+        }
         this.playing = false
         this.players = []
         this.queue = []

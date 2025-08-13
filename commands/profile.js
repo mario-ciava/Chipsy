@@ -1,10 +1,7 @@
+const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 const playerClass = require("../structure/classes.js")
-
-const setSeparator = (number) => {
-    if (isNaN(number)) return null
-    return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-}
+const setSeparator = require("../util/setSeparator")
 
 const runProfile = (msg) => {
     const avatarURL = msg.author.displayAvatarURL({ extension: "png" })

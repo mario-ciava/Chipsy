@@ -1,3 +1,4 @@
+const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 
 const executePing = async(msg) => {

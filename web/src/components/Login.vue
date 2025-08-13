@@ -3,10 +3,14 @@
 </template>
 
 <script>
-import { id } from "../../../config.json"
 export default {
     created() {
-        return location.href = `https://discordapp.com/api/oauth2/authorize?client_id=${id}&redirect_uri=http%3A%2F%2Flocalhost%3A8080&response_type=code&scope=identify%20guilds`
+        const clientId = process.env.VUE_APP_DISCORD_CLIENT_ID
+        if (!clientId) {
+            console.error("Missing VUE_APP_DISCORD_CLIENT_ID environment variable.")
+            return
+        }
+        location.href = `https://discordapp.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=http%3A%2F%2Flocalhost%3A8080&response_type=code&scope=identify%20guilds`
     }
 }
 </script>

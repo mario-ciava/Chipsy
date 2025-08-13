@@ -1,3 +1,5 @@
+const setSeparator = require("../util/setSeparator")
+
 exports.list = {
     "with-holding": {
         originalValue: 0.0003,

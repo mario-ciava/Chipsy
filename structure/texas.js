@@ -1,8 +1,10 @@
+const Discord = require("discord.js")
 const Hand = require('pokersolver').Hand,
     features = require("../structure/features.js"),
     delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
     Game = require("../structure/game.js"),
-    cards = require("../structure/cards.js")
+    cards = require("../structure/cards.js"),
+    setSeparator = require("../util/setSeparator")
 module.exports = class Texas extends Game {
     constructor(info) {
         super(info)
@@ -245,10 +247,10 @@ module.exports = class Texas extends Game {
         if (player.status.won.grossValue > 0) {
             player.data.money += player.status.won.netValue
             player.stack += player.status.won.netValue
-            player.data.hands_won++         
+            player.data.hands_won++
         }
         await this.CheckExp(player.status.won.expEarned, player)
-        await DR.updateUserData(player.id, DR.resolveDBUser(player))
+        await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
     }
 
     async NextHand() {

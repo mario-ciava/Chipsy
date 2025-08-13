@@ -1,7 +1,9 @@
+const Discord = require("discord.js")
 const features = require("../structure/features.js"),
     delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
     Game = require("../structure/game.js"),
-    cards = require("../structure/cards.js")
+    cards = require("../structure/cards.js"),
+    setSeparator = require("../util/setSeparator")
 module.exports = class BlackJack extends Game {
     constructor(info) {
         super(info)
@@ -321,7 +323,7 @@ module.exports = class BlackJack extends Game {
                 display: []
             })
             if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
-            await DR.updateUserData(player.id, DR.resolveDBUser(player))
+            await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
             await this.SendMessage("bet", player)
             let remaining = this.players.filter((player) => {
                 return player.bets ? player.bets.initial < 1 : true == false
@@ -524,7 +526,7 @@ module.exports = class BlackJack extends Game {
             for (let player of this.inGamePlayers) {
                 player.status.won.expEarned += 10
                 await this.CheckExp(player.status.won.expEarned, player)
-                await DR.updateUserData(player.id, DR.resolveDBUser(player))
+                await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
             }
             return this.NextHand()
         }
@@ -574,7 +576,7 @@ module.exports = class BlackJack extends Game {
             }
             if (player.status.won.grossValue > player.data.biggest_won) player.data.biggest_won = player.status.won.grossValue
             await this.CheckExp(player.status.won.expEarned, player)
-            await DR.updateUserData(player.id, DR.resolveDBUser(player))
+            await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
         }
 
         this.SendMessage("showFinalResults")

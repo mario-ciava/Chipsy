@@ -1,7 +1,13 @@
+const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
+const setSeparator = require("../util/setSeparator")
 
 const runUpgrade = async(msg) => {
+    const dataHandler = msg.client?.dataHandler
+    if (!dataHandler) {
+        throw new Error("Data handler is not available on the client.")
+    }
     const options = ["💛", "💚", "💙", "❌"],
         confirm = ["✅", "❌"],
         info = msg.author.data
@@ -83,7 +89,7 @@ const runUpgrade = async(msg) => {
                     }
                     msg.author.data.money -= cost
                     await upgradeFeature(n)
-                    await DR.updateUserData(msg.author.id, DR.resolveDBUser(msg.author))
+                    await dataHandler.updateUserData(msg.author.id, dataHandler.resolveDBUser(msg.author))
                     responseEmbed = new Discord.EmbedBuilder()
                         .setColor(Discord.Colors.Green)
                         .setFooter({ text: `${msg.author.tag}, upgrade applied, congrats!`, iconURL: avatarURL })

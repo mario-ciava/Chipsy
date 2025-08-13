@@ -1,5 +1,6 @@
 const ev = (event) => require(`../events/${event}`)
-module.exports = (client) => {
+
+module.exports = (client, _config) => {
     client
         .on("ready", async() => {
             await ev("ready")(client)

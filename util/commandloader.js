@@ -1,7 +1,7 @@
 const fs = require("fs/promises")
 const path = require("path")
 
-module.exports = async(client) => {
+module.exports = async(client, _config) => {
     const commandsPath = path.join(__dirname, "..", "commands")
 
     let files

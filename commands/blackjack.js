@@ -1,6 +1,8 @@
+const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 const BlackJack = require("../structure/blackjack.js")
 const features = require("../structure/features.js")
+const setSeparator = require("../util/setSeparator")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
 const runBlackjack = async(msg) => {
     if (!Array.isArray(msg.params)) msg.params = []
@@ -73,7 +75,7 @@ const runBlackjack = async(msg) => {
         }
     })
     msg.channel.collector.on("collect", async(mess) => {
-        if (!mess.author.data) await app.SetData(mess.author)
+        if (!mess.author.data) await mess.client.SetData(mess.author)
         if (!mess.author.data) return
         let cont = mess.content.toLowerCase().split(" ")
         let action = cont[0]
