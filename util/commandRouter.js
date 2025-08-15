@@ -70,17 +70,20 @@ class CommandRouter {
         if (!command) return
 
         if (!message.author.data) {
-            await this.client.SetData(message.author).catch(() => null)
-            if (!message.author.data) {
-                const embed = new EmbedBuilder()
-                    .setColor(Colors.Red)
-                    .setFooter({
-                        text: `${message.author.tag}, error: cannot retrieve data from database`,
-                        iconURL: message.author.displayAvatarURL({ extension: "png" })
-                    })
-                await message.channel?.send({ embeds: [embed] }).catch(() => null)
+            const result = await this.client.SetData(message.author)
+            if (result.error) {
+                if (result.error.type === "database") {
+                    const embed = new EmbedBuilder()
+                        .setColor(Colors.Red)
+                        .setFooter({
+                            text: `${message.author.tag}, error: unable to reach the database. Please try again later.`,
+                            iconURL: message.author.displayAvatarURL({ extension: "png" })
+                        })
+                    await message.channel?.send({ embeds: [embed] }).catch(() => null)
+                }
                 return
             }
+            if (!result.data) return
         }
 
         try {
@@ -116,10 +119,13 @@ class CommandRouter {
         }
 
         if (!messageAdapter.author.data) {
-            await this.client.SetData(messageAdapter.author).catch(() => null)
-            if (!messageAdapter.author.data) {
+            const result = await this.client.SetData(messageAdapter.author)
+            if (result.error) {
                 const response = {
-                    content: "Unable to retrieve your player data. Please try again later.",
+                    content:
+                        result.error.type === "database"
+                            ? "We couldn't connect to the database. Please try again later."
+                            : "Unable to prepare your player profile. Please contact support.",
                     ephemeral: true
                 }
 
@@ -130,6 +136,7 @@ class CommandRouter {
                 }
                 return
             }
+            if (!result.data) return
         }
 
         try {

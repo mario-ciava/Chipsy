@@ -75,8 +75,22 @@ const runBlackjack = async(msg) => {
         }
     })
     msg.channel.collector.on("collect", async(mess) => {
-        if (!mess.author.data) await mess.client.SetData(mess.author)
-        if (!mess.author.data) return
+        if (!mess.author.data) {
+            const result = await mess.client.SetData(mess.author)
+            if (result.error) {
+                if (result.error.type === "database") {
+                    const embed = new Discord.EmbedBuilder()
+                        .setColor(Discord.Colors.Red)
+                        .setFooter({
+                            text: `${mess.author.tag}, error: unable to connect to the database.`,
+                            iconURL: mess.author.displayAvatarURL({ extension: "png" })
+                        })
+                    await mess.channel.send({ embeds: [embed] }).catch(() => null)
+                }
+                return
+            }
+            if (!result.data) return
+        }
         let cont = mess.content.toLowerCase().split(" ")
         let action = cont[0]
             value = features.inputConverter(cont[1])

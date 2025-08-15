@@ -80,9 +80,11 @@ describe("data handler experience persistence", () => {
         const setData = createSetData(dataHandler)
         const user = { id: "legacy-user", data: {} }
 
-        const data = await setData(user)
-        expect(data.current_exp).toBe(45)
-        expect(data.required_exp).toBe(calculateRequiredExp(2))
+        const result = await setData(user)
+        expect(result.error).toBeNull()
+        expect(result.created).toBe(false)
+        expect(result.data.current_exp).toBe(45)
+        expect(result.data.required_exp).toBe(calculateRequiredExp(2))
     })
 
     test("experience changes persist through resolveDBUser", async() => {
@@ -110,7 +112,8 @@ describe("data handler experience persistence", () => {
         const dataHandler = createDataHandler(connection)
         const setData = createSetData(dataHandler)
         const user = { id: userId, tag: "Player", displayAvatarURL: () => "", data: {} }
-        await setData(user)
+        const result = await setData(user)
+        expect(result.error).toBeNull()
 
         class TestGame extends Game {
             constructor() {
@@ -139,5 +142,45 @@ describe("data handler experience persistence", () => {
         expect(persisted.current_exp).toBeGreaterThanOrEqual(0)
         expect(persisted.required_exp).toBe(calculateRequiredExp(1))
         expect(persisted.money).toBeGreaterThan(5000)
+    })
+})
+
+describe("createSetData error handling", () => {
+    test("returns handled error when getUserData fails", async() => {
+        const error = new Error("connection lost")
+        const dataHandler = {
+            getUserData: jest.fn().mockRejectedValue(error),
+            createUserData: jest.fn()
+        }
+
+        const setData = createSetData(dataHandler)
+        const user = { id: "123" }
+
+        const result = await setData(user)
+        expect(result.data).toBeNull()
+        expect(result.created).toBe(false)
+        expect(result.error).toEqual({
+            type: "database",
+            message: "Failed to retrieve user data.",
+            cause: error
+        })
+    })
+
+    test("returns handled error when createUserData fails", async() => {
+        const getUserData = jest.fn().mockResolvedValue(null)
+        const creationError = new Error("insert failed")
+        const createUserData = jest.fn().mockRejectedValue(creationError)
+
+        const setData = createSetData({ getUserData, createUserData })
+        const user = { id: "abc" }
+
+        const result = await setData(user)
+        expect(result.data).toBeNull()
+        expect(result.created).toBe(false)
+        expect(result.error).toEqual({
+            type: "database",
+            message: "Failed to create user data.",
+            cause: creationError
+        })
     })
 })

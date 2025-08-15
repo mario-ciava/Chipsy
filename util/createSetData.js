@@ -1,20 +1,63 @@
 const { normalizeUserExperience } = require("./experience")
 
 const createSetData = (dataHandler) => async(user) => {
-    if (!user || !user.id) throw new Error("Invalid user passed to SetData.")
+    const createResult = ({ data = null, created = false, error = null }) => ({ data, created, error })
 
-    const existing = await dataHandler.getUserData(user.id)
-    if (existing) {
-        const normalized = normalizeUserExperience(existing)
-        user.data = normalized
-        return normalized
+    if (!user || !user.id) {
+        return createResult({
+            error: {
+                type: "invalid-user",
+                message: "Invalid user passed to SetData."
+            }
+        })
     }
 
-    const created = await dataHandler.createUserData(user.id)
-    if (!created) throw new Error("Failed to initialize user data.")
-    const normalized = normalizeUserExperience(created)
-    user.data = normalized
-    return normalized
+    const assignData = (payload, created = false) => {
+        const normalized = normalizeUserExperience(payload)
+        user.data = normalized
+        return createResult({ data: normalized, created })
+    }
+
+    let existing
+    try {
+        existing = await dataHandler.getUserData(user.id)
+    } catch (error) {
+        return createResult({
+            error: {
+                type: "database",
+                message: "Failed to retrieve user data.",
+                cause: error
+            }
+        })
+    }
+
+    if (existing) {
+        return assignData(existing)
+    }
+
+    let created
+    try {
+        created = await dataHandler.createUserData(user.id)
+    } catch (error) {
+        return createResult({
+            error: {
+                type: "database",
+                message: "Failed to create user data.",
+                cause: error
+            }
+        })
+    }
+
+    if (!created) {
+        return createResult({
+            error: {
+                type: "creation-failed",
+                message: "Failed to initialize user data."
+            }
+        })
+    }
+
+    return assignData(created, true)
 }
 
 module.exports = createSetData
