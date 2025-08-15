@@ -2,6 +2,7 @@ const Discord = require("discord.js")
 const setSeparator = require("../util/setSeparator")
 const cards = require("./cards.js")
 const features = require("../structure/features.js")
+const { calculateRequiredExp, normalizeUserExperience } = require("../util/experience")
 module.exports = class Game {
     constructor(info) {
         if (!info) return
@@ -72,17 +73,23 @@ module.exports = class Game {
     }
 
     async CheckExp(earned, player) {
+        if (!player || !player.data) return
+
+        Object.assign(player.data, normalizeUserExperience(player.data))
         player.data.current_exp += earned
         await new Promise((resolve, reject) => {
             while (player.data.current_exp >= player.data.required_exp) {
                 player.data.level++
                 this.NextLevelMessage(player)
                 player.data.current_exp -= player.data.required_exp
-                player.data.required_exp += parseInt(Math.log(Math.pow(player.data.required_exp, 3)) * 5)
+                player.data.required_exp = calculateRequiredExp(player.data.level)
                 player.data.money += features.getLevelReward(player.data.level)
-                if (player.data.current_exp < player.data.required_exp) resolve() 
+                if (player.data.current_exp < player.data.required_exp) resolve()
             }
-            if (player.data.current_exp < player.data.required_exp) resolve()
+            if (player.data.current_exp < player.data.required_exp) {
+                player.data.required_exp = calculateRequiredExp(player.data.level)
+                resolve()
+            }
         })
     }
 

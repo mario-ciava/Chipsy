@@ -2,8 +2,12 @@ const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 const playerClass = require("../structure/classes.js")
 const setSeparator = require("../util/setSeparator")
+const { normalizeUserExperience } = require("../util/experience")
 
 const runProfile = (msg) => {
+    const data = normalizeUserExperience(msg.author.data || {})
+    msg.author.data = data
+
     const avatarURL = msg.author.displayAvatarURL({ extension: "png" })
     const embed = new Discord.EmbedBuilder()
         .setColor(Discord.Colors.Gold)
