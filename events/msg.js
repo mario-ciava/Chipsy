@@ -15,5 +15,11 @@ module.exports = async(msg) => {
     msg.command = commandName.toLowerCase()
     msg.params = args.map((argument) => argument.trim()).filter(Boolean)
 
+    if (msg.client.config?.enabled === false) {
+        await msg.channel?.send("The bot is currently disabled by the administrators. Please try again later.")
+            .catch(() => null)
+        return
+    }
+
     await msg.client.commandRouter.handleMessage(msg)
 }

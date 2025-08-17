@@ -6,9 +6,16 @@ const createClient = (config) => {
         intents: [
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
-            GatewayIntentBits.MessageContent
+            GatewayIntentBits.GuildMessageReactions,
+            GatewayIntentBits.MessageContent,
+            GatewayIntentBits.DirectMessages
         ],
-        partials: [Partials.Channel, Partials.Message]
+        partials: [
+            Partials.Channel,
+            Partials.Message,
+            Partials.Reaction,
+            Partials.User
+        ]
     })
 
     client.commands = new Collection()
