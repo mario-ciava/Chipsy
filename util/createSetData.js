@@ -39,6 +39,23 @@ const createSetData = (dataHandler) => async(user) => {
     try {
         created = await dataHandler.createUserData(user.id)
     } catch (error) {
+        if (error && error.code === "ER_DUP_ENTRY") {
+            try {
+                const concurrentData = await dataHandler.getUserData(user.id)
+                if (concurrentData) {
+                    return assignData(concurrentData)
+                }
+            } catch (retryError) {
+                return createResult({
+                    error: {
+                        type: "database",
+                        message: "Failed to retrieve user data.",
+                        cause: retryError
+                    }
+                })
+            }
+        }
+
         return createResult({
             error: {
                 type: "database",

@@ -1,7 +1,7 @@
 const createDataHandler = require("../util/datahandler")
 const createSetData = require("../util/createSetData")
 const Game = require("../structure/game")
-const { calculateRequiredExp, BASE_REQUIRED_EXP } = require("../util/experience")
+const { calculateRequiredExp, BASE_REQUIRED_EXP, normalizeUserExperience } = require("../util/experience")
 
 const createMockConnection = (initialRows = []) => {
     const data = new Map()
@@ -225,5 +225,53 @@ describe("createSetData error handling", () => {
             message: "Failed to create user data.",
             cause: creationError
         })
+    })
+
+    test("returns concurrent profile when duplicate entry occurs", async() => {
+        const user = { id: "duplicate-user" }
+        const storedProfile = {
+            id: user.id,
+            level: "1",
+            current_exp: "50",
+            required_exp: "150",
+            money: "6000",
+            gold: "2",
+            hands_played: "5",
+            hands_won: "3",
+            biggest_won: "1000",
+            biggest_bet: "500",
+            withholding_upgrade: "1",
+            reward_amount_upgrade: "0",
+            reward_time_upgrade: "0"
+        }
+
+        const duplicateError = Object.assign(new Error("Duplicate entry"), { code: "ER_DUP_ENTRY" })
+        const createUserData = jest
+            .fn()
+            .mockResolvedValueOnce(storedProfile)
+            .mockRejectedValueOnce(duplicateError)
+
+        const getUserData = jest
+            .fn()
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce(null)
+            .mockResolvedValue(storedProfile)
+
+        const setData = createSetData({ getUserData, createUserData })
+
+        const [firstResult, secondResult] = await Promise.all([setData(user), setData(user)])
+
+        const normalizedProfile = normalizeUserExperience(storedProfile)
+
+        expect(firstResult.error).toBeNull()
+        expect(firstResult.created).toBe(true)
+        expect(firstResult.data).toEqual(normalizedProfile)
+
+        expect(secondResult.error).toBeNull()
+        expect(secondResult.created).toBe(false)
+        expect(secondResult.data).toEqual(normalizedProfile)
+
+        expect(createUserData).toHaveBeenCalledTimes(2)
+        expect(getUserData).toHaveBeenCalledTimes(3)
     })
 })
