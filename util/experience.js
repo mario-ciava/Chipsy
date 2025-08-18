@@ -1,9 +1,54 @@
 const BASE_REQUIRED_EXP = 100
 
+const SAFE_INTEGER_MAX = BigInt(Number.MAX_SAFE_INTEGER)
+
+const toSafeInteger = (value, { defaultValue = 0, min = 0, max = Number.MAX_SAFE_INTEGER } = {}) => {
+    const normalizedMin = Number.isFinite(min) ? Math.floor(min) : 0
+    const normalizedMax = Number.isFinite(max) ? Math.floor(max) : Number.MAX_SAFE_INTEGER
+    const fallback = Number.isFinite(defaultValue) ? Math.floor(defaultValue) : normalizedMin
+
+    const clampBigInt = (input) => {
+        const minBig = BigInt(normalizedMin)
+        const maxBig = BigInt(Math.min(normalizedMax, Number.MAX_SAFE_INTEGER))
+        let candidate = input
+
+        if (candidate < minBig) candidate = minBig
+        if (candidate > maxBig) candidate = maxBig
+
+        if (candidate > SAFE_INTEGER_MAX) candidate = SAFE_INTEGER_MAX
+        if (candidate < -SAFE_INTEGER_MAX) candidate = -SAFE_INTEGER_MAX
+
+        const asNumber = Number(candidate)
+        return Number.isFinite(asNumber) ? asNumber : fallback
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return clampBigInt(BigInt(Math.floor(value)))
+    }
+
+    if (typeof value === "bigint") {
+        return clampBigInt(value)
+    }
+
+    if (typeof value === "string") {
+        const trimmed = value.trim()
+        if (trimmed.length === 0 || !/^-?\d+$/.test(trimmed)) {
+            return clampBigInt(BigInt(fallback))
+        }
+
+        try {
+            return clampBigInt(BigInt(trimmed))
+        } catch {
+            return clampBigInt(BigInt(fallback))
+        }
+    }
+
+    return clampBigInt(BigInt(fallback))
+}
+
 const sanitizeLevel = (level) => {
-    if (typeof level !== "number" || !Number.isFinite(level)) return 0
-    const parsed = Math.floor(level)
-    return parsed > 0 ? parsed : 0
+    const normalized = toSafeInteger(level, { min: 0, defaultValue: 0 })
+    return normalized > 0 ? normalized : 0
 }
 
 const calculateRequiredExp = (level, base = BASE_REQUIRED_EXP) => {
@@ -22,20 +67,40 @@ const normalizeUserExperience = (userData = {}) => {
     const normalized = { ...userData }
     normalized.level = sanitizeLevel(normalized.level)
 
-    if (typeof normalized.current_exp !== "number" || normalized.current_exp < 0 || !Number.isFinite(normalized.current_exp)) {
-        if (typeof normalized.exp === "number" && Number.isFinite(normalized.exp) && normalized.exp >= 0) {
-            normalized.current_exp = Math.floor(normalized.exp)
-        } else {
-            normalized.current_exp = 0
-        }
+    const hasCurrentExp = ["number", "string", "bigint"].includes(typeof normalized.current_exp)
+    const hasLegacyExp = ["number", "string", "bigint"].includes(typeof normalized.exp)
+
+    if (hasCurrentExp) {
+        normalized.current_exp = toSafeInteger(normalized.current_exp, { defaultValue: 0, min: 0 })
+    } else if (hasLegacyExp) {
+        normalized.current_exp = toSafeInteger(normalized.exp, { defaultValue: 0, min: 0 })
     } else {
-        normalized.current_exp = Math.floor(normalized.current_exp)
+        normalized.current_exp = 0
     }
 
-    if (typeof normalized.required_exp !== "number" || normalized.required_exp <= 0 || !Number.isFinite(normalized.required_exp)) {
-        normalized.required_exp = calculateRequiredExp(normalized.level)
+    const requiredFallback = calculateRequiredExp(normalized.level)
+    const hasRequiredExp = ["number", "string", "bigint"].includes(typeof normalized.required_exp)
+    if (hasRequiredExp) {
+        const sanitized = toSafeInteger(normalized.required_exp, { defaultValue: requiredFallback, min: 0 })
+        normalized.required_exp = sanitized > 0 ? sanitized : requiredFallback
     } else {
-        normalized.required_exp = Math.floor(normalized.required_exp)
+        normalized.required_exp = requiredFallback
+    }
+
+    const unsignedDefaults = {
+        money: 5000,
+        gold: 1,
+        hands_played: 0,
+        hands_won: 0,
+        biggest_won: 0,
+        biggest_bet: 0,
+        withholding_upgrade: 0,
+        reward_amount_upgrade: 0,
+        reward_time_upgrade: 0
+    }
+
+    for (const [key, defaultValue] of Object.entries(unsignedDefaults)) {
+        normalized[key] = toSafeInteger(normalized[key], { defaultValue, min: 0 })
     }
 
     if (Object.prototype.hasOwnProperty.call(normalized, "exp")) {

@@ -9,18 +9,17 @@ const createMockConnection = (initialRows = []) => {
         data.set(row.id, { ...row })
     })
 
-    const query = jest.fn((sql, params, callback) => {
-        const invoke = (err, result) => callback(err, result)
+    const executeQuery = async(sql, params = []) => {
+        const parameters = Array.isArray(params) ? params : [params]
 
         if (sql.startsWith("SELECT * FROM `users` WHERE `id` = ?")) {
-            const [id] = Array.isArray(params) ? params : [params]
+            const [id] = parameters
             const row = data.get(id)
-            const result = row ? [{ ...row }] : []
-            return setImmediate(() => invoke(null, result))
+            return [row ? [{ ...row }] : []]
         }
 
-        if (sql.startsWith("INSERT INTO `users` SET `id` = ?")) {
-            const [id] = Array.isArray(params) ? params : [params]
+        if (sql.startsWith("INSERT INTO `users` (`id`) VALUES (?)")) {
+            const [id] = parameters
             const defaults = {
                 id,
                 money: 5000,
@@ -39,20 +38,32 @@ const createMockConnection = (initialRows = []) => {
                 last_played: null
             }
             data.set(id, defaults)
-            return setImmediate(() => invoke(null, { affectedRows: 1 }))
+            return [{ affectedRows: 1 }]
         }
 
         if (sql.startsWith("UPDATE `users` SET ? WHERE `id` = ?")) {
-            const [payload, id] = params
+            const [payload, id] = parameters
             const existing = data.get(id) || { id }
             data.set(id, { ...existing, ...payload })
-            return setImmediate(() => invoke(null, { affectedRows: 1 }))
+            return [{ affectedRows: 1 }]
         }
 
         throw new Error(`Unsupported query in mock: ${sql}`)
+    }
+
+    const query = jest.fn((sql, params) => executeQuery(sql, params))
+
+    const createConnection = () => ({
+        beginTransaction: jest.fn().mockResolvedValue(),
+        query: (sql, params) => executeQuery(sql, params),
+        commit: jest.fn().mockResolvedValue(),
+        rollback: jest.fn().mockResolvedValue(),
+        release: jest.fn()
     })
 
-    return { query, data }
+    const getConnection = jest.fn(async() => createConnection())
+
+    return { query, getConnection, data }
 }
 
 describe("data handler experience persistence", () => {
@@ -142,6 +153,38 @@ describe("data handler experience persistence", () => {
         expect(persisted.current_exp).toBeGreaterThanOrEqual(0)
         expect(persisted.required_exp).toBe(calculateRequiredExp(1))
         expect(persisted.money).toBeGreaterThan(5000)
+    })
+
+    test("getUserData converts BIGINT columns returned as strings", async() => {
+        const userId = "string-values"
+        const connection = createMockConnection([
+            {
+                id: userId,
+                money: "7500",
+                gold: "3",
+                current_exp: "125",
+                required_exp: "200",
+                level: "2",
+                hands_played: "25",
+                hands_won: "10",
+                biggest_won: "5000",
+                biggest_bet: "1000",
+                withholding_upgrade: "1",
+                reward_amount_upgrade: "2",
+                reward_time_upgrade: "3",
+                next_reward: null,
+                last_played: null
+            }
+        ])
+
+        const dataHandler = createDataHandler(connection)
+        const data = await dataHandler.getUserData(userId)
+
+        expect(data.money).toBe(7500)
+        expect(data.gold).toBe(3)
+        expect(typeof data.money).toBe("number")
+        expect(typeof data.gold).toBe("number")
+        expect(typeof data.biggest_bet).toBe("number")
     })
 })
 

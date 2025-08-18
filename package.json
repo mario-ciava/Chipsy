@@ -5,7 +5,8 @@
   "main": "app.js",
   "scripts": {
     "test": "jest",
-    "migrate:exp-columns": "node scripts/migrateExpColumns.js"
+    "migrate:exp-columns": "node scripts/migrateExpColumns.js",
+    "migrate:bigint-columns": "node scripts/migrateBigIntColumns.js"
   },
   "author": "Sir Volpe",
   "license": "ISC",

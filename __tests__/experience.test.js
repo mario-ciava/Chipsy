@@ -25,4 +25,34 @@ describe("experience helpers", () => {
         expect(normalized.current_exp).toBe(0)
         expect(normalized.required_exp).toBe(BASE_REQUIRED_EXP)
     })
+
+    test("normalizeUserExperience coerces string based BIGINT values", () => {
+        const normalized = normalizeUserExperience({
+            level: "4",
+            current_exp: "250",
+            required_exp: "1000",
+            money: "90071992547409910",
+            gold: "15",
+            hands_played: "12",
+            hands_won: "5",
+            biggest_won: "400",
+            biggest_bet: "90071992547409920",
+            withholding_upgrade: "3",
+            reward_amount_upgrade: "2",
+            reward_time_upgrade: "1"
+        })
+
+        expect(normalized.level).toBe(4)
+        expect(normalized.current_exp).toBe(250)
+        expect(normalized.required_exp).toBe(1000)
+        expect(normalized.money).toBe(Number.MAX_SAFE_INTEGER)
+        expect(normalized.gold).toBe(15)
+        expect(normalized.hands_played).toBe(12)
+        expect(normalized.hands_won).toBe(5)
+        expect(normalized.biggest_won).toBe(400)
+        expect(normalized.biggest_bet).toBe(Number.MAX_SAFE_INTEGER)
+        expect(normalized.withholding_upgrade).toBe(3)
+        expect(normalized.reward_amount_upgrade).toBe(2)
+        expect(normalized.reward_time_upgrade).toBe(1)
+    })
 })
