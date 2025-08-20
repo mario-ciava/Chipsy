@@ -26,9 +26,38 @@ const runBlackjack = async(msg) => {
             })
         return msg.channel.send({ embeds: [embed] })
     }
-    msg.params[0] = features.inputConverter(msg.params[0])
-    msg.params[1] = features.inputConverter(msg.params[1])
-    if (msg.params[1] > 7 || msg.params[1] < 1) {
+
+    const minBet = features.inputConverter(msg.params[0])
+    const maxPlayersInput = msg.params[1] !== undefined ? features.inputConverter(msg.params[1]) : undefined
+
+    const createErrorEmbed = (message) => new Discord.EmbedBuilder()
+        .setColor(Discord.Colors.Red)
+        .setFooter({
+            text: `${msg.author.tag}, ${message}`,
+            iconURL: msg.author.displayAvatarURL({ extension: "png" })
+        })
+
+    if (!Number.isFinite(minBet) || minBet <= 0) {
+        return msg.channel.send({
+            embeds: [createErrorEmbed("access denied: minimum bet must be a positive number.")]
+        })
+    }
+
+    if (maxPlayersInput !== undefined && (!Number.isFinite(maxPlayersInput) || maxPlayersInput <= 0)) {
+        return msg.channel.send({
+            embeds: [createErrorEmbed("access denied: maximum number of players must be a positive integer.")]
+        })
+    }
+
+    const maxPlayers = maxPlayersInput !== undefined ? Math.floor(maxPlayersInput) : 7
+
+    if (!Number.isInteger(maxPlayers)) {
+        return msg.channel.send({
+            embeds: [createErrorEmbed("access denied: maximum number of players must be an integer value.")]
+        })
+    }
+
+    if (maxPlayers > 7 || maxPlayers < 1) {
         const embed = new Discord.EmbedBuilder()
             .setColor(Discord.Colors.Red)
             .setFooter({
@@ -37,11 +66,15 @@ const runBlackjack = async(msg) => {
             })
         return msg.channel.send({ embeds: [embed] })
     }
+
+    const safeMinBet = Math.max(1, Math.floor(minBet))
+    const maxBuyIn = Math.min(safeMinBet * 100, Number.MAX_SAFE_INTEGER)
+
     msg.channel.game = new BlackJack({
         message: msg,
-        minBet: msg.params[0],
-        maxPlayers: msg.params[1] || 7,
-        maxBuyIn: msg.params[0] * 100
+        minBet: safeMinBet,
+        maxPlayers,
+        maxBuyIn
     })
     const buildGameEmbed = () => {
         const players = msg.channel.game?.players || []

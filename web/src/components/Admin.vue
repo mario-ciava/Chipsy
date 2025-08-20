@@ -13,14 +13,19 @@ export default {
     name: "Admin",
     data() {
         return {
-            client: null
+            client: null,
+            csrfToken: null
         }
     },
     methods: {
         turnOff: function () {
-            axios.get("http://localhost:3000/api/turnoff", {
+            if (!this.csrfToken) {
+                return console.error("Missing CSRF token, aborting request")
+            }
+            axios.post("http://localhost:3000/api/turnoff", null, {
                 headers: {
-                    token: this.$cookies.get("_token")
+                    token: this.$cookies.get("_token"),
+                    "x-csrf-token": this.csrfToken
                 }
             }).then((response) => {
                 if (response.status == 200 && this.client) {
@@ -31,9 +36,13 @@ export default {
             })
         },
         turnOn: function () {
-            axios.get("http://localhost:3000/api/turnon", {
+            if (!this.csrfToken) {
+                return console.error("Missing CSRF token, aborting request")
+            }
+            axios.post("http://localhost:3000/api/turnon", null, {
                 headers: {
-                    token: this.$cookies.get("_token")
+                    token: this.$cookies.get("_token"),
+                    "x-csrf-token": this.csrfToken
                 }
             }).then((response) => {
                 if (response.status == 200 && this.client) {
@@ -50,10 +59,12 @@ export default {
                 this.$root.user.info = data;
             })
         }
-        if (!this.$root.user.info || !this.$root.user.info.isAdmin) 
+        if (!this.$root.user.info || !this.$root.user.info.isAdmin)
             return this.$router.push("/")
         this.$root.getClient(this.$cookies.get("_token")).then((client) => {
-            this.client = client;
+            const { csrfToken, ...rest } = client
+            this.client = rest;
+            this.csrfToken = csrfToken;
         })
     }
 }

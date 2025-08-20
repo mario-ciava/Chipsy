@@ -1,3 +1,5 @@
+const features = require("../structure/features")
+
 const BASE_REQUIRED_EXP = 100
 
 const SAFE_INTEGER_MAX = BigInt(Number.MAX_SAFE_INTEGER)
@@ -101,6 +103,22 @@ const normalizeUserExperience = (userData = {}) => {
 
     for (const [key, defaultValue] of Object.entries(unsignedDefaults)) {
         normalized[key] = toSafeInteger(normalized[key], { defaultValue, min: 0 })
+    }
+
+    const upgradeFeatureMap = {
+        withholding_upgrade: "with-holding",
+        reward_amount_upgrade: "reward-amount",
+        reward_time_upgrade: "reward-time"
+    }
+
+    for (const [upgradeKey, featureKey] of Object.entries(upgradeFeatureMap)) {
+        const definition = features.get(featureKey)
+        if (!definition) continue
+
+        const maxLevel = Number.isFinite(definition.max) ? definition.max : undefined
+        if (typeof maxLevel === "number") {
+            normalized[upgradeKey] = Math.min(normalized[upgradeKey], maxLevel)
+        }
     }
 
     if (Object.prototype.hasOwnProperty.call(normalized, "exp")) {

@@ -19,7 +19,9 @@ const runReward = async(msg) => {
 
     const amount = await features.applyUpgrades("reward-amount", msg.author.data.reward_amount_upgrade)
     msg.author.data.money += amount
-    msg.author.data.next_reward = new Date(new Date().getTime() + (features.applyUpgrades("reward-time", msg.author.data.reward_time_upgrade) * 60 * 60 * 1000))
+    const cooldownHours = await features.applyUpgrades("reward-time", msg.author.data.reward_time_upgrade)
+    const cooldownMs = Math.max(60 * 60 * 1000, Math.floor(cooldownHours * 60 * 60 * 1000))
+    msg.author.data.next_reward = new Date(Date.now() + cooldownMs)
     await dataHandler.updateUserData(msg.author.id, dataHandler.resolveDBUser(msg.author))
     const embed = new Discord.EmbedBuilder()
         .setColor(Discord.Colors.Green)

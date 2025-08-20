@@ -181,9 +181,20 @@ describe("Express API integration", () => {
             isAdmin: true
         })
 
-        const turnOff = await agent.requestJson("/api/turnoff", {
+        const clientConfig = await agent.requestJson("/api/client", {
             method: "GET",
             headers: { token: "access-token" }
+        })
+
+        expect(clientConfig.response.status).toBe(200)
+        expect(clientConfig.body).toMatchObject({ csrfToken: expect.any(String) })
+
+        const turnOff = await agent.requestJson("/api/turnoff", {
+            method: "POST",
+            headers: {
+                token: "access-token",
+                "x-csrf-token": clientConfig.body.csrfToken
+            }
         })
 
         expect(turnOff.response.status).toBe(200)

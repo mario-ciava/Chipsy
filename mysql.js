@@ -20,6 +20,7 @@ const createPoolWithRetry = async(connectionOptions, database, retries = 5, base
 
     while (attempt < retries) {
         attempt += 1
+        let pool
         try {
             info("Attempting to create MySQL connection pool", {
                 scope: "mysql",
@@ -29,7 +30,7 @@ const createPoolWithRetry = async(connectionOptions, database, retries = 5, base
                 database
             })
 
-            const pool = mysql.createPool({
+            pool = mysql.createPool({
                 ...connectionOptions,
                 database,
                 waitForConnections: true,
@@ -62,6 +63,17 @@ const createPoolWithRetry = async(connectionOptions, database, retries = 5, base
             return pool
         } catch (err) {
             lastError = err
+            if (pool) {
+                try {
+                    await pool.end()
+                } catch (closeError) {
+                    error("Failed to close MySQL pool after failed attempt", {
+                        scope: "mysql",
+                        attempt,
+                        message: closeError.message
+                    })
+                }
+            }
             error("Failed to create MySQL connection pool", {
                 scope: "mysql",
                 attempt,

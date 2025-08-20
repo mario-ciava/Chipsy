@@ -25,9 +25,38 @@ const runTexas = async(msg) => {
             })
         return msg.channel.send({ embeds: [embed] })
     }
-    msg.params[0] = features.inputConverter(msg.params[0])
-    msg.params[1] = features.inputConverter(msg.params[1])
-    if (msg.params[1] > 9 || msg.params[1] < 2) {
+
+    const minBet = features.inputConverter(msg.params[0])
+    const maxPlayersInput = msg.params[1] !== undefined ? features.inputConverter(msg.params[1]) : undefined
+
+    const createErrorEmbed = (message) => new Discord.EmbedBuilder()
+        .setColor(Discord.Colors.Red)
+        .setFooter({
+            text: `${msg.author.tag}, ${message}`,
+            iconURL: msg.author.displayAvatarURL({ extension: "png" })
+        })
+
+    if (!Number.isFinite(minBet) || minBet <= 0) {
+        return msg.channel.send({
+            embeds: [createErrorEmbed("access denied: minimum bet must be a positive number.")]
+        })
+    }
+
+    if (maxPlayersInput !== undefined && (!Number.isFinite(maxPlayersInput) || maxPlayersInput <= 0)) {
+        return msg.channel.send({
+            embeds: [createErrorEmbed("access denied: maximum number of players must be a positive integer.")]
+        })
+    }
+
+    const maxPlayers = maxPlayersInput !== undefined ? Math.floor(maxPlayersInput) : 9
+
+    if (!Number.isInteger(maxPlayers)) {
+        return msg.channel.send({
+            embeds: [createErrorEmbed("access denied: maximum number of players must be an integer value.")]
+        })
+    }
+
+    if (maxPlayers > 9 || maxPlayers < 2) {
         const embed = new Discord.EmbedBuilder()
             .setColor(Discord.Colors.Red)
             .setFooter({
@@ -36,10 +65,13 @@ const runTexas = async(msg) => {
             })
         return msg.channel.send({ embeds: [embed] })
     }
+
+    const safeMinBet = Math.max(1, Math.floor(minBet))
+
     msg.channel.game = new Texas({
         message: msg,
-        minBet: msg.params[0],
-        maxPlayers: msg.params[1] || 9
+        minBet: safeMinBet,
+        maxPlayers
     })
     const buildGameEmbed = () => {
         const players = msg.channel.game?.players || []

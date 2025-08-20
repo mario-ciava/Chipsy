@@ -69,9 +69,26 @@ exports.getLevelReward = (level) => {
 
 exports.applyUpgrades = (feature, level, startingValue, featureVal) => {
     if (!exports.list.hasOwnProperty(feature)) return startingValue
-    if (!startingValue) startingValue = exports.list[feature].originalValue
-    if (!featureVal) featureVal = exports.list[feature].featureValue
-    return exports.list[feature].apply(startingValue, level, featureVal)
+
+    const definition = exports.list[feature]
+    const normalizedLevel = Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0
+    const maxLevel = Number.isFinite(definition.max) ? definition.max : normalizedLevel
+    const safeLevel = Math.min(normalizedLevel, maxLevel)
+
+    const baseValue = Number.isFinite(startingValue) ? startingValue : definition.originalValue
+    const increment = Number.isFinite(featureVal) ? featureVal : definition.featureValue
+
+    let result = definition.apply(baseValue, safeLevel, increment)
+
+    if (!Number.isFinite(result)) {
+        result = baseValue
+    }
+
+    if (feature === "reward-time") {
+        result = Math.max(1, result)
+    }
+
+    return result
 }
 
 exports.inputConverter = (input) => {

@@ -3,6 +3,7 @@ const bodyparser = require("body-parser")
 const session = require("express-session")
 const Discord = require("discord.js")
 const fetch = require("node-fetch")
+const crypto = require("crypto")
 
 const { PermissionsBitField, PermissionFlagsBits } = Discord
 
@@ -135,6 +136,30 @@ module.exports = (client, webSocket, options = {}) => {
 
     app.use(session(sessionConfig))
 
+    const ensureCsrfToken = (req) => {
+        if (!req.session) return null
+        if (!req.session.csrfToken) {
+            req.session.csrfToken = crypto.randomBytes(32).toString("hex")
+        }
+        return req.session.csrfToken
+    }
+
+    const requireCsrfToken = (req, res, next) => {
+        const token = req.headers["x-csrf-token"]
+        const sessionToken = req.session?.csrfToken
+
+        if (!token || !sessionToken || token !== sessionToken) {
+            return res.status(403).json({ message: "403: Forbidden" })
+        }
+
+        return next()
+    }
+
+    app.use((req, res, next) => {
+        ensureCsrfToken(req)
+        next()
+    })
+
     const loggerMiddleware = logger === undefined
         ? createRequestLogger(client?.logger?.info ? (message) => client.logger.info(message, { scope: "express" }) : undefined)
         : logger
@@ -146,7 +171,7 @@ module.exports = (client, webSocket, options = {}) => {
     app.use((req, res, next) => {
         res.append("Access-Control-Allow-Origin", ["http://localhost:8080"])
         res.append("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS,POST,PUT")
-        res.append("Access-Control-Allow-Headers", "token, code, content-type")
+        res.append("Access-Control-Allow-Headers", "token, code, content-type, x-csrf-token")
         next()
     })
 
@@ -307,7 +332,7 @@ module.exports = (client, webSocket, options = {}) => {
         return res.status(200).json({ message: "200: OK" })
     })
 
-    router.get("/turnoff", (req, res) => {
+    router.post("/turnoff", requireCsrfToken, (req, res) => {
         if (!getAccessToken(req)) {
             return res.status(400).json({ message: "400: Bad request" })
         } else if (req.isAdmin) {
@@ -319,7 +344,7 @@ module.exports = (client, webSocket, options = {}) => {
         return res.status(403).json({ message: "403: Forbidden" })
     })
 
-    router.get("/turnon", (req, res) => {
+    router.post("/turnon", requireCsrfToken, (req, res) => {
         if (!getAccessToken(req)) {
             return res.status(400).json({ message: "400: Bad request" })
         } else if (req.isAdmin) {
@@ -335,7 +360,12 @@ module.exports = (client, webSocket, options = {}) => {
         if (!getAccessToken(req)) {
             return res.status(400).json({ message: "400: Bad request" })
         } else if (req.isAdmin) {
-            return res.status(200).json(client.config)
+            const csrfToken = ensureCsrfToken(req)
+            const payload = { ...client.config }
+            if (csrfToken) {
+                payload.csrfToken = csrfToken
+            }
+            return res.status(200).json(payload)
         }
 
         return res.status(403).json({ message: "403: Forbidden" })
