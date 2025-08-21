@@ -2,12 +2,14 @@ const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
 const setSeparator = require("../util/setSeparator")
+const logger = require("../util/logger")
 
 const runUpgrade = async(msg) => {
-    const dataHandler = msg.client?.dataHandler
-    if (!dataHandler) {
-        throw new Error("Data handler is not available on the client.")
-    }
+    try {
+        const dataHandler = msg.client?.dataHandler
+        if (!dataHandler) {
+            throw new Error("Data handler is not available on the client.")
+        }
     const options = ["💛", "💚", "💙", "❌"],
         confirm = ["✅", "❌"],
         info = msg.author.data
@@ -41,9 +43,29 @@ const runUpgrade = async(msg) => {
         .setFooter({ text: `${msg.author.tag} | Available money: ${setSeparator(info.money)}$ | 3 minutes left to choose`, iconURL: avatarURL })
         .setThumbnail(avatarURL)
 
-    const panelMessage = await msg.channel.send({ embeds: [buildPanelEmbed()] })
-    for (let option of options)
-        await panelMessage.react(option)
+        const panelMessage = await msg.channel.send({ embeds: [buildPanelEmbed()] }).catch((error) => {
+            logger.error("Failed to send upgrade panel message", {
+                scope: "commands",
+                command: "upgrade",
+                userId: msg.author.id,
+                channelId: msg.channel.id,
+                error: error.message,
+                stack: error.stack
+            })
+            throw error
+        })
+
+        for (let option of options) {
+            await panelMessage.react(option).catch((error) => {
+                logger.error("Failed to add reaction to upgrade panel", {
+                    scope: "commands",
+                    command: "upgrade",
+                    messageId: panelMessage.id,
+                    emoji: option,
+                    error: error.message
+                })
+            })
+        }
 
     const upgradeFeature = (n) => {
         return (n == 0 ? ++msg.author.data.withholding_upgrade :
@@ -53,96 +75,221 @@ const runUpgrade = async(msg) => {
             )
     }
 
-    const order = ["with-holding", "reward-amount", "reward-time"]
-    let mainCollector
-    const showConfirm = async(choice, n) => {
-        await panelMessage.reactions.removeAll().catch(() => {})
-        if (mainCollector) mainCollector.stop("other")
-        const confirmEmbed = new Discord.EmbedBuilder()
-            .setColor(Discord.Colors.Orange)
-            .setFooter({ text: `${msg.author.tag}, do you really want to buy this upgrade? Please confirm your choice | 30 seconds left to choose`, iconURL: avatarURL })
-        await panelMessage.edit({ embeds: [confirmEmbed] })
-        for (const confOpt of confirm)
-            await panelMessage.react(confOpt)
+        const order = ["with-holding", "reward-amount", "reward-time"]
+        let mainCollector
+        const showConfirm = async(choice, n) => {
+            try {
+                await panelMessage.reactions.removeAll().catch(() => {})
+                if (mainCollector) mainCollector.stop("other")
+                const confirmEmbed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Orange)
+                    .setFooter({ text: `${msg.author.tag}, do you really want to buy this upgrade? Please confirm your choice | 30 seconds left to choose`, iconURL: avatarURL })
+                await panelMessage.edit({ embeds: [confirmEmbed] }).catch((error) => {
+                    logger.error("Failed to edit upgrade panel for confirmation", {
+                        scope: "commands",
+                        command: "upgrade",
+                        messageId: panelMessage.id,
+                        error: error.message
+                    })
+                    throw error
+                })
+
+                for (const confOpt of confirm) {
+                    await panelMessage.react(confOpt).catch((error) => {
+                        logger.error("Failed to add confirm reaction", {
+                            scope: "commands",
+                            command: "upgrade",
+                            messageId: panelMessage.id,
+                            emoji: confOpt,
+                            error: error.message
+                        })
+                    })
+                }
 
         const confirmCollector = panelMessage.createReactionCollector({
             filter: (reaction, user) => confirm.includes(reaction.emoji.name) && user.id == msg.author.id,
             time: 30000
         })
 
-        confirmCollector.on("collect", async(reaction) => {
-            let responseEmbed
-            switch(reaction.emoji.name) {
-                case confirm[0]: {
-                    const feature = order[n]
-                    const isMaxed = choice >= features.get(feature).max
-                    const costList = features.getCosts(feature, true)
-                    const cost = costList ? costList[choice] : 0
-                    const cannotAfford = cost > msg.author.data.money
-                    const errorMessage = isMaxed ? "maximum level reached for this upgrade" : (cannotAfford ? "you can not afford this upgrade" : null)
+                confirmCollector.on("collect", async(reaction) => {
+                    try {
+                        let responseEmbed
+                        switch(reaction.emoji.name) {
+                            case confirm[0]: {
+                                const feature = order[n]
+                                const isMaxed = choice >= features.get(feature).max
+                                const costList = features.getCosts(feature, true)
+                                const cost = costList ? costList[choice] : 0
+                                const cannotAfford = cost > msg.author.data.money
+                                const errorMessage = isMaxed ? "maximum level reached for this upgrade" : (cannotAfford ? "you can not afford this upgrade" : null)
 
-                    if (errorMessage) {
-                        responseEmbed = new Discord.EmbedBuilder()
-                            .setColor(Discord.Colors.Red)
-                            .setFooter({ text: `${msg.author.tag}, ${errorMessage}`, iconURL: avatarURL })
-                        break
+                                if (errorMessage) {
+                                    responseEmbed = new Discord.EmbedBuilder()
+                                        .setColor(Discord.Colors.Red)
+                                        .setFooter({ text: `${msg.author.tag}, ${errorMessage}`, iconURL: avatarURL })
+                                    break
+                                }
+                                msg.author.data.money -= cost
+                                await upgradeFeature(n)
+                                await dataHandler.updateUserData(msg.author.id, dataHandler.resolveDBUser(msg.author)).catch((error) => {
+                                    logger.error("Failed to update user data after upgrade", {
+                                        scope: "commands",
+                                        command: "upgrade",
+                                        userId: msg.author.id,
+                                        error: error.message,
+                                        stack: error.stack
+                                    })
+                                    throw error
+                                })
+                                responseEmbed = new Discord.EmbedBuilder()
+                                    .setColor(Discord.Colors.Green)
+                                    .setFooter({ text: `${msg.author.tag}, upgrade applied, congrats!`, iconURL: avatarURL })
+                                break
+                            }
+                            case confirm[1]:
+                                responseEmbed = new Discord.EmbedBuilder()
+                                    .setColor(Discord.Colors.Red)
+                                    .setFooter({ text: `${msg.author.tag}, operation aborted!`, iconURL: avatarURL })
+                            break
+                        }
+                        if (responseEmbed) {
+                            await panelMessage.edit({ embeds: [responseEmbed] }).catch((error) => {
+                                logger.error("Failed to edit upgrade response", {
+                                    scope: "commands",
+                                    command: "upgrade",
+                                    messageId: panelMessage.id,
+                                    error: error.message
+                                })
+                            })
+                        }
+                        await reaction.users.remove(msg.author).catch(() => {})
+                        await panelMessage.reactions.removeAll().catch(() => {})
+                        confirmCollector.stop("other")
+                    } catch (collectError) {
+                        logger.error("Error in upgrade confirm collector", {
+                            scope: "commands",
+                            command: "upgrade",
+                            userId: msg.author.id,
+                            error: collectError.message,
+                            stack: collectError.stack
+                        })
                     }
-                    msg.author.data.money -= cost
-                    await upgradeFeature(n)
-                    await dataHandler.updateUserData(msg.author.id, dataHandler.resolveDBUser(msg.author))
-                    responseEmbed = new Discord.EmbedBuilder()
-                        .setColor(Discord.Colors.Green)
-                        .setFooter({ text: `${msg.author.tag}, upgrade applied, congrats!`, iconURL: avatarURL })
+                })
+
+                confirmCollector.on("end", (_, reason) => {
+                    if (panelMessage.deletable && reason != "other") {
+                        panelMessage.delete().catch((error) => {
+                            logger.error("Failed to delete upgrade panel after confirm", {
+                                scope: "commands",
+                                command: "upgrade",
+                                messageId: panelMessage.id,
+                                error: error.message
+                            })
+                        })
+                    }
+                })
+
+                confirmCollector.on("error", (error) => {
+                    logger.error("Confirm collector error in upgrade", {
+                        scope: "commands",
+                        command: "upgrade",
+                        error: error.message,
+                        stack: error.stack
+                    })
+                })
+            } catch (showConfirmError) {
+                logger.error("Error in showConfirm function", {
+                    scope: "commands",
+                    command: "upgrade",
+                    userId: msg.author.id,
+                    error: showConfirmError.message,
+                    stack: showConfirmError.stack
+                })
+            }
+        }
+
+        mainCollector = panelMessage.createReactionCollector({
+            filter: (reaction, user) => options.includes(reaction.emoji.name) && user.id == msg.author.id,
+            time: 180000
+        })
+
+        mainCollector.on("collect", async (reaction) => {
+            try {
+                switch(reaction.emoji.name) {
+                    case options[0]:
+                        if (info.withholding_upgrade < features.get("with-holding").max)
+                            await showConfirm(msg.author.data.withholding_upgrade, 0)
+                    break
+                    case options[1]:
+                        if (info.reward_amount_upgrade < features.get("reward-amount").max)
+                            await showConfirm(msg.author.data.reward_amount_upgrade, 1)
+                    break
+                    case options[2]:
+                        if (info.reward_time_upgrade < features.get("reward-time").max)
+                            await showConfirm(msg.author.data.reward_time_upgrade, 2)
+                    break
+                    case options[3]:
+                        mainCollector.stop()
                     break
                 }
-                case confirm[1]:
-                    responseEmbed = new Discord.EmbedBuilder()
+                reaction.users.remove(msg.author).catch(() => {})
+            } catch (mainCollectError) {
+                logger.error("Error in upgrade main collector", {
+                    scope: "commands",
+                    command: "upgrade",
+                    userId: msg.author.id,
+                    error: mainCollectError.message,
+                    stack: mainCollectError.stack
+                })
+            }
+        })
+
+        mainCollector.on("end", (_, reason) => {
+            if (panelMessage.deletable && reason != "other") {
+                panelMessage.delete().catch((error) => {
+                    logger.error("Failed to delete upgrade panel", {
+                        scope: "commands",
+                        command: "upgrade",
+                        messageId: panelMessage.id,
+                        error: error.message
+                    })
+                })
+            }
+        })
+
+        mainCollector.on("error", (error) => {
+            logger.error("Main collector error in upgrade", {
+                scope: "commands",
+                command: "upgrade",
+                error: error.message,
+                stack: error.stack
+            })
+        })
+    } catch (error) {
+        logger.error("Failed to execute upgrade command", {
+            scope: "commands",
+            command: "upgrade",
+            userId: msg.author.id,
+            error: error.message,
+            stack: error.stack
+        })
+
+        try {
+            await msg.channel.send({
+                embeds: [
+                    new Discord.EmbedBuilder()
                         .setColor(Discord.Colors.Red)
-                        .setFooter({ text: `${msg.author.tag}, operation aborted!`, iconURL: avatarURL })
-                break
-            }
-            if (responseEmbed) {
-                await panelMessage.edit({ embeds: [responseEmbed] })
-            }
-            await reaction.users.remove(msg.author).catch(() => {})
-            await panelMessage.reactions.removeAll().catch(() => {})
-            confirmCollector.stop("other")
-        })
-
-        confirmCollector.on("end", (_, reason) => {
-            if (panelMessage.deletable && reason != "other") panelMessage.delete()
-        })
-    }
-
-    mainCollector = panelMessage.createReactionCollector({
-        filter: (reaction, user) => options.includes(reaction.emoji.name) && user.id == msg.author.id,
-        time: 180000
-    })
-
-    mainCollector.on("collect", (reaction) => {
-        switch(reaction.emoji.name) {
-            case options[0]:
-                if (info.withholding_upgrade < features.get("with-holding").max)
-                    showConfirm(msg.author.data.withholding_upgrade, 0)
-            break
-            case options[1]:
-                if (info.reward_amount_upgrade < features.get("reward-amount").max)
-                    showConfirm(msg.author.data.reward_amount_upgrade, 1)
-            break
-            case options[2]:
-                if (info.reward_time_upgrade < features.get("reward-time").max)
-                    showConfirm(msg.author.data.reward_time_upgrade, 2)
-            break
-            case options[3]:
-                mainCollector.stop()
-            break
+                        .setDescription("❌ An error occurred while opening the upgrade panel. Please try again later.")
+                ]
+            })
+        } catch (sendError) {
+            logger.error("Failed to send error message", {
+                scope: "commands",
+                command: "upgrade",
+                error: sendError.message
+            })
         }
-        reaction.users.remove(msg.author).catch(() => {})
-    })
-
-    mainCollector.on("end", (_, reason) => {
-        if (panelMessage.deletable && reason != "other") panelMessage.delete()
-    })
+    }
 }
 
 const slashCommand = new SlashCommandBuilder()

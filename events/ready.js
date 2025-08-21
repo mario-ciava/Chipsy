@@ -1,11 +1,18 @@
+const { info, error } = require("../util/logger")
+
 module.exports = async(client) => {
-    console.info(`\nSuccessfully logged-in as ${client.user.tag}`)
+    const userTag = client?.user?.tag ?? "unknown user"
+    info(`Successfully logged-in as ${userTag}`, { scope: "events", event: "ready" })
 
     try {
         const slashCommands = client.commandRouter.getSlashCommandPayloads()
-        await client.application.commands.set(slashCommands)
-        console.info(`Registered ${slashCommands.length} application command(s).`)
-    } catch (error) {
-        console.error("Failed to register application commands:", error)
+        const result = await client.application.commands.set(slashCommands)
+        info(`Registered ${result.size} slash command(s): ${slashCommands.map(c => c.name).join(', ')}`, { scope: "events", event: "ready" })
+    } catch (err) {
+        error("Failed to register application commands", {
+            scope: "events",
+            event: "ready",
+            message: err?.message ?? String(err)
+        })
     }
 }

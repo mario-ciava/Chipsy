@@ -1,4 +1,5 @@
 const { Collection, ApplicationCommandOptionType, EmbedBuilder, Colors } = require("discord.js")
+const logger = require("./logger")
 
 class CommandRouter {
     constructor(client) {
@@ -94,7 +95,14 @@ class CommandRouter {
                 client: this.client
             })
         } catch (error) {
-            console.error(`Failed to execute message command '${commandName}':`, error)
+            logger.error("Failed to execute message command", {
+                scope: "commandRouter",
+                command: commandName,
+                userId: message.author?.id,
+                channelId: message.channel?.id,
+                error: error.message,
+                stack: error.stack
+            })
         }
     }
 
@@ -115,7 +123,14 @@ class CommandRouter {
                 await interaction.deferReply({ ephemeral: deferEphemeral })
             }
         } catch (error) {
-            console.error(`Failed to defer reply for slash command '${interaction.commandName}':`, error)
+            logger.error("Failed to defer reply for slash command", {
+                scope: "commandRouter",
+                command: interaction.commandName,
+                userId: interaction.user?.id,
+                guildId: interaction.guild?.id,
+                error: error.message,
+                stack: error.stack
+            })
         }
 
         if (!messageAdapter.author.data) {
@@ -148,7 +163,14 @@ class CommandRouter {
                 client: this.client
             })
         } catch (error) {
-            console.error(`Failed to execute slash command '${interaction.commandName}':`, error)
+            logger.error("Failed to execute slash command", {
+                scope: "commandRouter",
+                command: interaction.commandName,
+                userId: interaction.user?.id,
+                guildId: interaction.guild?.id,
+                error: error.message,
+                stack: error.stack
+            })
             const response = {
                 content: "An error occurred while executing this command.",
                 ephemeral: true

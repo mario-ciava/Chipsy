@@ -1,5 +1,6 @@
 const fs = require("fs/promises")
 const path = require("path")
+const logger = require("./logger")
 
 module.exports = async(client, _config) => {
     const commandsPath = path.join(__dirname, "..", "commands")
@@ -8,7 +9,12 @@ module.exports = async(client, _config) => {
     try {
         files = await fs.readdir(commandsPath)
     } catch (error) {
-        console.error("Failed to read commands directory:", error)
+        logger.error("Failed to read commands directory", {
+            scope: "commandLoader",
+            path: commandsPath,
+            error: error.message,
+            stack: error.stack
+        })
         throw error
     }
 
@@ -35,7 +41,13 @@ module.exports = async(client, _config) => {
 
             client.commandRouter.register(command)
         } catch (error) {
-            console.error(`Failed to load command '${file}':`, error)
+            logger.error("Failed to load command", {
+                scope: "commandLoader",
+                file,
+                filePath,
+                error: error.message,
+                stack: error.stack
+            })
             throw error
         }
     }

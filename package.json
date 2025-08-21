@@ -4,6 +4,7 @@
   "description": "",
   "main": "app.js",
   "scripts": {
+    "start": "node app.js",
     "test": "jest",
     "migrate:exp-columns": "node scripts/migrateExpColumns.js",
     "migrate:bigint-columns": "node scripts/migrateBigIntColumns.js"
