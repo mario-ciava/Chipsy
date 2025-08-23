@@ -1,101 +1,63 @@
-const Discord = require("discord.js")
-const { SlashCommandBuilder } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js")
 const playerClass = require("../structure/classes.js")
 const setSeparator = require("../util/setSeparator")
 const { normalizeUserExperience } = require("../util/experience")
-const logger = require("../util/logger")
+const createCommand = require("../util/createCommand")
 
-const runProfile = async (msg) => {
-    try {
-        const data = normalizeUserExperience(msg.author.data || {})
-        msg.author.data = data
+const slashCommand = new SlashCommandBuilder().setName("profile").setDescription("Show your Chipsy profile.")
 
-        const avatarURL = msg.author.displayAvatarURL({ extension: "png" })
-        const embed = new Discord.EmbedBuilder()
-            .setColor(Discord.Colors.Gold)
+module.exports = createCommand({
+    name: "profile",
+    description: "Show your Chipsy profile.",
+    aliases: ["stats"],
+    slashCommand,
+    deferEphemeral: false,
+    errorMessage: "Unable to load your profile right now. Please try again later.",
+    execute: async(context) => {
+        const { author, reply } = context
+
+        if (!author) {
+            context.fail("Unable to resolve your Discord account details.")
+        }
+
+        const data = normalizeUserExperience(author.data || {})
+        author.data = data
+
+        const avatarURL = author.displayAvatarURL({ extension: "png" })
+        const embed = new EmbedBuilder()
+            .setColor(Colors.Gold)
             .addFields(
                 { name: "Your profile", value: "Here you can see everything about yourself", inline: false },
                 {
                     name: "Balance 💰",
-                    value: `Money: ${setSeparator(msg.author.data.money)}$\nGold: ${setSeparator(msg.author.data.gold)}`,
+                    value: `Money: ${setSeparator(data.money)}$\nGold: ${setSeparator(data.gold)}`,
                     inline: true
                 },
                 {
                     name: "Experience ⭐",
-                    value: `Level: ${setSeparator(msg.author.data.level)}\nExp: ${setSeparator(msg.author.data.current_exp)}/${setSeparator(msg.author.data.required_exp)}`,
+                    value: `Level: ${setSeparator(data.level)}\nExp: ${setSeparator(data.current_exp)}/${setSeparator(data.required_exp)}`,
                     inline: true
                 },
                 {
                     name: "Records 🔝",
-                    value: `Biggest bet: ${setSeparator(msg.author.data.biggest_bet)}$\nBiggest won: ${setSeparator(msg.author.data.biggest_won)}$`,
+                    value: `Biggest bet: ${setSeparator(data.biggest_bet)}$\nBiggest won: ${setSeparator(data.biggest_won)}$`,
                     inline: true
                 },
                 {
                     name: "Other 🃏",
-                    value: `Hands played: ${setSeparator(msg.author.data.hands_played)}\nHands won: ${setSeparator(msg.author.data.hands_won)}`,
+                    value: `Hands played: ${setSeparator(data.hands_played)}\nHands won: ${setSeparator(data.hands_won)}`,
                     inline: true
                 },
                 {
                     name: "Upgrades ⬆️",
-                    value: `WithHolding level: ${msg.author.data.withholding_upgrade}\nReward amount level: ${msg.author.data.reward_amount_upgrade}\nReward time level: ${msg.author.data.reward_time_upgrade}`,
+                    value: `WithHolding level: ${data.withholding_upgrade}\nReward amount level: ${data.reward_amount_upgrade}\nReward time level: ${data.reward_time_upgrade}`,
                     inline: true
                 },
-                { name: "Class 🔰", value: `${playerClass.getUserClass(msg.author.data.money)}`, inline: true }
+                { name: "Class 🔰", value: playerClass.getUserClass(data.money), inline: true }
             )
             .setThumbnail(avatarURL)
-            .setFooter({ text: `${msg.author.tag} | Last played: ${msg.author.data.last_played}`, iconURL: avatarURL })
+            .setFooter({ text: `${author.tag} | Last played: ${data.last_played}`, iconURL: avatarURL })
 
-        await msg.channel.send({ embeds: [embed] }).catch((error) => {
-            logger.error("Failed to send profile embed", {
-                scope: "commands",
-                command: "profile",
-                userId: msg.author.id,
-                channelId: msg.channel.id,
-                error: error.message,
-                stack: error.stack
-            })
-            throw error
-        })
-    } catch (error) {
-        logger.error("Failed to execute profile command", {
-            scope: "commands",
-            command: "profile",
-            userId: msg.author.id,
-            error: error.message,
-            stack: error.stack
-        })
-
-        try {
-            await msg.channel.send({
-                embeds: [
-                    new Discord.EmbedBuilder()
-                        .setColor(Discord.Colors.Red)
-                        .setDescription("❌ An error occurred while loading your profile. Please try again later.")
-                ]
-            })
-        } catch (sendError) {
-            logger.error("Failed to send error message", {
-                scope: "commands",
-                command: "profile",
-                error: sendError.message
-            })
-        }
+        await reply({ embeds: [embed] })
     }
-}
-
-const slashCommand = new SlashCommandBuilder()
-    .setName("profile")
-    .setDescription("Show your Chipsy profile.")
-
-module.exports = {
-    config: {
-        name: "profile",
-        aliases: ["stats"],
-        description: "Show your Chipsy profile.",
-        dmPermission: false,
-        slashCommand
-    },
-    async run({ message }) {
-        await runProfile(message)
-    }
-}
+})

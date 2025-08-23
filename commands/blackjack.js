@@ -4,6 +4,7 @@ const BlackJack = require("../structure/blackjack.js")
 const features = require("../structure/features.js")
 const setSeparator = require("../util/setSeparator")
 const logger = require("../util/logger")
+const createCommand = require("../util/createCommand")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
 const runBlackjack = async(msg) => {
     try {
@@ -368,17 +369,20 @@ const slashCommand = new SlashCommandBuilder()
             .setMaxValue(7)
     )
 
-module.exports = {
-    config: {
-        name: "blackjack",
-        aliases: ["bj"],
-        description: "Start a blackjack game in the current channel.",
-        dmPermission: false,
-        slashCommand
-    },
-    async run({ message }) {
+module.exports = createCommand({
+    name: "blackjack",
+    description: "Start a blackjack game in the current channel.",
+    aliases: ["bj"],
+    slashCommand,
+    deferEphemeral: false,
+    errorMessage: "Unable to start a blackjack game right now. Please try again later.",
+    execute: async(context) => {
+        const message = context.message
+        if (!Array.isArray(message.params)) {
+            message.params = Array.isArray(context.args) ? [...context.args] : []
+        }
         await runBlackjack(message)
     }
-}
+})
 
 //play <minBet> [maxPlayers]

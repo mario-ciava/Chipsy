@@ -3,6 +3,7 @@ const { SlashCommandBuilder } = require("discord.js")
 const features = require("../structure/features.js")
 const setSeparator = require("../util/setSeparator")
 const logger = require("../util/logger")
+const createCommand = require("../util/createCommand")
 
 const runUpgrade = async(msg) => {
     try {
@@ -296,15 +297,18 @@ const slashCommand = new SlashCommandBuilder()
     .setName("upgrade")
     .setDescription("Open the Chipsy upgrade panel.")
 
-module.exports = {
-    config: {
-        name: "upgrade",
-        aliases: ["upgrades"],
-        description: "Open the Chipsy upgrade panel.",
-        dmPermission: false,
-        slashCommand
-    },
-    async run({ message }) {
+module.exports = createCommand({
+    name: "upgrade",
+    description: "Open the Chipsy upgrade panel.",
+    aliases: ["upgrades"],
+    slashCommand,
+    deferEphemeral: false,
+    errorMessage: "Unable to open the upgrade panel right now. Please try again later.",
+    execute: async(context) => {
+        const message = context.message
+        if (!Array.isArray(message.params)) {
+            message.params = Array.isArray(context.args) ? [...context.args] : []
+        }
         await runUpgrade(message)
     }
-}
+})

@@ -4,6 +4,7 @@ const Texas = require("../structure/texas.js")
 const features = require("../structure/features.js")
 const setSeparator = require("../util/setSeparator")
 const logger = require("../util/logger")
+const createCommand = require("../util/createCommand")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
 const runTexas = async(msg) => {
     try {
@@ -363,17 +364,20 @@ const slashCommand = new SlashCommandBuilder()
             .setMaxValue(9)
     )
 
-module.exports = {
-    config: {
-        name: "texas",
-        aliases: ["holdem"],
-        description: "Start a texas hold'em poker game in the current channel.",
-        dmPermission: false,
-        slashCommand
-    },
-    async run({ message }) {
+module.exports = createCommand({
+    name: "texas",
+    description: "Start a texas hold'em poker game in the current channel.",
+    aliases: ["holdem"],
+    slashCommand,
+    deferEphemeral: false,
+    errorMessage: "Unable to start a texas hold'em game right now. Please try again later.",
+    execute: async(context) => {
+        const message = context.message
+        if (!Array.isArray(message.params)) {
+            message.params = Array.isArray(context.args) ? [...context.args] : []
+        }
         await runTexas(message)
     }
-}
+})
 
 //play <minBet> [maxPlayers]

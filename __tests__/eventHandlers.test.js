@@ -5,7 +5,7 @@ describe("event handlers respect bot enabled flag", () => {
     const disabledNotice = "The bot is currently disabled by the administrators. Please try again later."
 
     describe("message handler", () => {
-        it("notifies users and skips routing when the bot is disabled", async() => {
+        it("ignores legacy messages when the bot is disabled", async() => {
             const send = jest.fn().mockResolvedValue()
             const handleMessageSpy = jest.fn().mockResolvedValue()
 
@@ -21,11 +21,11 @@ describe("event handlers respect bot enabled flag", () => {
 
             await handleMessage(msg)
 
-            expect(send).toHaveBeenCalledWith(disabledNotice)
+            expect(send).not.toHaveBeenCalled()
             expect(handleMessageSpy).not.toHaveBeenCalled()
         })
 
-        it("routes commands normally when the bot is enabled", async() => {
+        it("ignores legacy messages even when the bot is enabled", async() => {
             const send = jest.fn()
             const handleMessageSpy = jest.fn().mockResolvedValue()
 
@@ -42,9 +42,8 @@ describe("event handlers respect bot enabled flag", () => {
             await handleMessage(msg)
 
             expect(send).not.toHaveBeenCalled()
-            expect(handleMessageSpy).toHaveBeenCalledTimes(1)
-            expect(handleMessageSpy).toHaveBeenCalledWith(msg)
-            expect(msg.command).toBe("ping")
+            expect(handleMessageSpy).not.toHaveBeenCalled()
+            expect(msg.command).toBeUndefined()
         })
     })
 

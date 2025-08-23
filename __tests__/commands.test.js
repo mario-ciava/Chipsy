@@ -5,12 +5,14 @@ jest.mock("discord.js", () => {
             this.addFields = jest.fn(() => this)
             this.setFooter = jest.fn(() => this)
             this.setThumbnail = jest.fn(() => this)
+            this.setDescription = jest.fn(() => this)
         }
     }
 
     const SlashCommandBuilder = jest.fn().mockImplementation(() => ({
         setName: jest.fn().mockReturnThis(),
-        setDescription: jest.fn().mockReturnThis()
+        setDescription: jest.fn().mockReturnThis(),
+        toJSON: jest.fn(() => ({}))
     }))
 
     const Colors = {

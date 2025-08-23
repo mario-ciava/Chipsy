@@ -1,37 +1,50 @@
-const Discord = require("discord.js")
-const { SlashCommandBuilder } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js")
+const createCommand = require("../util/createCommand")
 
-const executePing = async(msg) => {
-    const iconURL = msg.author.displayAvatarURL({ extension: "png" })
-    const loadingEmbed = new Discord.EmbedBuilder()
-        .setColor(Math.floor(Math.random() * 0xffffff))
-        .setFooter({ text: "Ping?!" })
+const slashCommand = new SlashCommandBuilder().setName("ping").setDescription("Show the bot latency.")
 
-    const sentMessage = await msg.channel.send({ embeds: [loadingEmbed] })
-    const latency = (sentMessage.createdTimestamp - msg.createdTimestamp).toFixed()
-    const pongEmbed = new Discord.EmbedBuilder()
-        .setColor(loadingEmbed.data.color ?? Math.floor(Math.random() * 0xffffff))
-        .setFooter({
-            text: `${msg.author.tag} | Pong!! (${latency}ms) | Websocket: ${msg.client.ws.ping.toFixed()}ms`,
-            iconURL
-        })
+module.exports = createCommand({
+    name: "ping",
+    description: "Show the bot latency.",
+    slashCommand,
+    defer: false,
+    errorMessage: "Unable to measure latency right now. Please try again later.",
+    execute: async(context) => {
+        const { interaction, message, author, client, reply, editReply } = context
+        const color = Math.floor(Math.random() * 0xffffff)
+        const avatarURL = author?.displayAvatarURL?.({ extension: "png" })
+        const loadingEmbed = new EmbedBuilder().setColor(color).setFooter({ text: "Ping?!" })
 
-    await sentMessage.edit({ embeds: [pongEmbed] })
-}
+        const baseTimestamp = interaction?.createdTimestamp ?? message?.createdTimestamp ?? Date.now()
+        const wsPing = Math.round(client?.ws?.ping ?? 0)
 
-const slashCommand = new SlashCommandBuilder()
-    .setName("ping")
-    .setDescription("Show the bot latency.")
+        if (interaction) {
+            const sent = await reply({
+                embeds: [loadingEmbed],
+                fetchReply: true
+            })
 
-module.exports = {
-    config: {
-        name: "ping",
-        aliases: [],
-        description: "Show the bot latency.",
-        dmPermission: false,
-        slashCommand
-    },
-    async run({ message }) {
-        await executePing(message)
+            const latency = (sent.createdTimestamp - baseTimestamp).toFixed()
+            const responseEmbed = new EmbedBuilder()
+                .setColor(color)
+                .setFooter({
+                    text: `${author?.tag ?? "Unknown user"} | Pong!! (${latency}ms) | Websocket: ${wsPing}ms`,
+                    iconURL: avatarURL
+                })
+
+            await editReply({ embeds: [responseEmbed] })
+            return
+        }
+
+        const initialMessage = await reply({ embeds: [loadingEmbed] })
+        const latency = (initialMessage.createdTimestamp - baseTimestamp).toFixed()
+        const responseEmbed = new EmbedBuilder()
+            .setColor(color)
+            .setFooter({
+                text: `${author?.tag ?? "Unknown user"} | Pong!! (${latency}ms) | Websocket: ${wsPing}ms`,
+                iconURL: avatarURL
+            })
+
+        await initialMessage.edit({ embeds: [responseEmbed] })
     }
-}
+})
