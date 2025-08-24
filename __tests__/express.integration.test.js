@@ -107,6 +107,62 @@ describe("Express API integration", () => {
                 cache: {
                     get: jest.fn((id) => (id === "1" ? { id: "1", name: "Guild One" } : undefined))
                 }
+            },
+            dataHandler: {
+                listUsers: jest.fn().mockResolvedValue({
+                    items: [{
+                        id: "user-1",
+                        money: 5000,
+                        gold: 2,
+                        level: 3,
+                        current_exp: 120,
+                        required_exp: 200,
+                        hands_played: 10,
+                        hands_won: 4,
+                        biggest_won: 2500,
+                        biggest_bet: 500,
+                        withholding_upgrade: 1,
+                        reward_amount_upgrade: 1,
+                        reward_time_upgrade: 0,
+                        next_reward: null,
+                        last_played: null
+                    }],
+                    pagination: {
+                        page: 1,
+                        pageSize: 25,
+                        total: 1,
+                        totalPages: 1
+                    }
+                }),
+                getUserData: jest.fn().mockImplementation((id) => {
+                    if (id === "user-1") {
+                        return Promise.resolve({
+                            id: "user-1",
+                            money: 5000,
+                            gold: 2,
+                            level: 3,
+                            current_exp: 120,
+                            required_exp: 200,
+                            hands_played: 10,
+                            hands_won: 4,
+                            biggest_won: 2500,
+                            biggest_bet: 500,
+                            withholding_upgrade: 1,
+                            reward_amount_upgrade: 1,
+                            reward_time_upgrade: 0,
+                            next_reward: null,
+                            last_played: null
+                        })
+                    }
+                    return Promise.resolve(null)
+                })
+            },
+            healthChecks: {
+                mysql: jest.fn().mockResolvedValue({ alive: true })
+            },
+            logger: {
+                info: jest.fn(),
+                error: jest.fn()
             }
         }
 
@@ -240,8 +296,159 @@ describe("Express API integration", () => {
         )
         expect(body.added).toHaveLength(1)
         expect(body.added[0]).toMatchObject({ id: "1" })
-        expect(body.available).toEqual([
-            expect.objectContaining({ id: "1" })
-        ])
+        expect(body.available).toEqual([])
+    })
+
+    test("GET /api/admin/status returns current bot state and health data", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const status = await agent.requestJson("/api/admin/status", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(status.response.status).toBe(200)
+        expect(status.body).toMatchObject({
+            enabled: true,
+            health: { mysql: { alive: true } }
+        })
+        expect(client.healthChecks.mysql).toHaveBeenCalled()
+    })
+
+    test("PATCH /api/admin/bot toggles bot availability", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientConfig = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const toggleResponse = await agent.requestJson("/api/admin/bot", {
+            method: "PATCH",
+            headers: {
+                token: "access-token",
+                "content-type": "application/json",
+                "x-csrf-token": clientConfig.body.csrfToken
+            },
+            body: JSON.stringify({ enabled: false })
+        })
+
+        expect(toggleResponse.response.status).toBe(200)
+        expect(toggleResponse.body.enabled).toBe(false)
+        expect(client.config.enabled).toBe(false)
+        expect(webSocket.emit).toHaveBeenCalledWith("disable")
+    })
+
+    test("GET /api/users returns a paginated list of users", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const listResponse = await agent.requestJson("/api/users?page=2&pageSize=10&search=user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(listResponse.response.status).toBe(200)
+        expect(listResponse.body.items).toHaveLength(1)
+        expect(listResponse.body.items[0]).toMatchObject({
+            id: "user-1",
+            level: 3,
+            winRate: 40
+        })
+        expect(client.dataHandler.listUsers).toHaveBeenCalledWith(expect.objectContaining({
+            page: "2",
+            pageSize: "10",
+            search: "user"
+        }))
+    })
+
+    test("GET /api/users/:id returns a single user profile", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const userResponse = await agent.requestJson("/api/users/user-1", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(userResponse.response.status).toBe(200)
+        expect(userResponse.body).toMatchObject({
+            id: "user-1",
+            winRate: 40
+        })
+
+        const missingResponse = await agent.requestJson("/api/users/unknown", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(missingResponse.response.status).toBe(404)
+    })
+
+    test("GET /api/admin/actions exposes available remote commands", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const response = await agent.requestJson("/api/admin/actions", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body.actions).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: "bot-toggle",
+                    supports: expect.arrayContaining(["enable", "disable"])
+                })
+            ])
+        )
     })
 })

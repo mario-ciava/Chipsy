@@ -1,26 +1,36 @@
-/*eslint-disable*/
-import Vue from 'vue'
-import VueCookies from 'vue-cookies'
-import App from './App.vue'
-import { router } from './router/index.js'
-import Methods from './methods.js'
+import Vue from "vue"
+import VueCookies from "vue-cookies"
+
+import App from "./App.vue"
+import router from "./router"
+import store from "./store"
+
+import "./assets/styles/base.css"
 
 Vue.config.productionTip = false
 
-VueCookies.config('7d')
+VueCookies.config("7d")
 Vue.use(VueCookies)
 
-new Vue({
-  el: "#app",
-  router,
-  methods: Methods,
-  data() {
-    return {
-      user: {
-        token: this.$cookies.get("_token") || null,
-        info: null
-      }
-    }
-  },
-  render: h => h(App)
-});
+const mountApp = () => new Vue({
+    router,
+    store,
+    render: (h) => h(App)
+}).$mount("#app")
+
+store.dispatch("session/bootstrap")
+    .finally(async() => {
+        try {
+            if (store.getters["session/isAuthenticated"] && store.getters["session/isAdmin"]) {
+                await Promise.all([
+                    store.dispatch("bot/fetchStatus").catch(() => null),
+                    store.dispatch("users/refresh").catch(() => null)
+                ])
+            }
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.warn("Failed to warm up dashboard data", error)
+        } finally {
+            mountApp()
+        }
+    })

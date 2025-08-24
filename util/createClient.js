@@ -30,7 +30,8 @@ const createClient = (config) => {
         ownerid: config.discord.ownerId,
         owner: config.discord.ownerId,
         prefix: config.bot.prefix,
-        enabled: config.bot.enabled
+        enabled: config.bot.enabled,
+        redirectUri: config.web?.redirectOrigin || "http://localhost:8080"
     }
 
     return client

@@ -62,6 +62,28 @@ const createCommand = ({
             logger
         })
 
+        if (context.client?.config?.enabled === false) {
+            const disabledMessage = "The bot is currently disabled by the administrators. Please try again later."
+
+            if (context.interaction) {
+                if (context.interaction.deferred && !context.interaction.replied) {
+                    await context.safeInvoke(context.followUp, {
+                        content: disabledMessage,
+                        ephemeral: true
+                    })
+                } else if (!context.interaction.replied) {
+                    await context.safeInvoke(context.reply, {
+                        content: disabledMessage,
+                        ephemeral: true
+                    })
+                }
+            } else if (context.message) {
+                await context.safeInvoke(context.reply, { content: disabledMessage })
+            }
+
+            return
+        }
+
         try {
             await execute(context)
         } catch (error) {

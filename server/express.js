@@ -5,6 +5,10 @@ const Discord = require("discord.js")
 const fetch = require("node-fetch")
 const crypto = require("crypto")
 
+const createAuthRouter = require("./routes/auth")
+const createAdminRouter = require("./routes/admin")
+const createUsersRouter = require("./routes/users")
+
 const { PermissionsBitField, PermissionFlagsBits } = Discord
 
 const formatErrorMessage = (status, message) => `${status}: ${message}`
@@ -113,7 +117,7 @@ module.exports = (client, webSocket, options = {}) => {
     const discordApi = discordApiOverride || createDiscordApi(fetchImpl)
 
     const app = express()
-    const router = express.Router({ automatic405: true })
+    const router = express.Router()
     const tokenCache = new Map()
 
     app.use(bodyparser.json())
@@ -168,10 +172,38 @@ module.exports = (client, webSocket, options = {}) => {
         app.use(loggerMiddleware)
     }
 
+    const unique = (values = []) => Array.from(new Set(values.filter(Boolean)))
+    const envAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+
+    const allowedOrigins = unique([
+        client.config?.redirectUri,
+        "http://localhost:8080",
+        "http://localhost:8081",
+        "http://localhost:8082",
+        ...envAllowedOrigins
+    ])
+
     app.use((req, res, next) => {
-        res.append("Access-Control-Allow-Origin", ["http://localhost:8080"])
-        res.append("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS,POST,PUT")
-        res.append("Access-Control-Allow-Headers", "token, code, content-type, x-csrf-token")
+        const requestOrigin = req.headers.origin
+        if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+            res.setHeader("Access-Control-Allow-Origin", requestOrigin)
+            res.setHeader("Vary", "Origin")
+        }
+        res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE")
+        res.setHeader(
+            "Access-Control-Allow-Headers",
+            "token, code, content-type, x-csrf-token, x-redirect-origin, authorization"
+        )
+        res.setHeader("Access-Control-Allow-Credentials", "true")
+
+        if (req.method === "OPTIONS") {
+            res.status(204).end()
+            return
+        }
+
         next()
     })
 
@@ -196,202 +228,51 @@ module.exports = (client, webSocket, options = {}) => {
         app.use("/api", limiterMiddleware)
     }
 
-    const data = Buffer.from(`${client.config.id}:${client.config.secret}`).toString("base64")
+    const clientCredentials = Buffer.from(`${client.config.id}:${client.config.secret}`).toString("base64")
     const defaultScopes = ["identify", "guilds"]
 
     const getAccessToken = (req) => req.headers.token || req.session?.oauth?.accessToken || req.user?.token
 
-    router.get("/auth", async(req, res, next) => {
-        if (!req.headers.code) {
-            return res.status(400).json({ message: "400: Bad Request" })
-        }
-
-        try {
-            const params = new URLSearchParams({
-                grant_type: "authorization_code",
-                code: req.headers.code,
-                redirect_uri: "http://localhost:8080",
-                scope: defaultScopes.join(" ")
-            })
-
-            const response = await discordApi.post("/oauth2/token", params.toString(), {
-                headers: {
-                    Authorization: `Basic ${data}`,
-                    "Content-Type": "application/x-www-form-urlencoded"
-                }
-            })
-
-            const tokenData = response.data
-
-            req.session.oauth = {
-                accessToken: tokenData.access_token,
-                refreshToken: tokenData.refresh_token,
-                scope: tokenData.scope
-            }
-
-            webSocket?.emit("auth", {
-                token: tokenData.access_token,
-                scp: defaultScopes
-            })
-
-            return res.status(200).json(tokenData)
-        } catch (error) {
-            return next(buildDiscordError(error, "Failed to exchange authorization code"))
-        }
+    const authRouter = createAuthRouter({
+        data: clientCredentials,
+        discordApi,
+        tokenCache,
+        webSocket,
+        getAccessToken,
+        client,
+        buildDiscordError,
+        PermissionsBitField,
+        PermissionFlagsBits,
+        scopes: defaultScopes,
+        defaultRedirectUri: client.config?.redirectUri
     })
 
-    router.get("/user", async(req, res, next) => {
-        const token = getAccessToken(req)
+    router.use("/", authRouter)
 
-        if (!token) {
-            return res.status(400).json({ message: "400: Bad request" })
-        }
-
-        try {
-            const response = await discordApi.get("/users/@me", {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            })
-
-            const user = response.data
-            const isAdmin = user.id === client.config.ownerid
-            const enrichedUser = { ...user, isAdmin }
-
-            const cachedUser = {
-                ...enrichedUser,
-                token
-            }
-
-            req.session.user = cachedUser
-            req.session.oauth = { ...(req.session.oauth || {}), accessToken: token }
-            tokenCache.set(token, cachedUser)
-
-            if (isAdmin) {
-                req.isAdmin = true
-            }
-
-            return res.status(200).json(enrichedUser)
-        } catch (error) {
-            return next(buildDiscordError(error, "Failed to fetch user information"))
-        }
+    const { router: adminRouter, handlers: adminHandlers } = createAdminRouter({
+        client,
+        webSocket,
+        requireCsrfToken,
+        getAccessToken,
+        ensureCsrfToken,
+        healthChecks: client.healthChecks
     })
 
-    router.get("/guilds", async(req, res, next) => {
-        const token = getAccessToken(req)
+    router.use("/admin", adminRouter)
 
-        if (!token) {
-            return res.status(400).json({ message: "400: Bad request" })
-        }
+    router.post("/turnoff", requireCsrfToken, adminHandlers.turnOff)
+    router.post("/turnon", requireCsrfToken, adminHandlers.turnOn)
+    router.get("/client", adminHandlers.getClient)
+    router.get("/guild", adminHandlers.getGuild)
+    router.get("/status", adminHandlers.getStatus)
+    router.patch("/bot", requireCsrfToken, adminHandlers.patchBot)
 
-        try {
-            const response = await discordApi.get("/users/@me/guilds", {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            })
-
-            const guilds = response.data
-
-            const added = guilds.filter((guild) => client.guilds?.cache?.get?.(guild.id))
-            const available = guilds.filter((guild) => {
-                try {
-                    const permissions = guild.permissions ?? "0"
-                    const bitField = new PermissionsBitField(BigInt(permissions))
-                    return bitField.has(PermissionFlagsBits.ManageGuild)
-                } catch (error) {
-                    return false
-                }
-            })
-
-            return res.status(200).json({
-                all: guilds,
-                added,
-                available
-            })
-        } catch (error) {
-            return next(buildDiscordError(error, "Failed to fetch user guilds"))
-        }
+    const usersRouter = createUsersRouter({
+        client,
+        getAccessToken
     })
 
-    router.post("/logout", (req, res) => {
-        if (!req.body?.user) {
-            return res.status(400).json({ message: "400: Bad request" })
-        }
-
-        const token = req.body?.token || req.headers.token || req.session?.oauth?.accessToken
-        if (token) {
-            tokenCache.delete(token)
-        }
-
-        if (req.session) {
-            req.session.destroy(() => {})
-        }
-
-        webSocket?.emit("logout", req.body.user)
-        return res.status(200).json({ message: "200: OK" })
-    })
-
-    router.post("/turnoff", requireCsrfToken, (req, res) => {
-        if (!getAccessToken(req)) {
-            return res.status(400).json({ message: "400: Bad request" })
-        } else if (req.isAdmin) {
-            client.config.enabled = false
-            webSocket?.emit("disable")
-            return res.status(200).json({ message: "200: OK" })
-        }
-
-        return res.status(403).json({ message: "403: Forbidden" })
-    })
-
-    router.post("/turnon", requireCsrfToken, (req, res) => {
-        if (!getAccessToken(req)) {
-            return res.status(400).json({ message: "400: Bad request" })
-        } else if (req.isAdmin) {
-            client.config.enabled = true
-            webSocket?.emit("enable")
-            return res.status(200).json({ message: "200: OK" })
-        }
-
-        return res.status(403).json({ message: "403: Forbidden" })
-    })
-
-    router.get("/client", (req, res) => {
-        if (!getAccessToken(req)) {
-            return res.status(400).json({ message: "400: Bad request" })
-        } else if (req.isAdmin) {
-            const csrfToken = ensureCsrfToken(req)
-            const payload = { ...client.config }
-            if (csrfToken) {
-                payload.csrfToken = csrfToken
-            }
-            return res.status(200).json(payload)
-        }
-
-        return res.status(403).json({ message: "403: Forbidden" })
-    })
-
-    router.get("/guild", (req, res) => {
-        if (!getAccessToken(req)) {
-            return res.status(400).json({ message: "400: Bad request" })
-        } else if (req.isAdmin) {
-            const guildId = req.query?.id
-
-            if (!guildId) {
-                return res.status(400).json({ message: "400: Bad request" })
-            }
-
-            const guild = client.guilds?.cache?.get?.(guildId)
-
-            if (!guild) {
-                return res.status(404).json({ message: "404: Guild not found" })
-            }
-
-            return res.status(200).json(guild)
-        }
-
-        return res.status(403).json({ message: "403: Forbidden" })
-    })
+    router.use("/users", usersRouter)
 
     app.use("/api", router)
 

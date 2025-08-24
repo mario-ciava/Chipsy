@@ -7,6 +7,10 @@ const logger = require("../util/logger")
 const createCommand = require("../util/createCommand")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
 const runTexas = async(msg) => {
+    if (msg?.client?.config?.enabled === false) {
+        await msg.channel?.send("The bot is currently disabled by the administrators. Please try again later.").catch(() => null)
+        return
+    }
     try {
         if (!Array.isArray(msg.params)) msg.params = []
 
@@ -148,31 +152,32 @@ const runTexas = async(msg) => {
             })
             throw gameError
         }
-    const buildGameEmbed = () => {
-        const players = msg.channel.game?.players || []
-        return new Discord.EmbedBuilder()
-            .setColor(Discord.Colors.Green)
-            .addFields(
-                { name: "Texas holdem poker ❤", value: "Your game has been created", inline: false },
-                { name: `Players [${players.length}] 🤑`, value: `${players.join(", ") || "-"}`, inline: true },
-                {
-                    name: "Other info 💰",
-                    value: `Min buy-in: ${setSeparator(msg.channel.game.minBuyIn)}$\nMax buy-in: ${setSeparator(msg.channel.game.maxBuyIn)}$\nMinimum bet: ${setSeparator(msg.channel.game.minBet)}$`,
-                    inline: true
-                },
-                {
-                    name: "Options ⚙",
-                    value: "Type **join [buy-in-amount]** to join this game any moment\nType **leave** to leave this game any moment",
-                    inline: false
-                },
-                {
-                    name: "Be aware ⚠",
-                    value: "If you leave the game while playing, you will lose your bet on the table\nIf all the players leave, the game will be stopped",
-                    inline: false
-                }
-            )
-            .setFooter({ text: "45 Seconds left" })
-    }
+        const buildGameEmbed = () => {
+            const players = msg.channel.game?.players || []
+            return new Discord.EmbedBuilder()
+                .setColor(Discord.Colors.Green)
+                .addFields(
+                    { name: "Texas Hold'em ❤", value: "Your game has been created", inline: false },
+                    { name: `Players [${players.length}] 🤑`, value: `${players.join(", ") || "-"}`, inline: true },
+                    {
+                        name: "Other info 💰",
+                        value: `Min buy-in: ${setSeparator(msg.channel.game.minBuyIn)}$\nMax buy-in: ${setSeparator(msg.channel.game.maxBuyIn)}$\nMinimum bet: ${setSeparator(msg.channel.game.minBet)}$`,
+                        inline: true
+                    },
+                    {
+                        name: "Options ⚙",
+                        value: "Type **join [buy-in-amount]** to join this game any moment\nType **leave** to leave this game any moment",
+                        inline: false
+                    },
+                    {
+                        name: "Be aware ⚠",
+                        value: "If you leave the game while playing, you will lose your bet on the table\nIf all the players leave, the game will be stopped",
+                        inline: false
+                    }
+                )
+                .setFooter({ text: "45 Seconds left" })
+        }
+
         const statusMessage = await msg.channel.send({ embeds: [buildGameEmbed()] }).catch((error) => {
             logger.error("Failed to send texas status message", {
                 scope: "commands",
@@ -333,7 +338,7 @@ const runTexas = async(msg) => {
                 embeds: [
                     new Discord.EmbedBuilder()
                         .setColor(Discord.Colors.Red)
-                        .setDescription("❌ An error occurred while starting the texas hold'em game. Please try again later.")
+                        .setDescription("❌ An error occurred while starting the Texas Hold'em game. Please try again later.")
                 ]
             })
         } catch (sendError) {
@@ -348,7 +353,7 @@ const runTexas = async(msg) => {
 
 const slashCommand = new SlashCommandBuilder()
     .setName("texas")
-    .setDescription("Start a texas hold'em poker game in the current channel.")
+    .setDescription("Start a Texas Hold'em game in the current channel.")
     .addStringOption((option) =>
         option
             .setName("minbet")
@@ -366,11 +371,11 @@ const slashCommand = new SlashCommandBuilder()
 
 module.exports = createCommand({
     name: "texas",
-    description: "Start a texas hold'em poker game in the current channel.",
+    description: "Start a Texas Hold'em game in the current channel.",
     aliases: ["holdem"],
     slashCommand,
     deferEphemeral: false,
-    errorMessage: "Unable to start a texas hold'em game right now. Please try again later.",
+    errorMessage: "Unable to start a Texas Hold'em game right now. Please try again later.",
     execute: async(context) => {
         const message = context.message
         if (!Array.isArray(message.params)) {

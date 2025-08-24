@@ -70,6 +70,11 @@ class CommandRouter {
         const command = this.messageCommands.get(commandName)
         if (!command) return
 
+        if (this.client?.config?.enabled === false) {
+            await message.channel?.send("The bot is currently disabled by the administrators. Please try again later.").catch(() => null)
+            return
+        }
+
         if (!message.author.data) {
             const result = await this.client.SetData(message.author)
             if (result.error) {
@@ -111,6 +116,20 @@ class CommandRouter {
 
         const command = this.slashCommands.get(interaction.commandName.toLowerCase())
         if (!command) return
+
+        if (this.client?.config?.enabled === false) {
+            const response = {
+                content: "The bot is currently disabled by the administrators. Please try again later.",
+                ephemeral: true
+            }
+
+            if (interaction.deferred && !interaction.replied) {
+                await interaction.followUp(response).catch(() => null)
+            } else if (!interaction.replied) {
+                await interaction.reply(response).catch(() => null)
+            }
+            return
+        }
 
         const args = this.resolveInteractionArgs(interaction)
         const messageAdapter = this.createMessageAdapter(interaction, args)

@@ -101,11 +101,57 @@ const createDataHandler = (pool) => {
         }
     }
 
+    const listUsers = async({ page = 1, pageSize = 25, search } = {}) => {
+        const normalizedPageSize = Math.min(Math.max(Number(pageSize) || 25, 1), 100)
+        const normalizedPage = Math.max(Number(page) || 1, 1)
+        const offset = (normalizedPage - 1) * normalizedPageSize
+
+        const filters = []
+        const params = []
+
+        if (typeof search === "string" && search.trim().length > 0) {
+            filters.push("`id` LIKE ?")
+            params.push(`%${search.trim()}%`)
+        }
+
+        const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : ""
+
+        try {
+            const [rows] = await pool.query(
+                `SELECT * FROM \`users\` ${whereClause}
+                ORDER BY COALESCE(\`last_played\`, '1970-01-01 00:00:00') DESC
+                LIMIT ? OFFSET ?`,
+                [...params, normalizedPageSize, offset]
+            )
+
+            const [countRows] = await pool.query(
+                `SELECT COUNT(*) as total FROM \`users\` ${whereClause}`,
+                params
+            )
+
+            const total = countRows?.[0]?.total || 0
+            const totalPages = total === 0 ? 1 : Math.ceil(total / normalizedPageSize)
+
+            return {
+                items: rows.map(mapUserRecord),
+                pagination: {
+                    page: normalizedPage,
+                    pageSize: normalizedPageSize,
+                    total,
+                    totalPages
+                }
+            }
+        } catch (error) {
+            handleError(error, { operation: "listUsers", page: normalizedPage, pageSize: normalizedPageSize, search })
+        }
+    }
+
     return {
         getUserData,
         createUserData,
         updateUserData,
-        resolveDBUser
+        resolveDBUser,
+        listUsers
     }
 }
 

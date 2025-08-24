@@ -3,7 +3,8 @@ const features = require("../structure/features.js"),
     delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
     Game = require("../structure/game.js"),
     cards = require("../structure/cards.js"),
-    setSeparator = require("../util/setSeparator")
+    setSeparator = require("../util/setSeparator"),
+    bankrollManager = require("../util/bankrollManager")
 module.exports = class BlackJack extends Game {
     constructor(info) {
         super(info)
@@ -85,19 +86,39 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "insurance": {
+                const insuranceValue = Math.max(0, Number(info?.amount ?? player?.bets?.insurance ?? 0))
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Orange)
                     .setFooter({
-                        text: `${player.tag} has bought insurance (-${setSeparator(parseInt(player.bets.initial / 2))}$)`,
+                        text: `${player.tag} has bought insurance (-${setSeparator(insuranceValue)}$)`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
             break }
             case "insuranceRefund": {
+                const payout = Math.max(0, Number(info?.payout ?? 0))
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Green)
                     .setFooter({
-                        text: `${player.tag} has been refunded due to insurance (+${setSeparator(player.bets.initial)}$)`,
+                        text: `${player.tag} has been refunded due to insurance (+${setSeparator(payout)}$)`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "invalidBet": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({
+                        text: `${player.tag}, invalid bet amount provided.`,
+                        iconURL: player.displayAvatarURL({ extension: "png" })
+                    })
+                await sendEmbed(embed)
+            break }
+            case "betLocked": {
+                const embed = new Discord.EmbedBuilder()
+                    .setColor(Discord.Colors.Red)
+                    .setFooter({
+                        text: `${player.tag}, you have already placed your bet for this round.`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
@@ -169,7 +190,7 @@ module.exports = class BlackJack extends Game {
                         }).join("\n") || "-"}\n\n**Options (hand #${player.status.currentHand + 1}):** ${player.availableOptions.join(" - ")} ${info ? "*standing automatically*" : ""}`
                     })
                     .setFooter({
-                        text: `Dealer's cards: ${this.dealer.display[0]} (???) | Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.status.insurance ? "yes" : "no"} | 30s left`,
+                        text: `Dealer's cards: ${this.dealer.display[0]} (???) | Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | 30s left`,
                         iconURL: clientAvatar
                     })
                 await sendEmbed(embed)
@@ -261,6 +282,7 @@ module.exports = class BlackJack extends Game {
         }
 
         for (let player of this.players) {
+            player.stack = bankrollManager.getStack(player)
             if (this.hands > 0 && player.stack < this.minBet) {
                 this.RemovePlayer(player)
                 continue
@@ -270,7 +292,10 @@ module.exports = class BlackJack extends Game {
             player.status = {
                 current: false,
                 currentHand: 0,
-                insurance: false,
+                insurance: {
+                    wager: 0,
+                    settled: false
+                },
                 won: {
                     grossValue: 0,
                     netValue: 0,
@@ -279,7 +304,8 @@ module.exports = class BlackJack extends Game {
             }
             player.bets = {
                 initial: 0,
-                total: 0
+                total: 0,
+                insurance: 0
             }
         }
 
@@ -303,14 +329,34 @@ module.exports = class BlackJack extends Game {
         this.SendMessage("betsOpened")
         this.betsCollector.on("collect", async(mess) => {
             if (mess.deletable) mess.delete()
-            let player = this.GetPlayer(mess.author.id),
-                bet = features.inputConverter(mess.content.toLowerCase().split(" ")[1]) || this.minBet
-            if (bet < this.minBet) return
-            if (player.stack < bet) return this.SendMessage("noMoneyBet", player)
+            let player = this.GetPlayer(mess.author.id)
+            if (!player || !player.data) return
+            if (player.bets && player.bets.initial > 0) {
+                await this.SendMessage("betLocked", player)
+                return
+            }
+            const contentParts = mess.content.toLowerCase().trim().split(/\s+/)
+            const betArgument = contentParts[1]
+            const rawBet = betArgument !== undefined ? features.inputConverter(betArgument) : undefined
+            let bet = rawBet
+            if (bet === undefined) bet = this.minBet
+            if (!Number.isFinite(bet) || bet <= 0) {
+                await this.SendMessage("invalidBet", player)
+                return
+            }
+            bet = Math.floor(bet)
+            if (bet < this.minBet) {
+                await this.SendMessage("invalidBet", player)
+                return
+            }
+            if (!bankrollManager.canAfford(player, bet)) return this.SendMessage("noMoneyBet", player)
+            if (!bankrollManager.withdraw(player, bet)) return this.SendMessage("noMoneyBet", player)
             player.bets.initial = bet
             player.bets.total += bet
-            player.stack -= bet
-            player.data.money -= bet
+            if (player.newEntry) {
+                player.newEntry = false
+                this.UpdateInGame()
+            }
             let assigned = await this.PickRandom(this.cards, 2)
             player.hands.push({
                 cards: assigned,
@@ -320,7 +366,8 @@ module.exports = class BlackJack extends Game {
                 BJ: false,
                 push: false,
                 bet: player.bets.initial,
-                display: []
+                display: [],
+                fromSplitAce: false
             })
             if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
             await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
@@ -433,15 +480,19 @@ module.exports = class BlackJack extends Game {
     }
 
     async GetAvailableOptions(player, h) {
-        this.ComputeHandsValue(player)
-        let available = [],
-        hand = player.hands[h]
+        await this.ComputeHandsValue(player)
+        let available = []
+        const hand = player.hands[h]
         available.push("stand")
-        if (player.hands.length > 1 && player.hands[0].cards[0].split("")[0] == "A") return available
+        const isSplitAceHand = hand.fromSplitAce && hand.cards.length >= 2
+        if (isSplitAceHand) return available
         available.push("hit")
-        if (hand.cards.length < 3 && player.stack >= player.bets.initial) available.push("double")
-        if (hand.pair && player.hands.length < 4 && player.stack >= player.bets.initial) available.push("split")
-        if (this.dealer.cards[0].split("")[0] == "A" && !player.status.insurance && hand.cards.length < 3 && player.stack >= parseInt(player.bets.initial/2)) available.push("insurance")
+        const canAffordBaseBet = bankrollManager.canAfford(player, player.bets?.initial)
+        if (hand.cards.length < 3 && canAffordBaseBet) available.push("double")
+        if (hand.pair && player.hands.length < 4 && canAffordBaseBet) available.push("split")
+        const insuranceBet = Math.floor(player.bets.initial / 2)
+        const dealerUpCard = (this.dealer?.cards?.[0] || "").split("")[0]
+        if (dealerUpCard == "A" && player.bets.insurance < 1 && hand.cards.length < 3 && insuranceBet > 0 && bankrollManager.canAfford(player, insuranceBet)) available.push("insurance")
         return available
     }
 
@@ -450,26 +501,44 @@ module.exports = class BlackJack extends Game {
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
         await this.ComputeHandsValue(player)
-        await this.SendMessage(type, player)
         switch(type) {
             case `stand`:
+                await this.SendMessage("stand", player)
             break
             case `hit`:
                 player.hands[hand].cards = player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
                 await this.ComputeHandsValue(player)
+                await this.SendMessage("hit", player)
                 if (!player.hands[hand].busted) return this.NextPlayer(player)
             break
-            case `double`:
+            case `double`: {
+                const additionalBet = Number.isFinite(player.bets?.initial) ? player.bets.initial : 0
+                if (additionalBet < 1 || !bankrollManager.canAfford(player, additionalBet)) {
+                    await this.SendMessage("noMoneyBet", player)
+                    return this.NextPlayer(player)
+                }
                 player.hands[hand].cards = player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
-                player.stack -= player.bets.initial
-                player.bets.total += player.bets.initial
-                player.hands[hand].bet += player.bets.initial
+                if (!bankrollManager.withdraw(player, additionalBet)) {
+                    await this.SendMessage("noMoneyBet", player)
+                    return this.NextPlayer(player)
+                }
+                player.bets.total += additionalBet
+                player.hands[hand].bet += additionalBet
                 await this.ComputeHandsValue(player)
+                await this.SendMessage("double", player)
                 if (!player.hands[hand].busted) return this.NextPlayer(player, true)
-            break
-            case `split`:
-                let removedCard = await player.hands[hand].cards.splice(1, 1)
-                player.hands[hand].pair = false
+            break }
+            case `split`: {
+                const splitCost = Number.isFinite(player.bets?.initial) ? player.bets.initial : 0
+                if (splitCost < 1 || !bankrollManager.canAfford(player, splitCost)) {
+                    await this.SendMessage("noMoneyBet", player)
+                    return this.NextPlayer(player)
+                }
+                const currentHand = player.hands[hand]
+                let removedCard = await currentHand.cards.splice(1, 1)
+                currentHand.pair = false
+                const splitAce = currentHand.cards[0].split("")[0] == "A"
+                currentHand.fromSplitAce = splitAce
                 player.hands.push({
                     cards: removedCard.concat(await this.PickRandom(this.cards, 1)),
                     value: 0,
@@ -478,23 +547,44 @@ module.exports = class BlackJack extends Game {
                     BJ: false,
                     push: false,
                     bet: player.bets.initial,
-                    display: []
+                    display: [],
+                    fromSplitAce: splitAce
                 })
-                player.hands[hand].cards = await player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
+                currentHand.cards = await currentHand.cards.concat(await this.PickRandom(this.cards, 1))
                 await this.ComputeHandsValue(player)
-                player.stack -= player.bets.initial
-                player.bets.total += player.bets.initial
+                if (!bankrollManager.withdraw(player, splitCost)) {
+                    await this.SendMessage("noMoneyBet", player)
+                    return this.NextPlayer(player)
+                }
+                player.bets.total += splitCost
+                await this.SendMessage("split", player)
                 return this.NextPlayer(player)
-            break
-            case `insurance`:
-                player.stack -= parseInt(player.bets.initial / 2)
-                player.status.insurance = true
+            }
+            case `insurance`: {
+                const insuranceBet = Math.floor(player.bets.initial / 2)
+                if (insuranceBet < 1 || player.bets.insurance > 0) return this.NextPlayer(player)
+                if (!bankrollManager.canAfford(player, insuranceBet)) {
+                    await this.SendMessage("noMoneyBet", player)
+                    return this.NextPlayer(player)
+                }
+                if (!bankrollManager.withdraw(player, insuranceBet)) {
+                    await this.SendMessage("noMoneyBet", player)
+                    return this.NextPlayer(player)
+                }
+                player.bets.insurance += insuranceBet
+                player.bets.total += insuranceBet
+                player.status.insurance = {
+                    wager: insuranceBet,
+                    settled: false
+                }
+                await this.SendMessage("insurance", player, { amount: insuranceBet })
                 return this.NextPlayer(player)
+            }
             break
         }
 
         await delay(2000)
-        this.ComputeHandsValue(player)
+        await this.ComputeHandsValue(player)
         await this.UpdateDisplay(player.hands)
 
         if (player.hands[hand].busted) 
@@ -551,12 +641,16 @@ module.exports = class BlackJack extends Game {
         for (let player of this.inGamePlayers) {
                 player.status.won.expEarned += 10
                 player.data.hands_played++
-            if (this.dealer.BJ && player.status.insurance) {
-                player.stack += player.bets.initial
-                player.data.money += player.bets.initial
-                this.SendMessage("insuranceRefund", player)
+            const insuranceWager = player.status.insurance?.wager || 0
+            if (this.dealer.BJ && insuranceWager > 0 && !player.status.insurance.settled) {
+                const insurancePayout = insuranceWager * 3
+                bankrollManager.deposit(player, insurancePayout)
+                player.status.insurance.settled = true
+                player.status.won.grossValue += insurancePayout
+                player.status.won.netValue += (insurancePayout - insuranceWager)
+                await this.SendMessage("insuranceRefund", player, { payout: insurancePayout })
                 await delay(1000)
-            } 
+            }
             for (let hand of player.hands) {
                 let wf = 1
                 if (hand.busted) continue
@@ -566,8 +660,7 @@ module.exports = class BlackJack extends Game {
                 if (!this.dealer.busted && hand.value == this.dealer.value) hand.push = true
                 player.status.won.grossValue += (hand.bet * wf)
                 let winning = hand.push ? (hand.bet * wf) : this.GetNetValue(hand.bet * wf, player)
-                player.stack += winning
-                player.data.money += winning
+                bankrollManager.deposit(player, winning)
                 player.status.won.netValue += winning
             }
             if (player.status.won.grossValue > 0) {
@@ -596,6 +689,17 @@ module.exports = class BlackJack extends Game {
     async AddPlayer(player) {
         if (this.players.length == this.maxPlayers) return this.SendMessage("maxPlayers", player)
         if (this.GetPlayer(player.id)) return
+        const buyInResult = bankrollManager.normalizeBuyIn({
+            requested: player.stack,
+            minBuyIn: this.minBuyIn,
+            maxBuyIn: this.maxBuyIn,
+            bankroll: bankrollManager.getBankroll(player)
+        })
+        if (!buyInResult.ok) {
+            await this.SendMessage("noMoneyBet", player)
+            return
+        }
+        player.stack = buyInResult.amount
         player.newEntry = true
         await this.players.push(player)
         await this.SendMessage("playerAdded", player)

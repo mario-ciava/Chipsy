@@ -1,10 +1,16 @@
 {
-  "name": "poker",
+  "name": "chipsy",
   "version": "1.0.0",
-  "description": "",
+  "description": "Chipsy Discord bot and control panel",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js",
+    "start": "npm run dev",
+    "dev": "node scripts/devRunner.js",
+    "dev:bot": "node server/index.js",
+    "dev:panel": "npm --prefix web run serve",
+    "dev:mysql": "docker compose up mysql",
+    "bot": "node app.js",
+    "panel:build": "npm --prefix web run build",
     "test": "jest",
     "migrate:exp-columns": "node scripts/migrateExpColumns.js",
     "migrate:bigint-columns": "node scripts/migrateBigIntColumns.js"

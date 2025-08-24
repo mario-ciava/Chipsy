@@ -14,7 +14,8 @@ const envSchema = z.object({
     MYSQL_PORT: z.coerce.number().int().positive("MYSQL_PORT must be a positive integer.").default(3306),
     MYSQL_DATABASE: z.string().min(1, "MYSQL_DATABASE is required.").default("app_data"),
     MYSQL_USER: z.string().optional(),
-    MYSQL_PASSWORD: z.string().optional()
+    MYSQL_PASSWORD: z.string().optional(),
+    FRONTEND_REDIRECT_ORIGIN: z.string().optional()
 })
 
 const parsedEnv = envSchema.safeParse(process.env)
@@ -47,5 +48,8 @@ module.exports = {
         database: env.MYSQL_DATABASE,
         user: env.MYSQL_USER,
         password: env.MYSQL_PASSWORD
+    },
+    web: {
+        redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || "http://localhost:8082"
     }
 }

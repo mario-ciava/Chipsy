@@ -1,0 +1,111 @@
+<template>
+    <div class="card">
+        <div class="card__header">
+            <h3 class="card__title">Server Discord collegati</h3>
+            <p class="card__subtitle">
+                Verifica in quali server il bot è già operativo e dove puoi invitarlo.
+            </p>
+        </div>
+
+        <div class="card__body guilds">
+            <div class="guilds__column">
+                <h4 class="guilds__title">Attivi</h4>
+                <p v-if="!hasAdded" class="guilds__empty">Il bot non è presente in nessun server gestito.</p>
+                <ul v-else class="guilds__list">
+                    <li v-for="guild in guilds.added" :key="guild.id">
+                        <span class="guilds__name">{{ guild.name }}</span>
+                        <div class="guilds__actions">
+                            <button
+                                type="button"
+                                class="button button--ghost guilds__leave-button"
+                                @click="emitLeave(guild.id)"
+                            >
+                                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M4 9a1 1 0 100 2h12a1 1 0 100-2H4z" />
+                                </svg>
+                                Lascia
+                            </button>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div class="guilds__column">
+                <h4 class="guilds__title">Gestibili</h4>
+                <p v-if="!hasAvailable" class="guilds__empty">
+                    Non ci sono altri server su cui hai i permessi necessari.
+                </p>
+                <ul v-else class="guilds__list">
+                    <li v-for="guild in guilds.available" :key="guild.id">
+                        <span class="guilds__name">{{ guild.name }}</span>
+                        <div class="guilds__actions">
+                            <button
+                                type="button"
+                                class="button button--secondary guilds__invite-button"
+                                @click="openInvite(guild.id)"
+                            >
+                                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
+                                </svg>
+                                Invita
+                            </button>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script>
+import { getRuntimeOrigin, getControlPanelRedirect } from "../../utils/runtime"
+
+const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
+
+export default {
+    name: "GuildOverview",
+    props: {
+        guilds: {
+            type: Object,
+            default: () => ({
+                added: [],
+                available: []
+            })
+        }
+    },
+    computed: {
+        hasAdded() {
+            return Array.isArray(this.guilds.added) && this.guilds.added.length > 0
+        },
+        hasAvailable() {
+            return Array.isArray(this.guilds.available) && this.guilds.available.length > 0
+        },
+        inviteClientId() {
+            return process.env.VUE_APP_DISCORD_CLIENT_ID
+        },
+        inviteRedirect() {
+            return encodeURIComponent(getControlPanelRedirect())
+        },
+        invitePermissions() {
+            const value = Number(process.env.VUE_APP_DISCORD_INVITE_PERMISSIONS)
+            if (Number.isSafeInteger(value) && value >= 0) {
+                return String(value)
+            }
+            return "2147483648" // Administrator by default
+        }
+    },
+    methods: {
+        inviteUrl(guildId) {
+            if (!this.inviteClientId) return "#"
+            return `${INVITE_BASE}?client_id=${this.inviteClientId}&redirect_uri=${this.inviteRedirect}&response_type=code&scope=bot%20applications.commands&permissions=${this.invitePermissions}&guild_id=${guildId}`
+        },
+        openInvite(guildId) {
+            const url = this.inviteUrl(guildId)
+            if (url === "#") return
+            window.open(url, "_blank", "noopener,noreferrer")
+        },
+        emitLeave(guildId) {
+            this.$emit("leave", guildId)
+        }
+    }
+}
+</script>
