@@ -106,7 +106,8 @@ describe("Express API integration", () => {
             guilds: {
                 cache: {
                     get: jest.fn((id) => (id === "1" ? { id: "1", name: "Guild One" } : undefined))
-                }
+                },
+                fetch: jest.fn().mockResolvedValue({ id: "fetched" })
             },
             dataHandler: {
                 listUsers: jest.fn().mockResolvedValue({
@@ -170,7 +171,10 @@ describe("Express API integration", () => {
             listen: false,
             rateLimiter: false,
             logger: false,
-            discordApi
+            discordApi,
+            sessionOptions: {
+                secret: "test-session-secret-32-characters-minimum"
+            }
         })
 
         agent = new TestAgent(app)
@@ -297,6 +301,65 @@ describe("Express API integration", () => {
         expect(body.added).toHaveLength(1)
         expect(body.added[0]).toMatchObject({ id: "1" })
         expect(body.available).toEqual([])
+    })
+
+    test("POST /api/admin/guild/invite/complete finalizes bot invite", async() => {
+        discordApi.get.mockResolvedValueOnce({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        const userResponse = await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(userResponse.response.status).toBe(200)
+
+        const clientConfig = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const csrfToken = clientConfig.body.csrfToken
+        expect(csrfToken).toBeTruthy()
+
+        discordApi.post.mockResolvedValueOnce({
+            data: {
+                access_token: "bot-access",
+                token_type: "Bearer",
+                scope: "bot applications.commands"
+            }
+        })
+
+        const inviteResponse = await agent.requestJson("/api/admin/guild/invite/complete", {
+            method: "POST",
+            headers: {
+                token: "access-token",
+                "x-csrf-token": csrfToken,
+                "content-type": "application/json"
+            },
+            body: JSON.stringify({ code: "invite-code", guildId: "123" })
+        })
+
+        expect(inviteResponse.response.status).toBe(200)
+        expect(discordApi.post).toHaveBeenCalledWith(
+            "/oauth2/token",
+            expect.stringContaining("code=invite-code"),
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    Authorization: expect.stringContaining("Basic "),
+                    "Content-Type": "application/x-www-form-urlencoded"
+                })
+            })
+        )
+        const [, body] = discordApi.post.mock.calls.find(([url]) => url === "/oauth2/token")
+        expect(body).toEqual(expect.stringContaining("client_id=client-id"))
+        expect(body).toEqual(expect.stringMatching(/scope=bot(?:%20|\+)applications\.commands/))
+        expect(client.guilds.fetch).toHaveBeenCalledWith("123", { force: true })
+        expect(inviteResponse.body).toHaveProperty("status")
     })
 
     test("GET /api/admin/status returns current bot state and health data", async() => {

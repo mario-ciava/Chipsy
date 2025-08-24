@@ -1,3 +1,4 @@
+const { MessageFlags } = require("discord.js")
 const handleMessage = require("../events/msg")
 const handleInteraction = require("../events/interaction")
 
@@ -66,7 +67,7 @@ describe("event handlers respect bot enabled flag", () => {
 
             await handleInteraction(interaction)
 
-            expect(reply).toHaveBeenCalledWith({ content: disabledNotice, ephemeral: true })
+            expect(reply).toHaveBeenCalledWith({ content: disabledNotice, flags: MessageFlags.Ephemeral })
             expect(followUp).not.toHaveBeenCalled()
             expect(handleInteractionSpy).not.toHaveBeenCalled()
         })

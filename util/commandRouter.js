@@ -1,4 +1,4 @@
-const { Collection, ApplicationCommandOptionType, EmbedBuilder, Colors } = require("discord.js")
+const { Collection, ApplicationCommandOptionType, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
 const logger = require("./logger")
 
 class CommandRouter {
@@ -70,11 +70,6 @@ class CommandRouter {
         const command = this.messageCommands.get(commandName)
         if (!command) return
 
-        if (this.client?.config?.enabled === false) {
-            await message.channel?.send("The bot is currently disabled by the administrators. Please try again later.").catch(() => null)
-            return
-        }
-
         if (!message.author.data) {
             const result = await this.client.SetData(message.author)
             if (result.error) {
@@ -117,20 +112,6 @@ class CommandRouter {
         const command = this.slashCommands.get(interaction.commandName.toLowerCase())
         if (!command) return
 
-        if (this.client?.config?.enabled === false) {
-            const response = {
-                content: "The bot is currently disabled by the administrators. Please try again later.",
-                ephemeral: true
-            }
-
-            if (interaction.deferred && !interaction.replied) {
-                await interaction.followUp(response).catch(() => null)
-            } else if (!interaction.replied) {
-                await interaction.reply(response).catch(() => null)
-            }
-            return
-        }
-
         const args = this.resolveInteractionArgs(interaction)
         const messageAdapter = this.createMessageAdapter(interaction, args)
 
@@ -139,7 +120,12 @@ class CommandRouter {
             const shouldDefer = config.defer !== undefined ? config.defer : true
             const deferEphemeral = config.deferEphemeral !== undefined ? config.deferEphemeral : true
             if (shouldDefer && !interaction.deferred && !interaction.replied) {
-                await interaction.deferReply({ ephemeral: deferEphemeral })
+                const flags = deferEphemeral ? MessageFlags.Ephemeral : undefined
+                if (flags) {
+                    await interaction.deferReply({ flags })
+                } else {
+                    await interaction.deferReply()
+                }
             }
         } catch (error) {
             logger.error("Failed to defer reply for slash command", {
@@ -160,7 +146,7 @@ class CommandRouter {
                         result.error.type === "database"
                             ? "We couldn't connect to the database. Please try again later."
                             : "Unable to prepare your player profile. Please contact support.",
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 }
 
                 if (interaction.deferred && !interaction.replied) {
@@ -192,7 +178,7 @@ class CommandRouter {
             })
             const response = {
                 content: "An error occurred while executing this command.",
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             }
 
             if (interaction.deferred && !interaction.replied) {

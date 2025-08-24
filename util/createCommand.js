@@ -1,3 +1,4 @@
+const { MessageFlags } = require("discord.js")
 const logger = require("./logger")
 const { buildCommandContext, CommandUserError } = require("./commandContext")
 
@@ -69,12 +70,12 @@ const createCommand = ({
                 if (context.interaction.deferred && !context.interaction.replied) {
                     await context.safeInvoke(context.followUp, {
                         content: disabledMessage,
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     })
                 } else if (!context.interaction.replied) {
                     await context.safeInvoke(context.reply, {
                         content: disabledMessage,
-                        ephemeral: true
+                        flags: MessageFlags.Ephemeral
                     })
                 }
             } else if (context.message) {

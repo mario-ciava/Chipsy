@@ -13,6 +13,16 @@
             </div>
         </header>
 
+        <transition name="fade">
+            <div
+                v-if="flashMessage"
+                class="dashboard__notice"
+                :class="`dashboard__notice--${flashMessage.type}`"
+            >
+                {{ flashMessage.message }}
+            </div>
+        </transition>
+
         <section class="dashboard__grid">
             <BotStatusCard
                 :status="botStatus"
@@ -66,7 +76,9 @@ export default {
             },
             actions: [],
             errorMessage: null,
-            statusInterval: null
+            statusInterval: null,
+            flashMessage: null,
+            flashTimeout: null
         }
     },
     computed: {
@@ -80,10 +92,7 @@ export default {
             pagination: (state) => state.pagination,
             usersLoading: (state) => state.loading,
             usersSearch: (state) => state.search
-        }),
-        token() {
-            return this.$store.state.session.token
-        }
+        })
     },
     async created() {
         if (!this.isAuthenticated) {
@@ -91,14 +100,85 @@ export default {
             return
         }
         await this.initialize()
+        await this.handleInviteRedirect()
     },
     beforeDestroy() {
         if (this.statusInterval) {
             clearInterval(this.statusInterval)
             this.statusInterval = null
         }
+        if (this.flashTimeout) {
+            clearTimeout(this.flashTimeout)
+            this.flashTimeout = null
+        }
     },
     methods: {
+        setFlash(message, type = "info") {
+            if (this.flashTimeout) {
+                clearTimeout(this.flashTimeout)
+                this.flashTimeout = null
+            }
+            if (!message) {
+                this.flashMessage = null
+                return
+            }
+            this.flashMessage = { message, type }
+            this.flashTimeout = setTimeout(() => {
+                this.flashMessage = null
+                this.flashTimeout = null
+            }, 5000)
+        },
+        async waitForGuildJoin(guildId) {
+            if (guildId && this.guilds.added.some((guild) => guild.id === guildId)) {
+                return true
+            }
+            const maxAttempts = guildId ? 5 : 3
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                await this.loadGuilds()
+                if (!guildId) {
+                    return true
+                }
+                if (this.guilds.added.some((guild) => guild.id === guildId)) {
+                    return true
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1500))
+            }
+            return false
+        },
+        async handleInviteRedirect() {
+            if (this.$route.query.state !== "controlPanelInvite") return
+            const guildId = this.$route.query.guild_id || null
+            const code = this.$route.query.code || null
+            const csrfToken = this.$store.state.session.csrfToken
+
+            if (code) {
+                if (!csrfToken) {
+                    this.setFlash("Sessione non valida. Effettua di nuovo il login e ripeti l'invito.", "warning")
+                    this.$router.replace({ path: "/control_panel" }).catch(() => {})
+                    return
+                }
+                try {
+                    await api.completeInvite({ csrfToken, code, guildId })
+                } catch (error) {
+                    // eslint-disable-next-line no-console
+                    console.error("Failed to finalize invite", error)
+                    this.setFlash("Non è stato possibile completare l'invito. Riprova più tardi.", "warning")
+                    this.$router.replace({ path: "/control_panel" }).catch(() => {})
+                    return
+                }
+            }
+
+            const joined = await this.waitForGuildJoin(guildId)
+            if (joined) {
+                this.$store.dispatch("bot/fetchStatus").catch(() => null)
+                this.setFlash("Chipsy è stato aggiunto al server selezionato.", "success")
+            } else if (guildId) {
+                this.setFlash("Invito completato. Discord sta ancora elaborando l'ingresso del bot, riprova tra qualche secondo.", "warning")
+            } else {
+                this.setFlash("Invito completato. Aggiorna l'elenco per verificare i server attivi.")
+            }
+            this.$router.replace({ path: "/control_panel" }).catch(() => {})
+        },
         async initialize() {
             this.errorMessage = null
             try {
@@ -123,9 +203,9 @@ export default {
             }, 30000)
         },
         async loadGuilds() {
-            if (!this.token) return
+            if (!this.isAuthenticated) return
             try {
-                const guilds = await api.getGuilds(this.token)
+                const guilds = await api.getGuilds()
                 const added = Array.isArray(guilds.added) ? guilds.added : []
                 const availableRaw = Array.isArray(guilds.available) ? guilds.available : []
                 const addedIds = new Set(added.map((guild) => guild.id))
@@ -141,9 +221,9 @@ export default {
             }
         },
         async loadActions() {
-            if (!this.token) return
+            if (!this.isAuthenticated) return
             try {
-                const response = await api.getAdminActions(this.token)
+                const response = await api.getAdminActions()
                 this.actions = response.actions || []
             } catch (error) {
                 // eslint-disable-next-line no-console
@@ -153,8 +233,13 @@ export default {
         async toggleBot(enabled) {
             try {
                 await this.$store.dispatch("bot/updateEnabled", enabled)
+                this.setFlash(`Bot ${enabled ? 'acceso' : 'spento'} con successo.`, "success")
             } catch (error) {
-                this.errorMessage = "Non è stato possibile aggiornare lo stato del bot."
+                if (error.code === 409) {
+                    this.setFlash(error.message, "warning")
+                } else {
+                    this.setFlash("Non è stato possibile aggiornare lo stato del bot.", "warning")
+                }
                 // eslint-disable-next-line no-console
                 console.error("Toggle bot failed", error)
             }
@@ -191,12 +276,11 @@ export default {
         },
         async leaveGuild(id) {
             try {
-                const token = this.$store.state.session.token
                 const csrfToken = this.$store.state.session.csrfToken
-                if (!token || !csrfToken) {
+                if (!csrfToken) {
                     throw new Error("Missing authentication context")
                 }
-                await api.leaveGuild({ token, csrfToken, guildId: id })
+                await api.leaveGuild({ csrfToken, guildId: id })
                 await this.loadGuilds()
             } catch (error) {
                 // eslint-disable-next-line no-console
@@ -216,5 +300,24 @@ export default {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+}
+
+.dashboard__notice {
+    margin: 16px 0;
+    padding: 14px 18px;
+    border-radius: 12px;
+    font-weight: 500;
+    background: rgba(148, 163, 184, 0.1);
+    color: #e2e8f0;
+}
+
+.dashboard__notice--success {
+    background: rgba(74, 222, 128, 0.2);
+    color: #bbf7d0;
+}
+
+.dashboard__notice--warning {
+    background: rgba(250, 204, 21, 0.2);
+    color: #fef08a;
 }
 </style>

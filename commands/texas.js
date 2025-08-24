@@ -6,6 +6,7 @@ const setSeparator = require("../util/setSeparator")
 const logger = require("../util/logger")
 const createCommand = require("../util/createCommand")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
+const { registerGame } = require("../util/gameRegistry")
 const runTexas = async(msg) => {
     if (msg?.client?.config?.enabled === false) {
         await msg.channel?.send("The bot is currently disabled by the administrators. Please try again later.").catch(() => null)
@@ -141,6 +142,7 @@ const runTexas = async(msg) => {
                 minBet: safeMinBet,
                 maxPlayers
             })
+            registerGame(msg.client, msg.channel.game)
         } catch (gameError) {
             logger.error("Failed to create Texas game instance", {
                 scope: "commands",
@@ -313,6 +315,7 @@ const runTexas = async(msg) => {
         if (msg.channel.game.players.length > 1) msg.channel.game.Run(true)
             else msg.channel.game.Stop()
     } catch (error) {
+        const disabled = msg?.client?.config?.enabled === false
         logger.error("Failed to execute texas command", {
             scope: "commands",
             command: "texas",
@@ -323,7 +326,7 @@ const runTexas = async(msg) => {
 
         if (msg.channel?.game) {
             try {
-                msg.channel.game.Stop()
+                await msg.channel.game.Stop({ notify: !disabled })
             } catch (stopError) {
                 logger.error("Failed to stop texas game after error", {
                     scope: "commands",
@@ -331,6 +334,25 @@ const runTexas = async(msg) => {
                     error: stopError.message
                 })
             }
+        }
+
+        if (disabled) {
+            try {
+                await msg.channel.send({
+                    embeds: [
+                        new Discord.EmbedBuilder()
+                            .setColor(Discord.Colors.Orange)
+                            .setDescription("⚠️ Tavolo Texas Hold'em chiuso perché Chipsy è stato disattivato dagli amministratori.")
+                    ]
+                }).catch(() => null)
+            } catch (noticeError) {
+                logger.warn("Failed to send texas disable notice", {
+                    scope: "commands",
+                    command: "texas",
+                    error: noticeError.message
+                })
+            }
+            return
         }
 
         try {

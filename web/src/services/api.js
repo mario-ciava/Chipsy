@@ -10,14 +10,6 @@ const http = axios.create({
     withCredentials: true
 })
 
-const withToken = (token, headers = {}) => {
-    const next = { ...headers }
-    if (token && !next.token) {
-        next.token = token
-    }
-    return next
-}
-
 const withCsrf = (csrfToken, headers = {}) => {
     const next = { ...headers }
     if (csrfToken && !next["x-csrf-token"]) {
@@ -38,84 +30,80 @@ const api = {
         return response.data
     },
 
-    async getCurrentUser(token) {
-        const response = await http.get("/user", {
-            headers: withToken(token)
-        })
+    async getCurrentUser() {
+        const response = await http.get("/user")
         return response.data
     },
 
-    async getClientConfig(token) {
-        const response = await http.get("/client", {
-            headers: withToken(token)
-        })
+    async getClientConfig() {
+        const response = await http.get("/client")
         return response.data
     },
 
-    async getBotStatus(token) {
-        const response = await http.get("/admin/status", {
-            headers: withToken(token)
-        })
+    async getBotStatus() {
+        const response = await http.get("/admin/status")
         return response.data
     },
 
-    async toggleBot({ token, csrfToken, enabled }) {
+    async toggleBot({ csrfToken, enabled }) {
         const response = await http.patch(
             "/admin/bot",
             { enabled },
             {
-                headers: withCsrf(csrfToken, withToken(token, { "Content-Type": "application/json" }))
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
             }
         )
         return response.data
     },
 
-    async getGuilds(token) {
-        const response = await http.get("/guilds", {
-            headers: withToken(token)
-        })
+    async getGuilds() {
+        const response = await http.get("/guilds")
         return response.data
     },
 
-    async listUsers({ token, params }) {
-        const response = await http.get("/users", {
-            params,
-            headers: withToken(token)
-        })
+    async listUsers({ params }) {
+        const response = await http.get("/users", { params })
         return response.data
     },
 
-    async getUserById({ token, id }) {
-        const response = await http.get(`/users/${id}`, {
-            headers: withToken(token)
-        })
+    async getUserById({ id }) {
+        const response = await http.get(`/users/${id}`)
         return response.data
     },
 
-    async getAdminActions(token) {
-        const response = await http.get("/admin/actions", {
-            headers: withToken(token)
-        })
+    async getAdminActions() {
+        const response = await http.get("/admin/actions")
         return response.data
     },
 
-    async leaveGuild({ token, csrfToken, guildId }) {
+    async leaveGuild({ csrfToken, guildId }) {
         const response = await http.post(
             "/admin/guild/leave",
             { id: guildId },
             {
-                headers: withCsrf(csrfToken, withToken(token))
+                headers: withCsrf(csrfToken)
             }
         )
         return response.data
     },
 
-    async logout({ token, user }) {
+    async completeInvite({ csrfToken, code, guildId }) {
+        const response = await http.post(
+            "/admin/guild/invite/complete",
+            { code, guildId },
+            {
+                headers: withCsrf(csrfToken)
+            }
+        )
+        return response.data
+    },
+
+    async logout({ csrfToken, user }) {
         const response = await http.post(
             "/logout",
             { user },
             {
-                headers: withToken(token)
+                headers: withCsrf(csrfToken)
             }
         )
         return response.data

@@ -318,21 +318,37 @@ a:hover {
     font-weight: 600;
     font-size: 0.9rem;
     text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    --pill-dot-color: currentColor;
+}
+
+.status-pill::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--pill-dot-color);
+    box-shadow: 0 0 8px var(--pill-dot-color);
 }
 
 .status-pill--success {
     background: rgba(74, 222, 128, 0.2);
     color: #bbf7d0;
+    --pill-dot-color: #22c55e;
 }
 
 .status-pill--danger {
     background: rgba(248, 113, 113, 0.2);
     color: #fecaca;
+    --pill-dot-color: #ef4444;
 }
 
 .status-pill--warning {
     background: rgba(250, 204, 21, 0.2);
     color: #fef08a;
+    --pill-dot-color: #facc15;
 }
 
 .status-list {

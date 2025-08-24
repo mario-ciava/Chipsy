@@ -91,12 +91,15 @@ export default {
                 return String(value)
             }
             return "2147483648" // Administrator by default
+        },
+        inviteState() {
+            return "controlPanelInvite"
         }
     },
     methods: {
         inviteUrl(guildId) {
             if (!this.inviteClientId) return "#"
-            return `${INVITE_BASE}?client_id=${this.inviteClientId}&redirect_uri=${this.inviteRedirect}&response_type=code&scope=bot%20applications.commands&permissions=${this.invitePermissions}&guild_id=${guildId}`
+            return `${INVITE_BASE}?client_id=${this.inviteClientId}&redirect_uri=${this.inviteRedirect}&response_type=code&scope=bot%20applications.commands&permissions=${this.invitePermissions}&guild_id=${guildId}&disable_guild_select=true&state=${this.inviteState}`
         },
         openInvite(guildId) {
             const url = this.inviteUrl(guildId)

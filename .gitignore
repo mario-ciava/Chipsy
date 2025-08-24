@@ -5,4 +5,5 @@ config.json
 .env
 .env.local
 web/dist/
-
+/Chipsy.png
+/web/public/brand

@@ -6,6 +6,7 @@ const setSeparator = require("../util/setSeparator")
 const logger = require("../util/logger")
 const createCommand = require("../util/createCommand")
 const bankrollManager = require("../util/bankrollManager")
+const { registerGame } = require("../util/gameRegistry")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
 
 const testerProvisionConfig = {
@@ -14,10 +15,6 @@ const testerProvisionConfig = {
     defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL
 }
 const runBlackjack = async(context) => {
-    if (context.client?.config?.enabled === false) {
-        await context.reply({ content: "The bot is currently disabled by the administrators. Please try again later." })
-        return
-    }
     const msg = context.message
     const channel = msg?.channel
 
@@ -97,7 +94,7 @@ const runBlackjack = async(context) => {
         })
 
         if (!Number.isFinite(minBet) || minBet <= 0) {
-            return await msg.channel.send({
+            await msg.channel.send({
                 embeds: [createErrorEmbed("access denied: minimum bet must be a positive number.")]
             }).catch((error) => {
                 logger.error("Failed to send blackjack invalid-bet message", {
@@ -108,12 +105,12 @@ const runBlackjack = async(context) => {
                     error: error.message,
                     stack: error.stack
                 })
-                throw error
             })
+            return
         }
 
         if (maxPlayersInput !== undefined && (!Number.isFinite(maxPlayersInput) || maxPlayersInput <= 0)) {
-            return await msg.channel.send({
+            await msg.channel.send({
                 embeds: [createErrorEmbed("access denied: maximum number of players must be a positive integer.")]
             }).catch((error) => {
                 logger.error("Failed to send blackjack invalid-maxplayers message", {
@@ -124,14 +121,14 @@ const runBlackjack = async(context) => {
                     error: error.message,
                     stack: error.stack
                 })
-                throw error
             })
+            return
         }
 
         const maxPlayers = maxPlayersInput !== undefined ? Math.floor(maxPlayersInput) : 7
 
         if (!Number.isInteger(maxPlayers)) {
-            return await msg.channel.send({
+            await msg.channel.send({
                 embeds: [createErrorEmbed("access denied: maximum number of players must be an integer value.")]
             }).catch((error) => {
                 logger.error("Failed to send blackjack non-integer message", {
@@ -142,8 +139,8 @@ const runBlackjack = async(context) => {
                     error: error.message,
                     stack: error.stack
                 })
-                throw error
             })
+            return
         }
 
         if (maxPlayers > 7 || maxPlayers < 1) {
@@ -153,7 +150,7 @@ const runBlackjack = async(context) => {
                     text: `${msg.author.tag}, access denied: maximum number of players must be between 1 and 7`,
                     iconURL: msg.author.displayAvatarURL({ extension: "png" })
                 })
-            return await msg.channel.send({ embeds: [embed] }).catch((error) => {
+            await msg.channel.send({ embeds: [embed] }).catch((error) => {
                 logger.error("Failed to send blackjack maxplayers-range message", {
                     scope: "commands",
                     command: "blackjack",
@@ -162,12 +159,20 @@ const runBlackjack = async(context) => {
                     error: error.message,
                     stack: error.stack
                 })
-                throw error
             })
+            return
         }
 
         const safeMinBet = Math.max(1, Math.floor(minBet))
         const maxBuyIn = Math.min(safeMinBet * 100, Number.MAX_SAFE_INTEGER)
+
+        logger.info("Creating BlackJack game instance", {
+            scope: "commands",
+            command: "blackjack",
+            minBet: safeMinBet,
+            maxPlayers,
+            channelId: channel.id
+        })
 
         try {
             channel.game = new BlackJack({
@@ -175,6 +180,12 @@ const runBlackjack = async(context) => {
                 minBet: safeMinBet,
                 maxPlayers,
                 maxBuyIn
+            })
+            registerGame(msg.client, channel.game)
+            logger.info("BlackJack game instance created successfully", {
+                scope: "commands",
+                command: "blackjack",
+                channelId: channel.id
             })
         } catch (gameError) {
             channel.game = null
@@ -225,7 +236,18 @@ const runBlackjack = async(context) => {
                 error: error.message,
                 stack: error.stack
             })
-            throw error
+            if (msg.channel?.game) {
+                try {
+                    await msg.channel.game.Stop({ notify: false })
+                } catch (stopError) {
+                    logger.error("Failed to stop blackjack game after status message error", {
+                        scope: "commands",
+                        command: "blackjack",
+                        error: stopError.message
+                    })
+                }
+            }
+            return
         }
 
         msg.channel.collector = msg.channel.createMessageCollector({
@@ -303,10 +325,8 @@ const runBlackjack = async(context) => {
                             })
                         return await msg.channel.send({ embeds: [embed] }).catch(() => null)
                     }
-                    mess.author.stack = buyInResult.amount
-
                     try {
-                        await msg.channel.game.AddPlayer(mess.author)
+                        await msg.channel.game.AddPlayer(mess.author, { buyIn: buyInResult.amount })
                     } catch (addError) {
                         logger.error("Failed to add player to blackjack game", {
                             scope: "commands",
@@ -370,7 +390,7 @@ const runBlackjack = async(context) => {
         await delay(30000)
         if (!msg.channel.game || msg.channel.game.playing) return
         if (msg.channel.game.players.length > 0) msg.channel.game.Run()
-            else msg.channel.game.Stop()
+            else msg.channel.game.Stop({ reason: "allPlayersLeft" })
     } catch (error) {
         logger.error("Failed to execute blackjack command", {
             scope: "commands",
@@ -382,7 +402,7 @@ const runBlackjack = async(context) => {
 
         if (msg.channel?.game) {
             try {
-                msg.channel.game.Stop()
+                await msg.channel.game.Stop({ notify: false })
             } catch (stopError) {
                 logger.error("Failed to stop blackjack game after error", {
                     scope: "commands",

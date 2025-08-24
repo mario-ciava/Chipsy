@@ -4,7 +4,8 @@ const features = require("../structure/features.js"),
     Game = require("../structure/game.js"),
     cards = require("../structure/cards.js"),
     setSeparator = require("../util/setSeparator"),
-    bankrollManager = require("../util/bankrollManager")
+    bankrollManager = require("../util/bankrollManager"),
+    logger = require("../util/logger")
 module.exports = class BlackJack extends Game {
     constructor(info) {
         super(info)
@@ -13,10 +14,67 @@ module.exports = class BlackJack extends Game {
         this.dealer = null
     }
 
+    createPlayerSession(user, stackAmount) {
+        if (!user) return null
+        const safeDisplayAvatar =
+            typeof user.displayAvatarURL === "function"
+                ? (options) => user.displayAvatarURL(options)
+                : () => null
+        const safeToString =
+            typeof user.toString === "function"
+                ? () => user.toString()
+                : () => (user.id ? `<@${user.id}>` : "Player")
+        const tag =
+            typeof user.tag === "string"
+                ? user.tag
+                : typeof user.username === "string"
+                ? `${user.username}#${user.discriminator || "0000"}`
+                : "Blackjack player"
+
+        return {
+            id: user.id,
+            tag,
+            username: user.username,
+            bot: user.bot,
+            data: user.data ?? {},
+            client: user.client,
+            stack:
+                Number.isFinite(stackAmount) && stackAmount > 0
+                    ? Math.floor(stackAmount)
+                    : 0,
+            newEntry: true,
+            toString: safeToString,
+            displayAvatarURL: safeDisplayAvatar,
+            user
+        }
+    }
+
     async SendMessage(type, player, info) {
         const channel = this.channel
-        const clientAvatar = this.client.user.displayAvatarURL({ extension: "png" })
-        const sendEmbed = async(embed) => channel.send({ embeds: [embed] })
+        if (!channel || typeof channel.send !== "function") {
+            logger.warn("Unable to send blackjack message: channel unavailable", {
+                scope: "blackjackGame",
+                type,
+                channelId: channel?.id
+            })
+            return null
+        }
+        const clientAvatar = this.client?.user?.displayAvatarURL({ extension: "png" }) ?? null
+        const sendEmbed = async(embed) => {
+            try {
+                return await channel.send({ embeds: [embed] })
+            } catch (error) {
+                logger.error("Failed to send blackjack message", {
+                    scope: "blackjackGame",
+                    type,
+                    channelId: channel?.id,
+                    userId: player?.id,
+                    error: error.message,
+                    stack: error.stack
+                })
+                return null
+            }
+        }
         switch(type) {
             case "deckRestored": {
                 const embed = new Discord.EmbedBuilder()
@@ -52,9 +110,14 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "delete": {
+                const reason = info?.reason || "allPlayersLeft"
+                let message = "Game deleted: all players left"
+                if (reason === "noBetsPlaced") {
+                    message = "Game deleted: no bets were placed"
+                }
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Red)
-                    .setFooter({ text: "Game deleted: bets not placed/all players left" })
+                    .setFooter({ text: message })
                 await sendEmbed(embed)
             break }
             case "stand":
@@ -256,11 +319,15 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "betsClosed": {
+                const allBetsPlaced = info?.allBetsPlaced === true
+                const message = allBetsPlaced
+                    ? "All players have placed their bets"
+                    : "Time is up"
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Red)
                     .addFields({
                         name: `Bets closed | Round #${this.hands}`,
-                        value: `Either the time is over or all the players have placed their bets`
+                        value: message
                     })
                     .setFooter({ text: "Your cards will be shown in a moment" })
                 await sendEmbed(embed)
@@ -378,10 +445,11 @@ module.exports = class BlackJack extends Game {
             if (remaining < 1) this.betsCollector.stop()
         })
         this.betsCollector.on("end", async(coll, reason) => {
-            await this.SendMessage("betsClosed")
+            const allBetsPlaced = reason === "stop"
+            await this.SendMessage("betsClosed", null, { allBetsPlaced })
             await delay(1000)
             await this.UpdateInGame()
-            if (this.inGamePlayers.length < 1 && this.playing) return this.Stop()
+            if (this.inGamePlayers.length < 1 && this.playing) return this.Stop({ reason: "noBetsPlaced" })
             if (!this.collector) await this.CreateOptions()
             this.betsCollector = null
             if (this.inGamePlayers.length > 1) {
@@ -686,30 +754,51 @@ module.exports = class BlackJack extends Game {
         return grossValue - parseInt(grossValue * (features.applyUpgrades("with-holding", player.data.withholding_upgrade, 0.0003 * 8, 0.00002 * 2.5)))
     }
 
-    async AddPlayer(player) {
-        if (this.players.length == this.maxPlayers) return this.SendMessage("maxPlayers", player)
-        if (this.GetPlayer(player.id)) return
-        const buyInResult = bankrollManager.normalizeBuyIn({
-            requested: player.stack,
-            minBuyIn: this.minBuyIn,
-            maxBuyIn: this.maxBuyIn,
-            bankroll: bankrollManager.getBankroll(player)
-        })
-        if (!buyInResult.ok) {
-            await this.SendMessage("noMoneyBet", player)
+    async AddPlayer(user, options = {}) {
+        if (!user || !user.id) return
+        if (this.players.length >= this.maxPlayers) {
+            await this.SendMessage("maxPlayers", user)
             return
         }
-        player.stack = buyInResult.amount
-        player.newEntry = true
-        await this.players.push(player)
+        if (this.GetPlayer(user.id)) return
+        const requestedBuyIn =
+            options.buyIn ?? options.requestedBuyIn ?? (typeof user.stack === "number" ? user.stack : undefined)
+        const buyInResult = bankrollManager.normalizeBuyIn({
+            requested: requestedBuyIn,
+            minBuyIn: this.minBuyIn,
+            maxBuyIn: this.maxBuyIn,
+            bankroll: bankrollManager.getBankroll(user)
+        })
+        if (!buyInResult.ok) {
+            await this.SendMessage("noMoneyBet", user)
+            return
+        }
+        const player = this.createPlayerSession(user, buyInResult.amount)
+        if (!player) return
+        this.players.push(player)
         await this.SendMessage("playerAdded", player)
     }
 
     async RemovePlayer(player) {
-        if (!this.GetPlayer(player.id)) return
-        await this.players.splice(this.players.indexOf(player), 1)
-        await this.SendMessage("playerRemoved", player)
-        if (this.players.length < 1) this.Stop()
+        const playerId = typeof player === "object" ? player?.id : player
+        if (!playerId) return
+        const existing = this.GetPlayer(playerId)
+        if (!existing) return
+        const index = this.players.indexOf(existing)
+        if (index !== -1) this.players.splice(index, 1)
+        await this.SendMessage("playerRemoved", existing)
+        if (this.players.length < 1) {
+            try {
+                await this.Stop()
+            } catch (error) {
+                logger.error("Failed to stop blackjack after removing last player", {
+                    scope: "blackjackGame",
+                    channelId: this.channel?.id,
+                    error: error.message,
+                    stack: error.stack
+                })
+            }
+        }
     }
 
     UpdateInGame() {
@@ -726,30 +815,83 @@ module.exports = class BlackJack extends Game {
             await delete player.newEntry
         }
     }
-    async Stop() {
+    async Stop(options = {}) {
+        if (this.__stopping) {
+            return null
+        }
+        this.__stopping = true
+        const notify = Object.prototype.hasOwnProperty.call(options || {}, "notify") ? options.notify : true
+        const reason = options.reason || "allPlayersLeft"
+
         await this.Reset()
         this.playing = false
-        if (this.channel.collector) this.channel.collector.stop()
+        if (this.channel && this.channel.collector) this.channel.collector.stop()
         if (this.betsCollector) this.betsCollector.stop()
-        this.channel.collector = null
+        if (this.channel) this.channel.collector = null
         this.betsCollector = null
         if (this.collector) this.collector.stop()
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
         this.collector = null
-        this.channel.game = null
-        if (this.channel.prevRL && this.channel.manageable) this.channel.setRateLimitPerUser(this.channel.prevRL)
-        return this.SendMessage("delete")
+        if (this.channel) {
+            this.channel.game = null
+            this.channel.__blackjackStarting = false
+            if (this.channel.manageable && this.channel.prevRL !== undefined && this.channel.prevRL !== null) {
+                try {
+                    await this.channel.setRateLimitPerUser(this.channel.prevRL)
+                } catch (error) {
+                    logger.error("Failed to restore channel slowmode after blackjack stop", {
+                        scope: "blackjackGame",
+                        channelId: this.channel?.id,
+                        error: error.message,
+                        stack: error.stack
+                    })
+                }
+            }
+        }
+        if (this.client && this.client.activeGames) this.client.activeGames.delete(this)
+        if (notify) {
+            return this.SendMessage("delete", null, { reason })
+        }
+        return null
     }
-
     async Run() {
-        if (!this.playing) {
-            if (this.channel.manageable) {
-                if (this.channel.RateLimitPerUser) this.channel.prevRL = this.channel.RateLimitPerUser
-                this.channel.setRateLimitPerUser(4)
-            } 
-            this.playing = true
-            this.NextHand()
+        if (this.playing) return
+        if (this.channel?.manageable) {
+            const currentRateLimit =
+                typeof this.channel.rateLimitPerUser === "number" ? this.channel.rateLimitPerUser : 0
+            this.channel.prevRL = currentRateLimit
+            try {
+                await this.channel.setRateLimitPerUser(4)
+            } catch (error) {
+                logger.error("Failed to apply blackjack slowmode", {
+                    scope: "blackjackGame",
+                    channelId: this.channel?.id,
+                    error: error.message,
+                    stack: error.stack
+                })
+            }
+        }
+        this.playing = true
+        try {
+            await this.NextHand()
+        } catch (error) {
+            logger.error("Blackjack run loop failed", {
+                scope: "blackjackGame",
+                channelId: this.channel?.id,
+                error: error.message,
+                stack: error.stack
+            })
+            try {
+                await this.Stop({ notify: false })
+            } catch (stopError) {
+                logger.error("Failed to stop blackjack after run loop failure", {
+                    scope: "blackjackGame",
+                    channelId: this.channel?.id,
+                    error: stopError.message,
+                    stack: stopError.stack
+                })
+            }
         }
     }
 }

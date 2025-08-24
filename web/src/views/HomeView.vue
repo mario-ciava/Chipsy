@@ -41,16 +41,16 @@
             </div>
 
             <div class="card home__features">
-                <h3 class="card__title">Cosa offre il pannello</h3>
+                <h3 class="card__title">Perché scegliere Chipsy</h3>
                 <ul class="features-list">
                     <li>
-                        <strong>Controllo live:</strong> abilita o sospendi l’uso dei comandi in tempo reale, senza riavviare il bot.
+                        <strong>Esperienza casinò:</strong> blackjack, texas hold’em e altri giochi con bankroll condiviso tra bot e pannello.
                     </li>
                     <li>
-                        <strong>Dashboard utenti:</strong> consulta le metriche MySQL sincronizzate con i comandi `/profile` e monitora i progressi dei player.
+                        <strong>Progressione giocatori:</strong> livelli, premi automatici e statistiche sempre sincronizzate con il database MySQL.
                     </li>
                     <li>
-                        <strong>Inviti centralizzati:</strong> invita Chipsy in nuovi server e verifica lo stato delle integrazioni senza uscire dal browser.
+                        <strong>Integrazione Discord:</strong> gestione trasparente di inviti, permessi e comandi slash ottimizzati per le community.
                     </li>
                 </ul>
             </div>
@@ -81,7 +81,13 @@ export default {
     },
     computed: {
         ...mapGetters("session", ["isAuthenticated", "isAdmin", "user"]),
+        loginState() {
+            return this.$route.query.state || null
+        },
         loginCode() {
+            if (this.loginState === "controlPanelInvite") {
+                return null
+            }
             return this.$route.query.code || null
         },
         userName() {

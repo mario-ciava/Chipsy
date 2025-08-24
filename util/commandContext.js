@@ -1,4 +1,4 @@
-const { EmbedBuilder, Colors } = require("discord.js")
+const { EmbedBuilder, Colors, MessageFlags } = require("discord.js")
 
 class CommandUserError extends Error {
     constructor(message, options = {}) {
@@ -10,6 +10,31 @@ class CommandUserError extends Error {
         this.payload = options.payload
         this.log = options.log ?? true
     }
+}
+
+const normalizeInteractionPayload = (payload = {}) => {
+    if (!payload || typeof payload !== "object") return payload
+
+    const next = { ...payload }
+
+    if (Object.prototype.hasOwnProperty.call(next, "ephemeral")) {
+        const ephemeral = next.ephemeral
+        delete next.ephemeral
+
+        if (ephemeral === true && next.flags === undefined) {
+            next.flags = MessageFlags.Ephemeral
+        }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, "fetchReply")) {
+        const fetchReply = next.fetchReply
+        delete next.fetchReply
+        if (fetchReply === true && next.withResponse === undefined) {
+            next.withResponse = true
+        }
+    }
+
+    return next
 }
 
 const buildCommandContext = ({ commandName, message, interaction, client, args, logger }) => {
@@ -26,12 +51,13 @@ const buildCommandContext = ({ commandName, message, interaction, client, args, 
     const reply = async(payload = {}) => {
         if (interaction) {
             let response
+            const normalizedPayload = normalizeInteractionPayload(payload)
             if (interaction.deferred && !interaction.replied) {
-                response = await interaction.editReply(payload)
+                response = await interaction.editReply(normalizedPayload)
             } else if (!interaction.replied) {
-                response = await interaction.reply(payload)
+                response = await interaction.reply(normalizedPayload)
             } else {
-                response = await interaction.followUp(payload)
+                response = await interaction.followUp(normalizedPayload)
             }
             responded.value = true
             return response
@@ -45,8 +71,9 @@ const buildCommandContext = ({ commandName, message, interaction, client, args, 
 
     const followUp = async(payload = {}) => {
         if (interaction) {
+            const normalizedPayload = normalizeInteractionPayload(payload)
             responded.value = true
-            return interaction.followUp(payload)
+            return interaction.followUp(normalizedPayload)
         }
 
         const targetChannel = resolveSendableChannel()
@@ -93,7 +120,16 @@ const buildCommandContext = ({ commandName, message, interaction, client, args, 
         if (payload) {
             const constructedPayload = { ...payload }
             if (interaction) {
-                constructedPayload.ephemeral = ephemeral ?? constructedPayload.ephemeral ?? true
+                if (ephemeral === true) {
+                    constructedPayload.flags = MessageFlags.Ephemeral
+                } else if (ephemeral === false && constructedPayload.flags === MessageFlags.Ephemeral) {
+                    delete constructedPayload.flags
+                } else if (constructedPayload.ephemeral === true) {
+                    constructedPayload.flags = MessageFlags.Ephemeral
+                    delete constructedPayload.ephemeral
+                }
+            } else if (ephemeral !== undefined) {
+                constructedPayload.ephemeral = ephemeral
             }
             return safeInvoke(reply, constructedPayload)
         }
@@ -101,7 +137,12 @@ const buildCommandContext = ({ commandName, message, interaction, client, args, 
         const errorEmbed = embed ?? createErrorEmbed(text)
         const responsePayload = { embeds: [errorEmbed] }
         if (interaction) {
-            responsePayload.ephemeral = ephemeral ?? true
+            responsePayload.flags = MessageFlags.Ephemeral
+            if (ephemeral === false) {
+                delete responsePayload.flags
+            }
+        } else if (ephemeral !== undefined) {
+            responsePayload.ephemeral = ephemeral
         }
         return safeInvoke(reply, responsePayload)
     }

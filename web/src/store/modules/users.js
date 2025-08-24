@@ -45,9 +45,8 @@ export default {
     },
     actions: {
         async fetchUsers({ commit, state, rootState }, payload = {}) {
-            const token = rootState.session.token
-            if (!token) {
-                throw new Error("Missing authentication token.")
+            if (!rootState.session.user) {
+                throw new Error("Missing authentication context.")
             }
 
             const page = typeof payload.page !== "undefined" ? payload.page : state.pagination.page
@@ -59,7 +58,6 @@ export default {
 
             try {
                 const response = await api.listUsers({
-                    token,
                     params: { page, pageSize, search }
                 })
 

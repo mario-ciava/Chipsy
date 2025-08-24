@@ -1,6 +1,4 @@
 import Vue from "vue"
-import VueCookies from "vue-cookies"
-
 import App from "./App.vue"
 import router from "./router"
 import store from "./store"
@@ -8,9 +6,6 @@ import store from "./store"
 import "./assets/styles/base.css"
 
 Vue.config.productionTip = false
-
-VueCookies.config("7d")
-Vue.use(VueCookies)
 
 const mountApp = () => new Vue({
     router,

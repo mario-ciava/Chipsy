@@ -893,18 +893,24 @@ module.exports = class Texas extends Game {
         this.timer = null
     }
 
-    Stop() {
-        if (this.channel.collector) this.channel.collector.stop()
-        this.channel.collector = null
+    Stop(options = {}) {
+        const notify = Object.prototype.hasOwnProperty.call(options || {}, "notify") ? options.notify : true
+        if (this.channel && this.channel.collector) this.channel.collector.stop()
+        if (this.channel) this.channel.collector = null
         if (this.collector) this.collector.stop()
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
         this.collector = null
-        this.channel.game = null
-        if (this.channel.prevRL && this.channel.manageable) this.channel.setRateLimitPerUser(this.channel.prevRL)
-        return this.SendMessage("minPlayersDelete")
+        if (this.channel) {
+            this.channel.game = null
+            if (this.channel.prevRL && this.channel.manageable) this.channel.setRateLimitPerUser(this.channel.prevRL)
+        }
+        if (this.client && this.client.activeGames) this.client.activeGames.delete(this)
+        if (notify) {
+            return this.SendMessage("minPlayersDelete")
+        }
+        return null
     }
-
     Pause() {
         this.Reset(this.players[0])
         if (this.collector) this.collector.stop()

@@ -48,7 +48,6 @@
 </template>
 
 <script>
-import { mapGetters } from "vuex"
 import api from "../services/api"
 
 const formatCurrency = (value) => `${Number(value || 0).toLocaleString("it-IT")} $`
@@ -84,7 +83,6 @@ export default {
         }
     },
     computed: {
-        ...mapGetters("session", ["token", "csrfToken"]),
         userId() {
             return this.$route.params.id
         },
@@ -110,12 +108,7 @@ export default {
             this.loading = true
             this.error = null
             try {
-                const token = this.$store.state.session.token
-                if (!token) {
-                    this.error = "Sessione non valida."
-                    return
-                }
-                const data = await api.getUserById({ token, id: this.userId })
+                const data = await api.getUserById({ id: this.userId })
                 this.user = data
             } catch (error) {
                 this.error = "Impossibile recuperare i dettagli dell'utente."

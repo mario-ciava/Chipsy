@@ -26,13 +26,12 @@ export default {
     },
     actions: {
         async fetchStatus({ commit, rootState }) {
-            const token = rootState.session.token
-            if (!token) return null
+            if (!rootState.session.user) return null
 
             commit("SET_LOADING", true)
             commit("SET_ERROR", null)
             try {
-                const status = await api.getBotStatus(token)
+                const status = await api.getBotStatus()
                 commit("SET_STATUS", status)
                 return status
             } catch (error) {
@@ -44,9 +43,8 @@ export default {
         },
 
         async updateEnabled({ commit, rootState }, enabled) {
-            const token = rootState.session.token
             const csrfToken = rootState.session.csrfToken
-            if (!token || !csrfToken) {
+            if (!csrfToken) {
                 throw new Error("Missing authentication context.")
             }
 
@@ -58,10 +56,17 @@ export default {
                     enabled,
                     updatedAt: new Date().toISOString()
                 })
-                const status = await api.toggleBot({ token, csrfToken, enabled })
+                const status = await api.toggleBot({ csrfToken, enabled })
                 commit("SET_STATUS", status)
                 return status
             } catch (error) {
+                const is409 = error.response?.status === 409 || error.message?.includes("409")
+                if (is409) {
+                    const conflictError = new Error("Un'operazione è già in corso. Attendi fino a 10 secondi e riprova.")
+                    conflictError.code = 409
+                    commit("SET_ERROR", conflictError)
+                    throw conflictError
+                }
                 commit("SET_ERROR", error)
                 throw error
             } finally {

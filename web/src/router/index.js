@@ -70,7 +70,7 @@ router.beforeEach(async(to, from, next) => {
     const isAuthenticated = store.getters["session/isAuthenticated"]
     const isAdmin = store.getters["session/isAdmin"]
 
-    if (to.query.code && to.name !== "Home") {
+    if (to.query.code && to.name !== "Home" && to.query.state !== "controlPanelInvite") {
         return next({
             name: "Home",
             query: to.query

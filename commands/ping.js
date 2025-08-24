@@ -19,12 +19,13 @@ module.exports = createCommand({
         const wsPing = Math.round(client?.ws?.ping ?? 0)
 
         if (interaction) {
-            const sent = await reply({
+            const response = await reply({
                 embeds: [loadingEmbed],
-                fetchReply: true
+                withResponse: true
             })
 
-            const latency = (sent.createdTimestamp - baseTimestamp).toFixed()
+            const sentMessage = response?.fetch ? await response.fetch() : await interaction.fetchReply()
+            const latency = (sentMessage.createdTimestamp - baseTimestamp).toFixed()
             const responseEmbed = new EmbedBuilder()
                 .setColor(color)
                 .setFooter({

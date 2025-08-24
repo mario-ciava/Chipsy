@@ -4,6 +4,7 @@ const session = require("express-session")
 const Discord = require("discord.js")
 const fetch = require("node-fetch")
 const crypto = require("crypto")
+const createSessionStore = require("../util/createSessionStore")
 
 const createAuthRouter = require("./routes/auth")
 const createAdminRouter = require("./routes/admin")
@@ -110,7 +111,8 @@ module.exports = (client, webSocket, options = {}) => {
         logger,
         fetch: fetchOverride,
         discordApi: discordApiOverride,
-        sessionOptions = {}
+        sessionOptions = {},
+        inviteRedirectPath = "/control_panel"
     } = options
 
     const fetchImpl = fetchOverride || fetch
@@ -123,19 +125,47 @@ module.exports = (client, webSocket, options = {}) => {
     app.use(bodyparser.json())
     app.use(bodyparser.urlencoded({ extended: true }))
 
+    const sessionMaxAge = Number(process.env.SESSION_MAX_AGE_MS) || 24 * 60 * 60 * 1000
+
     const cookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
+        maxAge: sessionMaxAge,
         ...(sessionOptions.cookie || {})
+    }
+
+    const resolvedSecret = sessionOptions.secret || process.env.SESSION_SECRET
+
+    if (!resolvedSecret || resolvedSecret.length < 32) {
+        throw new Error(
+            "SESSION_SECRET must be provided and contain at least 32 characters. Configure the environment variable or pass sessionOptions.secret."
+        )
     }
 
     const sessionConfig = {
         resave: false,
         saveUninitialized: false,
         ...sessionOptions,
-        secret: sessionOptions.secret || process.env.SESSION_SECRET || client.config.secret || "chipsy-session-secret",
+        secret: resolvedSecret,
         cookie: cookieOptions
+    }
+
+    const sessionStore =
+        sessionOptions.store ||
+        options.sessionStore ||
+        createSessionStore({
+            session,
+            client,
+            logger: client?.logger
+        })
+
+    if (sessionStore) {
+        sessionConfig.store = sessionStore
+    } else if (process.env.NODE_ENV === "production") {
+        throw new Error(
+            "A persistent session store is required in production. Configure SESSION_STORE or provide sessionOptions.store."
+        )
     }
 
     app.use(session(sessionConfig))
@@ -233,6 +263,12 @@ module.exports = (client, webSocket, options = {}) => {
 
     const getAccessToken = (req) => req.headers.token || req.session?.oauth?.accessToken || req.user?.token
 
+    const buildInviteRedirectUri = () => {
+        const origin = (client.config?.redirectUri || "http://localhost:8082").replace(/\/$/, "")
+        const normalizedPath = inviteRedirectPath.startsWith("/") ? inviteRedirectPath : `/${inviteRedirectPath}`
+        return `${origin}${normalizedPath}`
+    }
+
     const authRouter = createAuthRouter({
         data: clientCredentials,
         discordApi,
@@ -244,7 +280,10 @@ module.exports = (client, webSocket, options = {}) => {
         PermissionsBitField,
         PermissionFlagsBits,
         scopes: defaultScopes,
-        defaultRedirectUri: client.config?.redirectUri
+        defaultRedirectUri: client.config?.redirectUri,
+        ensureCsrfToken,
+        requireCsrfToken,
+        allowedRedirectOrigins: allowedOrigins
     })
 
     router.use("/", authRouter)
@@ -255,7 +294,10 @@ module.exports = (client, webSocket, options = {}) => {
         requireCsrfToken,
         getAccessToken,
         ensureCsrfToken,
-        healthChecks: client.healthChecks
+        healthChecks: client.healthChecks,
+        discordApi,
+        clientCredentials,
+        getInviteRedirectUri: buildInviteRedirectUri
     })
 
     router.use("/admin", adminRouter)

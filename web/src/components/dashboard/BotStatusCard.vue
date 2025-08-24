@@ -32,6 +32,9 @@
             <p class="status-note">
                 Disattiva le risposte ai comandi; il processo resta attivo.
             </p>
+            <p v-if="loading" class="status-note status-note--loading">
+                ⏳ Operazione in corso, attendere fino a 10 secondi...
+            </p>
         </div>
 
         <div class="card__actions">
@@ -40,14 +43,16 @@
                 :disabled="loading || !status.enabled"
                 @click="toggle(false)"
             >
-                Spegni bot
+                <span v-if="loading && !status.enabled" class="button__spinner"></span>
+                <span v-else>Spegni bot</span>
             </button>
             <button
                 class="button button--primary"
                 :disabled="loading || status.enabled"
                 @click="toggle(true)"
             >
-                Accendi bot
+                <span v-if="loading && status.enabled" class="button__spinner"></span>
+                <span v-else>Accendi bot</span>
             </button>
         </div>
     </div>
@@ -116,3 +121,41 @@ export default {
     }
 }
 </script>
+
+<style scoped>
+.status-note--loading {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(250, 204, 21, 0.15);
+    border-left: 3px solid #fbbf24;
+    border-radius: 6px;
+    color: #fef08a;
+    font-weight: 500;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.button__spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+</style>

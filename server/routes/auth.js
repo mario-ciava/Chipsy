@@ -11,6 +11,9 @@ const createAuthRouter = (dependencies) => {
         buildDiscordError,
         PermissionsBitField,
         PermissionFlagsBits,
+        ensureCsrfToken,
+        requireCsrfToken,
+        allowedRedirectOrigins = [],
         scopes = ["identify", "guilds"],
         defaultRedirectUri = "http://localhost:8080"
     } = dependencies
@@ -21,9 +24,11 @@ const createAuthRouter = (dependencies) => {
 
     const normalizeOrigin = (value = "") => value.replace(/\/$/, "")
 
+    const allowedOriginsSet = new Set([normalizeOrigin(defaultRedirectUri), ...allowedRedirectOrigins.map(normalizeOrigin)])
+
     const sanitizeRedirectOrigin = (candidate) => {
+        const fallback = normalizeOrigin(defaultRedirectUri)
         if (!candidate || typeof candidate !== "string") {
-            const fallback = normalizeOrigin(defaultRedirectUri)
             client.config.redirectUri = fallback
             return fallback
         }
@@ -31,15 +36,17 @@ const createAuthRouter = (dependencies) => {
         try {
             const parsed = new URL(candidate)
             if (!TRUSTED_PROTOCOLS.has(parsed.protocol)) {
-                const fallback = normalizeOrigin(defaultRedirectUri)
                 client.config.redirectUri = fallback
                 return fallback
             }
             const sanitized = normalizeOrigin(parsed.origin)
+            if (!allowedOriginsSet.has(sanitized)) {
+                client.config.redirectUri = fallback
+                return fallback
+            }
             client.config.redirectUri = sanitized
             return sanitized
         } catch (error) {
-            const fallback = normalizeOrigin(defaultRedirectUri)
             client.config.redirectUri = fallback
             return fallback
         }
@@ -109,7 +116,11 @@ const createAuthRouter = (dependencies) => {
 
             const user = response.data
             const isAdmin = user.id === client.config.ownerid
+            const csrfToken = ensureCsrfToken ? ensureCsrfToken(req) : null
             const enrichedUser = { ...user, isAdmin }
+            if (csrfToken) {
+                enrichedUser.csrfToken = csrfToken
+            }
 
             const cachedUser = {
                 ...enrichedUser,
@@ -170,7 +181,7 @@ const createAuthRouter = (dependencies) => {
         }
     })
 
-    router.post("/logout", (req, res) => {
+    router.post("/logout", requireCsrfToken, (req, res) => {
         if (!req.body?.user) {
             return res.status(400).json({ message: "400: Bad request" })
         }
