@@ -313,14 +313,129 @@ const createAdminRouter = (dependencies) => {
         res.status(200).json({
             actions: [
                 {
-                    id: "bot-toggle",
-                    label: "Toggle bot availability",
-                    description: "Enable or disable the bot instance.",
-                    type: "toggle",
-                    supports: ["enable", "disable"]
+                    id: "bot-kill",
+                    label: "Termina processo bot",
+                    description: "Chiude completamente il processo del bot. Richiede riavvio manuale.",
+                    type: "command",
+                    dangerous: true
                 }
             ]
         })
+    })
+
+    router.post("/kill", requireCsrfToken, async(req, res) => {
+        if (!ensureAuthenticatedAdmin(req, res)) return
+
+        res.status(200).json({ message: "200: Bot process terminating" })
+
+        if (client?.logger?.warn) {
+            client.logger.warn("Bot process kill requested by admin", {
+                scope: "express"
+            })
+        }
+
+        setTimeout(() => {
+            process.exit(0)
+        }, 1000)
+    })
+
+    router.post("/logs", requireCsrfToken, async(req, res) => {
+        if (!ensureAuthenticatedAdmin(req, res)) return
+
+        const { level, message, logType = "general", userId = null } = req.body || {}
+
+        if (!level || !message) {
+            return res.status(400).json({ message: "400: Missing required fields" })
+        }
+
+        if (!["general", "command"].includes(logType)) {
+            return res.status(400).json({ message: "400: Invalid log type" })
+        }
+
+        try {
+            const connection = client?.connection
+            if (!connection) {
+                return res.status(500).json({ message: "500: Database connection unavailable" })
+            }
+
+            await connection.query(
+                "INSERT INTO logs (level, message, log_type, user_id) VALUES (?, ?, ?, ?)",
+                [level, message, logType, userId]
+            )
+
+            res.status(201).json({ message: "201: Log saved" })
+        } catch (error) {
+            if (client?.logger?.error) {
+                client.logger.error("Failed to save log", {
+                    scope: "express",
+                    message: error.message
+                })
+            }
+            res.status(500).json({ message: "500: Failed to save log" })
+        }
+    })
+
+    router.get("/logs", async(req, res) => {
+        if (!ensureAuthenticatedAdmin(req, res)) return
+
+        const logType = req.query?.type || "general"
+        const limit = Math.min(Number(req.query?.limit) || 100, 500)
+
+        if (!["general", "command"].includes(logType)) {
+            return res.status(400).json({ message: "400: Invalid log type" })
+        }
+
+        try {
+            const connection = client?.connection
+            if (!connection) {
+                return res.status(500).json({ message: "500: Database connection unavailable" })
+            }
+
+            const [rows] = await connection.query(
+                "SELECT id, level, message, log_type, user_id, created_at FROM logs WHERE log_type = ? ORDER BY created_at DESC LIMIT ?",
+                [logType, limit]
+            )
+
+            res.status(200).json({
+                logs: rows.reverse()
+            })
+        } catch (error) {
+            if (client?.logger?.error) {
+                client.logger.error("Failed to fetch logs", {
+                    scope: "express",
+                    message: error.message
+                })
+            }
+            res.status(500).json({ message: "500: Failed to fetch logs" })
+        }
+    })
+
+    router.delete("/logs/cleanup", requireCsrfToken, async(req, res) => {
+        if (!ensureAuthenticatedAdmin(req, res)) return
+
+        try {
+            const connection = client?.connection
+            if (!connection) {
+                return res.status(500).json({ message: "500: Database connection unavailable" })
+            }
+
+            const [result] = await connection.query(
+                "DELETE FROM logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 5 DAY)"
+            )
+
+            res.status(200).json({
+                message: "200: Logs cleaned up",
+                deletedCount: result.affectedRows
+            })
+        } catch (error) {
+            if (client?.logger?.error) {
+                client.logger.error("Failed to cleanup logs", {
+                    scope: "express",
+                    message: error.message
+                })
+            }
+            res.status(500).json({ message: "500: Failed to cleanup logs" })
+        }
     })
 
     return {

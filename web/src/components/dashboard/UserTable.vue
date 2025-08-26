@@ -85,24 +85,28 @@
         </div>
 
         <div class="card__footer pagination">
-            <button
-                class="button button--ghost"
-                :disabled="loading || pagination.page <= 1"
-                @click="changePage(pagination.page - 1)"
-            >
-                ← Indietro
-            </button>
-            <span class="pagination__info">
-                Pagina {{ pagination.page }} di {{ pagination.totalPages }}
-                <span v-if="pagination.total"> ({{ pagination.total }} utenti)</span>
+            <span class="pagination__count" v-if="pagination.total">
+                {{ pagination.total }} utenti
             </span>
-            <button
-                class="button button--ghost"
-                :disabled="loading || pagination.page >= pagination.totalPages"
-                @click="changePage(pagination.page + 1)"
-            >
-                Avanti →
-            </button>
+            <div class="pagination__controls">
+                <button
+                    class="button button--ghost"
+                    :disabled="loading || pagination.page <= 1"
+                    @click="changePage(pagination.page - 1)"
+                >
+                    ← Indietro
+                </button>
+                <span class="pagination__info">
+                    Pagina {{ pagination.page }} di {{ pagination.totalPages }}
+                </span>
+                <button
+                    class="button button--ghost"
+                    :disabled="loading || pagination.page >= pagination.totalPages"
+                    @click="changePage(pagination.page + 1)"
+                >
+                    Avanti →
+                </button>
+            </div>
         </div>
     </div>
 </template>

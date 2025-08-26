@@ -2,12 +2,12 @@
     <div class="card">
         <div class="card__header">
             <h3 class="card__title">Server Discord collegati</h3>
-            <p class="card__subtitle">
-                Verifica in quali server il bot è già operativo e dove puoi invitarlo.
-            </p>
         </div>
 
         <div class="card__body guilds">
+            <p class="card__subtitle">
+                Verifica in quali server il bot è già operativo e dove puoi invitarlo.
+            </p>
             <div class="guilds__column">
                 <h4 class="guilds__title">Attivi</h4>
                 <p v-if="!hasAdded" class="guilds__empty">Il bot non è presente in nessun server gestito.</p>

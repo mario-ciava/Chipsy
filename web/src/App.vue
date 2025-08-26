@@ -7,6 +7,7 @@
             <nav class="nav__links">
                 <router-link exact to="/">Home</router-link>
                 <router-link v-if="isAdmin" to="/control_panel">Pannello</router-link>
+                <router-link v-if="isAdmin" to="/logs">Log</router-link>
             </nav>
             <div class="nav__auth">
                 <span v-if="isAuthenticated" class="nav__welcome">
@@ -30,7 +31,11 @@
         </header>
 
         <main class="app-shell__content">
-            <router-view />
+            <router-view v-slot="{ Component, route }">
+                <transition :name="route.meta.transition || 'fade'" mode="out-in">
+                    <component :is="Component" :key="route.path" />
+                </transition>
+            </router-view>
         </main>
     </div>
 </template>
@@ -44,6 +49,25 @@ export default {
         ...mapGetters("session", ["isAuthenticated", "isAdmin", "user"]),
         userName() {
             return this.user && this.user.username ? this.user.username : ""
+        }
+    },
+    mounted() {
+        window.addEventListener("session-expired", this.handleSessionExpired)
+    },
+    beforeUnmount() {
+        window.removeEventListener("session-expired", this.handleSessionExpired)
+    },
+    methods: {
+        handleSessionExpired() {
+            this.$store.dispatch("session/clear").catch(() => null)
+
+            const currentRoute = this.$route.path
+            if (currentRoute !== "/login" && currentRoute !== "/") {
+                this.$router.push({
+                    name: "Login",
+                    query: { expired: "true", redirect: currentRoute }
+                })
+            }
         }
     }
 }
@@ -114,5 +138,47 @@ export default {
 .app-shell__content {
     flex: 1;
     padding: 32px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.fade-enter-from {
+    opacity: 0;
+    transform: translateY(12px);
+}
+
+.fade-leave-to {
+    opacity: 0;
+    transform: translateY(-8px);
+}
+
+.slide-left-enter-active,
+.slide-left-leave-active,
+.slide-right-enter-active,
+.slide-right-leave-active {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.slide-left-enter-from {
+    opacity: 0;
+    transform: translateX(20px);
+}
+
+.slide-left-leave-to {
+    opacity: 0;
+    transform: translateX(-20px);
+}
+
+.slide-right-enter-from {
+    opacity: 0;
+    transform: translateX(-20px);
+}
+
+.slide-right-leave-to {
+    opacity: 0;
+    transform: translateX(20px);
 }
 </style>

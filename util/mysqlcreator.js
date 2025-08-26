@@ -4,9 +4,9 @@ const { info } = require("./logger")
 module.exports = async(pool) => {
     const connection = await pool.getConnection()
     try {
-        const [tables] = await connection.query("SHOW TABLES LIKE ?", ["users"])
+        const [usersTables] = await connection.query("SHOW TABLES LIKE ?", ["users"])
 
-        if (!tables || tables.length === 0) {
+        if (!usersTables || usersTables.length === 0) {
             await connection.query(
                 `CREATE TABLE \`users\` (
                     \`id\` VARCHAR(25) NOT NULL DEFAULT '',
@@ -28,6 +28,24 @@ module.exports = async(pool) => {
                 )`
             )
             info("Users table created", { scope: "mysql" })
+        }
+
+        const [logsTables] = await connection.query("SHOW TABLES LIKE ?", ["logs"])
+
+        if (!logsTables || logsTables.length === 0) {
+            await connection.query(
+                `CREATE TABLE \`logs\` (
+                    \`id\` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    \`level\` VARCHAR(20) NOT NULL,
+                    \`message\` TEXT NOT NULL,
+                    \`log_type\` ENUM('general', 'command') NOT NULL DEFAULT 'general',
+                    \`user_id\` VARCHAR(25) DEFAULT NULL,
+                    \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX \`idx_created_at\` (\`created_at\`),
+                    INDEX \`idx_log_type\` (\`log_type\`)
+                )`
+            )
+            info("Logs table created", { scope: "mysql" })
         }
     } finally {
         connection.release()

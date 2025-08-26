@@ -10,6 +10,19 @@ const http = axios.create({
     withCredentials: true
 })
 
+http.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401 || error.response?.status === 403) {
+            const currentPath = window.location.pathname
+            if (currentPath !== "/login" && currentPath !== "/") {
+                window.dispatchEvent(new CustomEvent("session-expired"))
+            }
+        }
+        return Promise.reject(error)
+    }
+)
+
 const withCsrf = (csrfToken, headers = {}) => {
     const next = { ...headers }
     if (csrfToken && !next["x-csrf-token"]) {
@@ -106,6 +119,42 @@ const api = {
                 headers: withCsrf(csrfToken)
             }
         )
+        return response.data
+    },
+
+    async killBot({ csrfToken }) {
+        const response = await http.post(
+            "/admin/kill",
+            {},
+            {
+                headers: withCsrf(csrfToken)
+            }
+        )
+        return response.data
+    },
+
+    async saveLog({ csrfToken, level, message, logType = "general", userId = null }) {
+        const response = await http.post(
+            "/admin/logs",
+            { level, message, logType, userId },
+            {
+                headers: withCsrf(csrfToken)
+            }
+        )
+        return response.data
+    },
+
+    async getLogs({ logType = "general", limit = 100 }) {
+        const response = await http.get("/admin/logs", {
+            params: { type: logType, limit }
+        })
+        return response.data
+    },
+
+    async cleanupOldLogs({ csrfToken }) {
+        const response = await http.delete("/admin/logs/cleanup", {
+            headers: withCsrf(csrfToken)
+        })
         return response.data
     }
 }

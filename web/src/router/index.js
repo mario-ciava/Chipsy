@@ -8,6 +8,7 @@ import LoginView from "../views/LoginView.vue"
 import LogoutView from "../views/LogoutView.vue"
 import DashboardView from "../views/DashboardView.vue"
 import UserDetailView from "../views/UserDetailView.vue"
+import LogsView from "../views/LogsView.vue"
 
 Vue.use(Router)
 
@@ -40,6 +41,15 @@ const router = new Router({
             alias: "/control_panel",
             name: "ControlPanel",
             component: DashboardView,
+            meta: {
+                requiresAuth: true,
+                requiresAdmin: true
+            }
+        },
+        {
+            path: "/logs",
+            name: "Logs",
+            component: LogsView,
             meta: {
                 requiresAuth: true,
                 requiresAdmin: true
