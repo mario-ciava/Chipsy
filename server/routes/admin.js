@@ -1,6 +1,7 @@
 const express = require("express")
 const { EmbedBuilder, Colors } = require("discord.js")
 const { getActiveGames } = require("../../util/gameRegistry")
+const { logger } = require("../middleware/structuredLogger")
 
 const createAdminRouter = (dependencies) => {
     const {
@@ -79,14 +80,12 @@ const createAdminRouter = (dependencies) => {
                     }
                 }
             } catch (error) {
-                if (client?.logger?.warn) {
-                    client.logger.warn("Failed to stop active game while disabling bot", {
-                        scope: "express",
-                        game: game.constructor?.name,
-                        channelId: game.channel?.id,
-                        message: error.message
-                    })
-                }
+                logger.warn("Failed to stop active game while disabling bot", {
+                    scope: "admin",
+                    game: game.constructor?.name,
+                    channelId: game.channel?.id,
+                    error: error.message
+                })
             }
         })
 
@@ -221,13 +220,11 @@ const createAdminRouter = (dependencies) => {
     router.get("/guild", handleGetGuild)
     router.post("/turnoff", requireCsrfToken, handleTurnOff)
     router.post("/turnon", requireCsrfToken, handleTurnOn)
-    router.post("/guild/leave", requireCsrfToken, async(req, res) => {
+    router.post("/guild/leave", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-        const guildId = req.body?.id
 
-        if (!guildId) {
-            return res.status(400).json({ message: "400: Bad request" })
-        }
+        // Validation handled by Zod middleware in adminEnhanced.js
+        const { id: guildId } = req.body
 
         const guild = client.guilds?.cache?.get?.(guildId)
         if (!guild) {
@@ -238,24 +235,21 @@ const createAdminRouter = (dependencies) => {
             await guild.leave()
             return res.status(200).json({ message: "200: OK" })
         } catch (error) {
-            if (client?.logger?.error) {
-                client.logger.error("Failed to leave guild", {
-                    scope: "express",
-                    guildId,
-                    message: error.message
-                })
-            }
-            return res.status(500).json({ message: "500: Unable to leave the guild" })
+            logger.error("Failed to leave guild", {
+                scope: "admin",
+                guildId,
+                error: error.message
+            })
+            next(error)
         }
     })
-    router.post("/guild/invite/complete", requireCsrfToken, async(req, res) => {
+    router.post("/guild/invite/complete", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
 
-        const { code, guildId } = req.body || {}
-        if (!code || typeof code !== "string") {
-            return res.status(400).json({ message: "400: Missing invite code" })
-        }
+        // Validation handled by Zod middleware in adminEnhanced.js
+        const { code, guildId } = req.body
 
+        // Verify server dependencies
         if (!discordApi || !clientCredentials || typeof getInviteRedirectUri !== "function") {
             return res.status(500).json({ message: "500: Invite completion unavailable" })
         }
@@ -279,29 +273,26 @@ const createAdminRouter = (dependencies) => {
             })
         } catch (error) {
             const details = error?.data || error?.response?.data || error?.message
-            if (client?.logger?.error) {
-                client.logger.error("Failed to exchange invite authorization code", {
-                    scope: "express",
-                    message: details
-                })
-            }
+            logger.error("Failed to exchange invite authorization code", {
+                scope: "admin",
+                error: details
+            })
             return res.status(502).json({
                 message: "502: Unable to finalize bot invitation",
                 details
             })
         }
 
+        // Refresh guild cache if guildId provided
         if (guildId && client?.guilds?.fetch) {
             try {
                 await client.guilds.fetch(guildId, { force: true })
             } catch (error) {
-                if (client?.logger?.warn) {
-                    client.logger.warn("Unable to refresh guild cache after invite completion", {
-                        scope: "express",
-                        guildId,
-                        message: error.message
-                    })
-                }
+                logger.warn("Unable to refresh guild cache after invite completion", {
+                    scope: "admin",
+                    guildId,
+                    error: error.message
+                })
             }
         }
 
@@ -328,29 +319,21 @@ const createAdminRouter = (dependencies) => {
 
         res.status(200).json({ message: "200: Bot process terminating" })
 
-        if (client?.logger?.warn) {
-            client.logger.warn("Bot process kill requested by admin", {
-                scope: "express"
-            })
-        }
+        logger.warn("Bot process kill requested by admin", {
+            scope: "admin",
+            userId: req.user?.id
+        })
 
         setTimeout(() => {
             process.exit(0)
         }, 1000)
     })
 
-    router.post("/logs", requireCsrfToken, async(req, res) => {
+    router.post("/logs", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
 
-        const { level, message, logType = "general", userId = null } = req.body || {}
-
-        if (!level || !message) {
-            return res.status(400).json({ message: "400: Missing required fields" })
-        }
-
-        if (!["general", "command"].includes(logType)) {
-            return res.status(400).json({ message: "400: Invalid log type" })
-        }
+        // Validation handled by Zod middleware in adminEnhanced.js
+        const { level, message, logType, userId } = req.body
 
         try {
             const connection = client?.connection
@@ -365,25 +348,20 @@ const createAdminRouter = (dependencies) => {
 
             res.status(201).json({ message: "201: Log saved" })
         } catch (error) {
-            if (client?.logger?.error) {
-                client.logger.error("Failed to save log", {
-                    scope: "express",
-                    message: error.message
-                })
-            }
-            res.status(500).json({ message: "500: Failed to save log" })
+            logger.error("Failed to save log", {
+                scope: "admin",
+                error: error.message
+            })
+            // Let global error handler manage unexpected errors
+            next(error)
         }
     })
 
-    router.get("/logs", async(req, res) => {
+    router.get("/logs", async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
 
-        const logType = req.query?.type || "general"
-        const limit = Math.min(Number(req.query?.limit) || 100, 500)
-
-        if (!["general", "command"].includes(logType)) {
-            return res.status(400).json({ message: "400: Invalid log type" })
-        }
+        // Validation handled by Zod middleware in adminEnhanced.js
+        const { type: logType, limit } = req.query
 
         try {
             const connection = client?.connection
@@ -400,17 +378,16 @@ const createAdminRouter = (dependencies) => {
                 logs: rows.reverse()
             })
         } catch (error) {
-            if (client?.logger?.error) {
-                client.logger.error("Failed to fetch logs", {
-                    scope: "express",
-                    message: error.message
-                })
-            }
-            res.status(500).json({ message: "500: Failed to fetch logs" })
+            logger.error("Failed to fetch logs", {
+                scope: "admin",
+                error: error.message
+            })
+            // Let global error handler manage unexpected errors
+            next(error)
         }
     })
 
-    router.delete("/logs/cleanup", requireCsrfToken, async(req, res) => {
+    router.delete("/logs/cleanup", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
 
         try {
@@ -428,13 +405,12 @@ const createAdminRouter = (dependencies) => {
                 deletedCount: result.affectedRows
             })
         } catch (error) {
-            if (client?.logger?.error) {
-                client.logger.error("Failed to cleanup logs", {
-                    scope: "express",
-                    message: error.message
-                })
-            }
-            res.status(500).json({ message: "500: Failed to cleanup logs" })
+            logger.error("Failed to cleanup logs", {
+                scope: "admin",
+                error: error.message
+            })
+            // Let global error handler manage unexpected errors
+            next(error)
         }
     })
 

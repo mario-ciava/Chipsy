@@ -41,11 +41,56 @@ module.exports = async(pool) => {
                     \`log_type\` ENUM('general', 'command') NOT NULL DEFAULT 'general',
                     \`user_id\` VARCHAR(25) DEFAULT NULL,
                     \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    INDEX \`idx_created_at\` (\`created_at\`),
-                    INDEX \`idx_log_type\` (\`log_type\`)
+                    INDEX \`idx_type_date\` (\`log_type\`, \`created_at\` DESC),
+                    INDEX \`idx_level_date\` (\`level\`, \`created_at\` DESC),
+                    INDEX \`idx_user_date\` (\`user_id\`, \`created_at\` DESC)
                 )`
             )
-            info("Logs table created", { scope: "mysql" })
+            info("Logs table created with optimized indexes", { scope: "mysql" })
+        } else {
+            // Add compound indexes if table exists but indexes don't
+            try {
+                await connection.query("CREATE INDEX idx_type_date ON logs(log_type, created_at DESC)")
+                info("Added compound index idx_type_date to logs table", { scope: "mysql" })
+            } catch (error) {
+                // Index might already exist, ignore
+                if (!error.message.includes("Duplicate key name")) {
+                    info("Compound index idx_type_date already exists or failed to create", { scope: "mysql" })
+                }
+            }
+
+            try {
+                await connection.query("CREATE INDEX idx_level_date ON logs(level, created_at DESC)")
+                info("Added compound index idx_level_date to logs table", { scope: "mysql" })
+            } catch (error) {
+                if (!error.message.includes("Duplicate key name")) {
+                    info("Compound index idx_level_date already exists or failed to create", { scope: "mysql" })
+                }
+            }
+
+            try {
+                await connection.query("CREATE INDEX idx_user_date ON logs(user_id, created_at DESC)")
+                info("Added compound index idx_user_date to logs table", { scope: "mysql" })
+            } catch (error) {
+                if (!error.message.includes("Duplicate key name")) {
+                    info("Compound index idx_user_date already exists or failed to create", { scope: "mysql" })
+                }
+            }
+
+            // Drop old single-column indexes if they exist
+            try {
+                await connection.query("DROP INDEX idx_created_at ON logs")
+                info("Dropped old single-column index idx_created_at", { scope: "mysql" })
+            } catch (error) {
+                // Index might not exist, ignore
+            }
+
+            try {
+                await connection.query("DROP INDEX idx_log_type ON logs")
+                info("Dropped old single-column index idx_log_type", { scope: "mysql" })
+            } catch (error) {
+                // Index might not exist, ignore
+            }
         }
     } finally {
         connection.release()

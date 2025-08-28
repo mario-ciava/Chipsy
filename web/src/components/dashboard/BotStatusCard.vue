@@ -44,7 +44,7 @@
 
         <div class="card__actions">
             <button
-                class="button button--secondary"
+                class="button button--secondary button--fixed-width"
                 :disabled="disableDisableButton"
                 @click="toggle(false)"
             >
@@ -70,7 +70,7 @@
                 </span>
             </button>
             <button
-                class="button button--primary"
+                class="button button--primary button--fixed-width"
                 :disabled="disableEnableButton"
                 @click="toggle(true)"
             >
@@ -152,6 +152,32 @@ export default {
             default: 0
         }
     },
+    data() {
+        return {
+            forceUpdating: false,
+            updatingTimeout: null
+        }
+    },
+    watch: {
+        loading(newVal, oldVal) {
+            // Quando loading diventa true, forza "Aggiornamento" per 5 secondi
+            if (newVal && !oldVal) {
+                this.forceUpdating = true
+                if (this.updatingTimeout) {
+                    clearTimeout(this.updatingTimeout)
+                }
+                this.updatingTimeout = setTimeout(() => {
+                    this.forceUpdating = false
+                    this.updatingTimeout = null
+                }, 5000)
+            }
+        }
+    },
+    beforeUnmount() {
+        if (this.updatingTimeout) {
+            clearTimeout(this.updatingTimeout)
+        }
+    },
     computed: {
         cooldownCircumference() {
             return COOLDOWN_CIRCUMFERENCE
@@ -160,10 +186,10 @@ export default {
             return this.status && typeof this.status.enabled === "boolean"
         },
         isUpdating() {
-            return this.loading || this.cooldownActive || !this.statusAvailable
+            return this.loading || this.forceUpdating || !this.statusAvailable
         },
         statusLabel() {
-            if (this.isUpdating) return "Aggiornamento…"
+            if (this.isUpdating) return "Aggiornamento"
             return this.status.enabled ? "Online" : "Offline"
         },
         statusClass() {
@@ -251,17 +277,12 @@ export default {
 
 .status-flip-enter-active,
 .status-flip-leave-active {
-    transition: opacity 0.25s ease, transform 0.25s ease;
+    transition: opacity 0.25s ease;
 }
 
 .status-flip-enter-from,
 .status-flip-leave-to {
     opacity: 0;
-    transform: translateY(-6px);
-}
-
-.status-flip-leave-active {
-    position: absolute;
 }
 
 @keyframes pulse {
@@ -331,17 +352,26 @@ export default {
     transition: stroke-dashoffset 0.12s ease-out;
 }
 
+.button--fixed-width {
+    width: 140px;
+    flex-shrink: 0;
+}
+
 .card__status {
-    position: relative;
-    min-width: 160px;
+    width: 156px;
+    height: 32px;
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .card__status .status-pill {
+    width: 100%;
+    height: 100%;
+    display: flex;
     justify-content: center;
-    width: 156px;
+    align-items: center;
     text-align: center;
 }
 </style>

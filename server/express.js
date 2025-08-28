@@ -1,14 +1,26 @@
 const express = require("express")
 const bodyparser = require("body-parser")
 const session = require("express-session")
+const helmet = require("helmet")
 const Discord = require("discord.js")
 const fetch = require("node-fetch")
 const crypto = require("crypto")
 const createSessionStore = require("../util/createSessionStore")
 
 const createAuthRouter = require("./routes/auth")
-const createAdminRouter = require("./routes/admin")
+const createEnhancedAdminRouter = require("./routes/adminEnhanced")
 const createUsersRouter = require("./routes/users")
+const createHealthRouter = require("./routes/health")
+
+const { logger: structuredLogger, requestLogger } = require("./middleware/structuredLogger")
+const {
+    globalLimiter,
+    authLimiter,
+    adminReadLimiter,
+    adminWriteLimiter,
+    criticalActionLimiter
+} = require("./middleware/rateLimiter")
+const { errorHandler, notFoundHandler } = require("./middleware/errorHandler")
 
 const { PermissionsBitField, PermissionFlagsBits } = Discord
 
@@ -122,8 +134,25 @@ module.exports = (client, webSocket, options = {}) => {
     const router = express.Router()
     const tokenCache = new Map()
 
-    app.use(bodyparser.json())
-    app.use(bodyparser.urlencoded({ extended: true }))
+    // Security headers with Helmet
+    app.use(helmet({
+        contentSecurityPolicy: false, // Disable for API
+        crossOriginEmbedderPolicy: false,
+        hsts: {
+            maxAge: 31536000,
+            includeSubDomains: true,
+            preload: true
+        }
+    }))
+
+    // Trust proxy (for accurate IP detection behind load balancers)
+    app.set("trust proxy", 1)
+
+    // Request ID and structured logging
+    app.use(requestLogger)
+
+    app.use(bodyparser.json({ limit: "10mb" }))
+    app.use(bodyparser.urlencoded({ extended: true, limit: "10mb" }))
 
     const sessionMaxAge = Number(process.env.SESSION_MAX_AGE_MS) || 24 * 60 * 60 * 1000
 
@@ -194,14 +223,6 @@ module.exports = (client, webSocket, options = {}) => {
         next()
     })
 
-    const loggerMiddleware = logger === undefined
-        ? createRequestLogger(client?.logger?.info ? (message) => client.logger.info(message, { scope: "express" }) : undefined)
-        : logger
-
-    if (loggerMiddleware) {
-        app.use(loggerMiddleware)
-    }
-
     const unique = (values = []) => Array.from(new Set(values.filter(Boolean)))
     const envAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
         .split(",")
@@ -253,7 +274,8 @@ module.exports = (client, webSocket, options = {}) => {
         next()
     })
 
-    const limiterMiddleware = rateLimiter === undefined ? createDefaultRateLimiter() : rateLimiter
+    // Global rate limiting
+    const limiterMiddleware = rateLimiter === undefined ? globalLimiter : rateLimiter
     if (limiterMiddleware) {
         app.use("/api", limiterMiddleware)
     }
@@ -286,9 +308,10 @@ module.exports = (client, webSocket, options = {}) => {
         allowedRedirectOrigins: allowedOrigins
     })
 
+    // Auth router (auth rate limiting applied in auth router itself)
     router.use("/", authRouter)
 
-    const { router: adminRouter, handlers: adminHandlers } = createAdminRouter({
+    const { router: adminRouter, handlers: adminHandlers, middleware: adminMiddleware } = createEnhancedAdminRouter({
         client,
         webSocket,
         requireCsrfToken,
@@ -300,14 +323,8 @@ module.exports = (client, webSocket, options = {}) => {
         getInviteRedirectUri: buildInviteRedirectUri
     })
 
+    // All admin endpoints are under /admin prefix
     router.use("/admin", adminRouter)
-
-    router.post("/turnoff", requireCsrfToken, adminHandlers.turnOff)
-    router.post("/turnon", requireCsrfToken, adminHandlers.turnOn)
-    router.get("/client", adminHandlers.getClient)
-    router.get("/guild", adminHandlers.getGuild)
-    router.get("/status", adminHandlers.getStatus)
-    router.patch("/bot", requireCsrfToken, adminHandlers.patchBot)
 
     const usersRouter = createUsersRouter({
         client,
@@ -316,29 +333,21 @@ module.exports = (client, webSocket, options = {}) => {
 
     router.use("/users", usersRouter)
 
+    const { router: healthRouter } = createHealthRouter({
+        client,
+        healthChecks: client.healthChecks
+    })
+
+    // Health check endpoints (no rate limiting, no auth)
+    app.use("/api/health", healthRouter)
+
     app.use("/api", router)
 
-    app.use((req, res) => {
-        res.status(404).json({ message: "404: Invalid endpoint" })
-    })
+    // 404 handler
+    app.use(notFoundHandler)
 
-    app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
-        const status = err.status || 500
-        const message = err.message || "Internal Server Error"
-
-        if (client?.logger?.error) {
-            client.logger.error("Express request failed", {
-                scope: "express",
-                status,
-                message,
-                stack: err.stack
-            })
-        } else {
-            console.error(err)
-        }
-
-        res.status(status).json({ message: formatErrorMessage(status, message) })
-    })
+    // Global error handler
+    app.use(errorHandler)
 
     if (listen) {
         app.listen(port)
