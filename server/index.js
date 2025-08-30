@@ -7,7 +7,7 @@ const start = async() => {
         await bootstrap()
 
         const port = Number(process.env.PORT) || 3000
-        createServer(client, webSocket, { port, listen: true })
+        createServer(client, webSocket, { port, listen: true, statusService: client.statusService })
 
         logger.info(`Control panel listening on port ${port}`, { scope: "server" })
     } catch (error) {

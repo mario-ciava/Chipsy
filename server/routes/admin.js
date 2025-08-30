@@ -2,6 +2,7 @@ const express = require("express")
 const { EmbedBuilder, Colors } = require("discord.js")
 const { getActiveGames } = require("../../util/gameRegistry")
 const { logger } = require("../middleware/structuredLogger")
+const { analyzeQuery } = require("../../util/db/queryAnalyzer")
 
 const createAdminRouter = (dependencies) => {
     const {
@@ -13,7 +14,8 @@ const createAdminRouter = (dependencies) => {
         healthChecks = {},
         discordApi,
         clientCredentials,
-        getInviteRedirectUri
+        getInviteRedirectUri,
+        statusService
     } = dependencies
 
     const router = express.Router()
@@ -47,6 +49,75 @@ const createAdminRouter = (dependencies) => {
             guildCount,
             updatedAt: new Date().toISOString(),
             health
+        }
+    }
+
+    const toGuildPayload = (guild) => {
+        if (!guild) return null
+        if (typeof guild.toJSON === "function") {
+            return guild.toJSON()
+        }
+
+        return {
+            id: guild.id,
+            name: guild.name,
+            description: guild.description || null
+        }
+    }
+
+    const statusLayer = {
+        getStatus: async(options) => {
+            if (statusService?.getBotStatus) {
+                return statusService.getBotStatus(options)
+            }
+            return buildBotStatus()
+        },
+        refreshStatus: async(options) => {
+            if (statusService?.refreshBotStatus) {
+                return statusService.refreshBotStatus(options)
+            }
+            return buildBotStatus()
+        },
+        getGuild: async(guildId, options) => {
+            if (statusService?.getGuildSnapshot) {
+                return statusService.getGuildSnapshot(guildId, options)
+            }
+            const guild = client.guilds?.cache?.get?.(guildId)
+            return toGuildPayload(guild)
+        },
+        invalidateGuild: async(guildId) => {
+            if (statusService?.invalidateGuildSnapshot) {
+                await statusService.invalidateGuildSnapshot(guildId)
+            }
+        }
+    }
+
+    const encodeCursor = (row) => {
+        if (!row) return null
+        const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString()
+        const payload = { id: row.id, createdAt }
+        return Buffer.from(JSON.stringify(payload)).toString("base64")
+    }
+
+    const decodeCursor = (cursor) => {
+        if (!cursor) return null
+        try {
+            const decoded = Buffer.from(cursor, "base64").toString("utf8")
+            const payload = JSON.parse(decoded)
+            if (!payload || !payload.id || !payload.createdAt) {
+                return null
+            }
+            const createdAtDate = new Date(payload.createdAt)
+            const id = Number(payload.id)
+            if (Number.isNaN(createdAtDate.getTime()) || Number.isNaN(id)) {
+                return null
+            }
+            return {
+                id,
+                createdAt: createdAtDate
+            }
+        } catch (error) {
+            return null
         }
     }
 
@@ -94,7 +165,7 @@ const createAdminRouter = (dependencies) => {
 
     let botStateChangePending = false
 
-    const setBotEnabled = async(enabled) => {
+    const setBotEnabled = async(enabled, meta = {}) => {
         if (botStateChangePending) {
             throw new Error("A bot state change is already in progress")
         }
@@ -103,7 +174,7 @@ const createAdminRouter = (dependencies) => {
         const willBeEnabled = Boolean(enabled)
 
         if (wasEnabled === willBeEnabled) {
-            return
+            return statusLayer.getStatus({ reason: "no-op", ...meta })
         }
 
         botStateChangePending = true
@@ -131,11 +202,17 @@ const createAdminRouter = (dependencies) => {
         } finally {
             botStateChangePending = false
         }
+
+        return statusLayer.refreshStatus({
+            reason: meta.reason || (willBeEnabled ? "enable" : "disable"),
+            ...meta,
+            enabled: willBeEnabled
+        })
     }
 
     const handleGetStatus = async(req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-        const status = await buildBotStatus()
+        const status = await statusLayer.getStatus({ reason: "admin:get-status", actor: req.user?.id })
         res.status(200).json(status)
     }
 
@@ -146,8 +223,7 @@ const createAdminRouter = (dependencies) => {
             return res.status(400).json({ message: "400: Bad request" })
         }
         try {
-            await setBotEnabled(enabled)
-            const status = await buildBotStatus()
+            const status = await setBotEnabled(enabled, { actor: req.user?.id, reason: "admin:toggle" })
             return res.status(200).json(status)
         } catch (error) {
             if (error.message.includes("already in progress")) {
@@ -175,13 +251,13 @@ const createAdminRouter = (dependencies) => {
         res.status(200).json(payload)
     }
 
-    const handleGetGuild = (req, res) => {
+    const handleGetGuild = async(req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         const guildId = req.query?.id
         if (!guildId) {
             return res.status(400).json({ message: "400: Bad request" })
         }
-        const guild = client.guilds?.cache?.get?.(guildId)
+        const guild = await statusLayer.getGuild(guildId)
         if (!guild) {
             return res.status(404).json({ message: "404: Guild not found" })
         }
@@ -191,8 +267,8 @@ const createAdminRouter = (dependencies) => {
     const handleTurnOff = async(req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         try {
-            await setBotEnabled(false)
-            res.status(200).json({ message: "200: OK" })
+            const status = await setBotEnabled(false, { actor: req.user?.id, reason: "admin:turnoff" })
+            res.status(200).json({ message: "200: OK", status })
         } catch (error) {
             if (error.message.includes("already in progress")) {
                 return res.status(409).json({ message: "409: Bot state change already in progress" })
@@ -204,8 +280,8 @@ const createAdminRouter = (dependencies) => {
     const handleTurnOn = async(req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         try {
-            await setBotEnabled(true)
-            res.status(200).json({ message: "200: OK" })
+            const status = await setBotEnabled(true, { actor: req.user?.id, reason: "admin:turnon" })
+            res.status(200).json({ message: "200: OK", status })
         } catch (error) {
             if (error.message.includes("already in progress")) {
                 return res.status(409).json({ message: "409: Bot state change already in progress" })
@@ -233,6 +309,8 @@ const createAdminRouter = (dependencies) => {
 
         try {
             await guild.leave()
+            await statusLayer.invalidateGuild(guildId)
+            await statusLayer.refreshStatus({ reason: "admin:guild-leave", actor: req.user?.id })
             return res.status(200).json({ message: "200: OK" })
         } catch (error) {
             logger.error("Failed to leave guild", {
@@ -296,13 +374,29 @@ const createAdminRouter = (dependencies) => {
             }
         }
 
-        const status = await buildBotStatus()
+        if (guildId) {
+            await statusLayer.invalidateGuild(guildId)
+        }
+
+        const status = await statusLayer.refreshStatus({
+            reason: "admin:invite-complete",
+            guildId,
+            actor: req.user?.id
+        })
         res.status(200).json({ status })
     })
     router.get("/actions", (req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         res.status(200).json({
             actions: [
+                {
+                    id: "bot-toggle",
+                    label: "Abilita/Disabilita bot",
+                    description: "Consente di attivare o disattivare Chipsy in tempo reale.",
+                    type: "status",
+                    supports: ["enable", "disable"],
+                    dangerous: false
+                },
                 {
                     id: "bot-kill",
                     label: "Termina processo bot",
@@ -361,7 +455,13 @@ const createAdminRouter = (dependencies) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
 
         // Validation handled by Zod middleware in adminEnhanced.js
-        const { type: logType, limit } = req.query
+        const { type: logType, limit, cursor } = req.query
+        const pageLimit = Number(limit) || 100
+        const decodedCursor = decodeCursor(cursor)
+
+        if (cursor && !decodedCursor) {
+            return res.status(400).json({ message: "400: Invalid cursor" })
+        }
 
         try {
             const connection = client?.connection
@@ -369,18 +469,50 @@ const createAdminRouter = (dependencies) => {
                 return res.status(500).json({ message: "500: Database connection unavailable" })
             }
 
-            const [rows] = await connection.query(
-                "SELECT id, level, message, log_type, user_id, created_at FROM logs WHERE log_type = ? ORDER BY created_at DESC LIMIT ?",
-                [logType, limit]
-            )
+            const cursorClause = decodedCursor
+                ? "AND (created_at < ? OR (created_at = ? AND id < ?))"
+                : ""
+
+            const query = `
+                SELECT id, level, message, log_type, user_id, created_at
+                FROM logs
+                WHERE log_type = ?
+                ${cursorClause}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            `
+
+            const params = decodedCursor
+                ? [logType, decodedCursor.createdAt, decodedCursor.createdAt, decodedCursor.id, pageLimit + 1]
+                : [logType, pageLimit + 1]
+
+            await analyzeQuery(connection, query, params, { label: "admin:get-logs" })
+
+            const [rows] = await connection.query(query, params)
+
+            const hasNext = rows.length > pageLimit
+            const limitedRows = rows.slice(0, pageLimit)
+            const nextCursor = hasNext && limitedRows.length > 0
+                ? encodeCursor(limitedRows[limitedRows.length - 1])
+                : null
+            const responseLogs = limitedRows.slice().reverse()
 
             res.status(200).json({
-                logs: rows.reverse()
+                logs: responseLogs,
+                nextCursor,
+                pageInfo: {
+                    hasNext,
+                    nextCursor,
+                    limit: pageLimit,
+                    cursor: nextCursor
+                }
             })
         } catch (error) {
             logger.error("Failed to fetch logs", {
                 scope: "admin",
-                error: error.message
+                error: error.message,
+                logType,
+                cursor
             })
             // Let global error handler manage unexpected errors
             next(error)

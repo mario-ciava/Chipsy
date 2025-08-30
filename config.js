@@ -15,7 +15,13 @@ const envSchema = z.object({
     MYSQL_DATABASE: z.string().min(1, "MYSQL_DATABASE is required.").default("app_data"),
     MYSQL_USER: z.string().optional(),
     MYSQL_PASSWORD: z.string().optional(),
-    FRONTEND_REDIRECT_ORIGIN: z.string().optional()
+    FRONTEND_REDIRECT_ORIGIN: z.string().optional(),
+    REDIS_URL: z.string().url().optional(),
+    REDIS_HOST: z.string().optional(),
+    REDIS_PORT: z.coerce.number().int().positive().optional(),
+    REDIS_PASSWORD: z.string().optional(),
+    REDIS_DB: z.coerce.number().int().nonnegative().optional(),
+    REDIS_TLS: z.enum(["true", "false"]).optional()
 })
 
 const parsedEnv = envSchema.safeParse(process.env)
@@ -51,5 +57,15 @@ module.exports = {
     },
     web: {
         redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || "http://localhost:8082"
+    },
+    cache: {
+        redis: {
+            url: env.REDIS_URL || undefined,
+            host: env.REDIS_HOST || undefined,
+            port: env.REDIS_PORT || undefined,
+            password: env.REDIS_PASSWORD || undefined,
+            database: env.REDIS_DB || undefined,
+            tls: env.REDIS_TLS || undefined
+        }
     }
 }

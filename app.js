@@ -7,6 +7,8 @@ const initializeMySql = require("./mysql")
 const createDataHandler = require("./util/datahandler")
 const createSetData = require("./util/createSetData")
 const logger = require("./util/logger")
+const createCacheClient = require("./util/createCacheClient")
+const createStatusService = require("./server/services/statusService")
 
 class WebSocketBridge extends EventEmitter {}
 const webSocket = new WebSocketBridge()
@@ -36,6 +38,16 @@ const bootstrap = async() => {
             client.dataHandler = dataHandler
             client.SetData = createSetData(dataHandler)
             client.healthChecks = { mysql: healthCheck }
+
+            const cache = await createCacheClient(config.cache?.redis)
+            client.cache = cache
+
+            const statusService = createStatusService({
+                client,
+                cache,
+                webSocket
+            })
+            client.statusService = statusService
 
             await client.login(config.discord.botToken)
             logger.info("Discord client logged in", { scope: "bootstrap" })

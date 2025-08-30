@@ -84,6 +84,7 @@ describe("Express API integration", () => {
     let discordApi
     let app
     let agent
+    let statusService
 
     beforeEach(async() => {
         discordApi = {
@@ -93,6 +94,30 @@ describe("Express API integration", () => {
 
         webSocket = {
             emit: jest.fn()
+        }
+
+        statusService = {
+            getBotStatus: jest.fn().mockResolvedValue({
+                enabled: true,
+                guildCount: 1,
+                health: { mysql: { alive: true } },
+                updatedAt: new Date().toISOString()
+            }),
+            refreshBotStatus: jest.fn().mockResolvedValue({
+                enabled: false,
+                guildCount: 1,
+                health: { mysql: { alive: true } },
+                updatedAt: new Date().toISOString()
+            }),
+            broadcastStatus: jest.fn(),
+            getGuildSnapshot: jest.fn().mockImplementation((id) => {
+                if (id === "1") {
+                    return Promise.resolve({ id: "1", name: "Guild One" })
+                }
+                return Promise.resolve(null)
+            }),
+            invalidateGuildSnapshot: jest.fn(),
+            registerBroadcaster: jest.fn()
         }
 
         client = {
@@ -167,11 +192,14 @@ describe("Express API integration", () => {
             }
         }
 
+        client.statusService = statusService
+
         app = createServer(client, webSocket, {
             listen: false,
             rateLimiter: false,
             logger: false,
             discordApi,
+            statusService,
             sessionOptions: {
                 secret: "test-session-secret-32-characters-minimum"
             }
@@ -341,7 +369,7 @@ describe("Express API integration", () => {
                 "x-csrf-token": csrfToken,
                 "content-type": "application/json"
             },
-            body: JSON.stringify({ code: "invite-code", guildId: "123" })
+            body: JSON.stringify({ code: "invite-code", guildId: "123456789012345678" })
         })
 
         expect(inviteResponse.response.status).toBe(200)
@@ -358,7 +386,7 @@ describe("Express API integration", () => {
         const [, body] = discordApi.post.mock.calls.find(([url]) => url === "/oauth2/token")
         expect(body).toEqual(expect.stringContaining("client_id=client-id"))
         expect(body).toEqual(expect.stringMatching(/scope=bot(?:%20|\+)applications\.commands/))
-        expect(client.guilds.fetch).toHaveBeenCalledWith("123", { force: true })
+        expect(client.guilds.fetch).toHaveBeenCalledWith("123456789012345678", { force: true })
         expect(inviteResponse.body).toHaveProperty("status")
     })
 
@@ -385,7 +413,7 @@ describe("Express API integration", () => {
             enabled: true,
             health: { mysql: { alive: true } }
         })
-        expect(client.healthChecks.mysql).toHaveBeenCalled()
+        expect(statusService.getBotStatus).toHaveBeenCalled()
     })
 
     test("PATCH /api/admin/bot toggles bot availability", async() => {

@@ -1,4 +1,4 @@
-const rateLimit = require("express-rate-limit")
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit")
 const { logger } = require("./structuredLogger")
 
 const createRateLimitHandler = (type) => (req, res) => {
@@ -28,8 +28,10 @@ const globalLimiter = rateLimit({
     },
     handler: createRateLimitHandler("global"),
     keyGenerator: (req) => {
-        // Use user ID if authenticated, otherwise IP
-        return req.user?.id || req.ip || req.connection.remoteAddress
+        if (req.user?.id) {
+            return req.user.id
+        }
+        return ipKeyGenerator(req)
     }
 })
 

@@ -50,7 +50,20 @@ const adminSchemas = {
             .int()
             .min(1, "Limit must be at least 1")
             .max(500, "Limit cannot exceed 500")
-            .default(100)
+            .default(100),
+        cursor: z.string()
+            .max(200)
+            .optional()
+            .refine((value) => {
+                if (!value) return true
+                try {
+                    const decoded = Buffer.from(value, "base64").toString("utf8")
+                    const payload = JSON.parse(decoded)
+                    return Boolean(payload && payload.id && payload.createdAt)
+                } catch (error) {
+                    return false
+                }
+            }, { message: "Invalid cursor token" })
     })
 }
 

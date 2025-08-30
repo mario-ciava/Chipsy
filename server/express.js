@@ -21,6 +21,7 @@ const {
     criticalActionLimiter
 } = require("./middleware/rateLimiter")
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler")
+const createStatusWebSocketServer = require("./websocket/statusServer")
 
 const { PermissionsBitField, PermissionFlagsBits } = Discord
 
@@ -320,11 +321,25 @@ module.exports = (client, webSocket, options = {}) => {
         healthChecks: client.healthChecks,
         discordApi,
         clientCredentials,
-        getInviteRedirectUri: buildInviteRedirectUri
+        getInviteRedirectUri: buildInviteRedirectUri,
+        statusService: client.statusService
     })
 
     // All admin endpoints are under /admin prefix
     router.use("/admin", adminRouter)
+
+    // Backwards compatibility for legacy /api/client endpoint
+    if (adminHandlers?.getClient) {
+        router.get("/client", adminHandlers.getClient)
+    }
+
+    if (adminHandlers?.turnOff) {
+        router.post("/turnoff", requireCsrfToken, adminHandlers.turnOff)
+    }
+
+    if (adminHandlers?.turnOn) {
+        router.post("/turnon", requireCsrfToken, adminHandlers.turnOn)
+    }
 
     const usersRouter = createUsersRouter({
         client,
@@ -349,9 +364,35 @@ module.exports = (client, webSocket, options = {}) => {
     // Global error handler
     app.use(errorHandler)
 
+    let httpServer = options.server || null
     if (listen) {
-        app.listen(port)
+        httpServer = app.listen(port)
     }
+
+    let wsBridge = null
+    const statusService = options.statusService || client.statusService
+
+    if (!options.disableWebSocket && httpServer && statusService) {
+        try {
+            wsBridge = createStatusWebSocketServer({
+                server: httpServer,
+                webSocketEmitter: webSocket,
+                statusService,
+                path: options.webSocketPath
+            })
+            structuredLogger.info("WebSocket bridge initialized", { scope: "server" })
+        } catch (error) {
+            structuredLogger.error("Failed to initialize WebSocket bridge", {
+                scope: "server",
+                message: error.message
+            })
+        }
+    } else if (!statusService) {
+        structuredLogger.warn("Status service not available - WebSocket bridge disabled", { scope: "server" })
+    }
+
+    app.httpServer = httpServer
+    app.wsBridge = wsBridge
 
     return app
 }
