@@ -1,4 +1,4 @@
-const { info, warn } = require("../../util/logger")
+const { info, warn } = require("../../bot/utils/logger")
 
 const STATUS_CACHE_KEY = "bot:status"
 const GUILD_CACHE_PREFIX = "bot:guild:"

@@ -1,9 +1,9 @@
 const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
-const features = require("../structure/features.js")
-const setSeparator = require("../util/setSeparator")
-const logger = require("../util/logger")
-const createCommand = require("../util/createCommand")
+const features = require("../games/features.js")
+const setSeparator = require("../utils/setSeparator")
+const logger = require("../utils/logger")
+const createCommand = require("../utils/createCommand")
 
 const runUpgrade = async(msg) => {
     try {

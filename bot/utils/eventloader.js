@@ -1,10 +1,8 @@
 const { error: logError } = require("./logger")
-
 const { Events } = require("discord.js")
 
 const handlers = {
     ready: require("../events/ready"),
-    messageCreate: require("../events/msg"),
     interactionCreate: require("../events/interaction"),
     uncaughtException: require("../events/uncaughtException"),
     unhandledRejection: require("../events/unhandledRejection")
@@ -22,10 +20,9 @@ const executeSafely = async(eventName, handler, args) => {
     }
 }
 
-module.exports = (client, _config) => {
+module.exports = (client) => {
     client
         .once(Events.ClientReady, () => executeSafely("ClientReady", handlers.ready, [client]))
-        .on(Events.MessageCreate, (msg) => executeSafely("MessageCreate", handlers.messageCreate, [msg]))
         .on(Events.InteractionCreate, (interaction) =>
             executeSafely("InteractionCreate", handlers.interactionCreate, [interaction])
         )

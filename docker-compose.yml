@@ -5,16 +5,41 @@ services:
     image: mysql:8.0
     container_name: chipsy-mysql
     restart: unless-stopped
-    command: --default-authentication-plugin=mysql_native_password
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=200
+      --innodb_buffer_pool_size=256M
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-chipsy-root}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-app_data}
       MYSQL_USER: ${MYSQL_USER:-chipsy}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chipsy}
+      TZ: Europe/Rome
     ports:
       - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+    networks:
+      - chipsy-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-chipsy-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 256M
+
+networks:
+  chipsy-network:
+    driver: bridge
 
 volumes:
   mysql-data:

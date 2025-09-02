@@ -1,11 +1,11 @@
 const Discord = require("discord.js")
-const features = require("../structure/features.js"),
+const features = require("./features.js"),
     delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
-    Game = require("../structure/game.js"),
-    cards = require("../structure/cards.js"),
-    setSeparator = require("../util/setSeparator"),
-    bankrollManager = require("../util/bankrollManager"),
-    logger = require("../util/logger")
+    Game = require("./game.js"),
+    cards = require("./cards.js"),
+    setSeparator = require("../utils/setSeparator"),
+    bankrollManager = require("../utils/bankrollManager"),
+    logger = require("../utils/logger")
 module.exports = class BlackJack extends Game {
     constructor(info) {
         super(info)

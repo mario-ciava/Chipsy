@@ -1,6 +1,6 @@
 const createServer = require("./express")
-const { client, webSocket, bootstrap } = require("../app")
-const logger = require("../util/logger")
+const { client, webSocket, bootstrap } = require("../bot")
+const logger = require("../bot/utils/logger")
 
 const start = async() => {
     try {

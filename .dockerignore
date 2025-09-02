@@ -1,0 +1,61 @@
+# Dependencies
+node_modules
+web/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+server/logs
+web/logs
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+
+# Build artifacts
+dist
+build
+web/dist
+web/build
+
+# Test coverage
+coverage
+.nyc_output
+
+# Temporary files
+tmp
+temp
+*.tmp
+
+# Documentation (not needed in container)
+*.md
+docs
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore

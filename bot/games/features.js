@@ -1,4 +1,4 @@
-const setSeparator = require("../util/setSeparator")
+const setSeparator = require("../utils/setSeparator")
 
 exports.list = {
     "with-holding": {

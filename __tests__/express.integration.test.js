@@ -536,8 +536,16 @@ describe("Express API integration", () => {
         expect(response.body.actions).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    id: "bot-toggle",
-                    supports: expect.arrayContaining(["enable", "disable"])
+                    id: "bot-reload-config",
+                    type: "concept"
+                }),
+                expect.objectContaining({
+                    id: "bot-sync-commands",
+                    type: "concept"
+                }),
+                expect.objectContaining({
+                    id: "bot-diagnostics",
+                    type: "concept"
                 })
             ])
         )

@@ -19,7 +19,9 @@ const middleware = {
     // Critical actions: strict rate limiting + validation
     critical: {
         toggleBot: [criticalActionLimiter, validate(adminSchemas.toggleBot, "body")],
-        kill: [criticalActionLimiter]
+        kill: [criticalActionLimiter],
+        turnOff: [criticalActionLimiter],
+        turnOn: [criticalActionLimiter]
     },
 
     // Read operations: moderate rate limiting
@@ -42,7 +44,6 @@ const middleware = {
  */
 const createEnhancedAdminRouter = (dependencies) => {
     const { router: baseRouter, handlers } = createAdminRouter(dependencies)
-    const { requireCsrfToken } = dependencies
 
     // Apply middleware to specific endpoints in /admin router
     // We need to re-register endpoints with middleware
@@ -83,8 +84,10 @@ const createEnhancedAdminRouter = (dependencies) => {
                 middlewareToApply = middleware.read.status
             } else if (path === "/client" && method === "get") {
                 middlewareToApply = middleware.read.status
-            } else if ((path === "/turnoff" || path === "/turnon") && method === "post") {
-                middlewareToApply = middleware.critical.toggleBot
+            } else if (path === "/turnoff" && method === "post") {
+                middlewareToApply = middleware.critical.turnOff
+            } else if (path === "/turnon" && method === "post") {
+                middlewareToApply = middleware.critical.turnOn
             }
 
             // Re-register with middleware

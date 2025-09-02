@@ -121,14 +121,22 @@ export default {
     backdrop-filter: blur(6px);
 }
 
+
 .log-console__header {
-    align-items: flex-start;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
 .log-console__toggle {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 12px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(15, 23, 42, 0.45);
+    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.15);
 }
 
 .log-console__toggle-label {
@@ -140,8 +148,8 @@ export default {
 .toggle-switch {
     position: relative;
     display: inline-block;
-    width: 48px;
-    height: 26px;
+    width: 56px;
+    height: 30px;
 }
 
 .toggle-switch input {
@@ -163,10 +171,10 @@ export default {
 .toggle-switch__slider:before {
     position: absolute;
     content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
     background: white;
     transition: 0.3s;
     border-radius: 50%;
@@ -179,7 +187,7 @@ export default {
 }
 
 .toggle-switch input:checked + .toggle-switch__slider:before {
-    transform: translateX(22px);
+    transform: translateX(24px);
 }
 
 .log-console__body {

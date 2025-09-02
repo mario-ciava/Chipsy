@@ -1,4 +1,4 @@
-const features = require("../structure/features")
+const features = require("../games/features")
 
 const BASE_REQUIRED_EXP = 100
 

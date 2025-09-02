@@ -1,8 +1,18 @@
 const express = require("express")
-const { EmbedBuilder, Colors } = require("discord.js")
-const { getActiveGames } = require("../../util/gameRegistry")
+const createAdminService = require("../services/adminService")
 const { logger } = require("../middleware/structuredLogger")
-const { analyzeQuery } = require("../../util/db/queryAnalyzer")
+
+const respondWithServiceError = (error, res, next) => {
+    if (error?.status) {
+        const payload = { message: `${error.status}: ${error.message}` }
+        if (error.details) {
+            payload.details = error.details
+        }
+        return res.status(error.status).json(payload)
+    }
+
+    return next(error)
+}
 
 const createAdminRouter = (dependencies) => {
     const {
@@ -20,6 +30,17 @@ const createAdminRouter = (dependencies) => {
 
     const router = express.Router()
 
+    const adminService = createAdminService({
+        client,
+        webSocket,
+        statusService,
+        healthChecks,
+        discordApi,
+        clientCredentials,
+        getInviteRedirectUri,
+        logger
+    })
+
     const ensureAuthenticatedAdmin = (req, res) => {
         if (!getAccessToken(req)) {
             res.status(400).json({ message: "400: Bad request" })
@@ -32,261 +53,73 @@ const createAdminRouter = (dependencies) => {
         return true
     }
 
-    const buildBotStatus = async() => {
-        const guildCount = client.guilds?.cache?.size ?? 0
-        const health = {}
-
-        if (typeof healthChecks.mysql === "function") {
-            try {
-                health.mysql = await healthChecks.mysql()
-            } catch (error) {
-                health.mysql = { alive: false, error: error.message }
-            }
-        }
-
-        return {
-            enabled: Boolean(client.config?.enabled),
-            guildCount,
-            updatedAt: new Date().toISOString(),
-            health
-        }
-    }
-
-    const toGuildPayload = (guild) => {
-        if (!guild) return null
-        if (typeof guild.toJSON === "function") {
-            return guild.toJSON()
-        }
-
-        return {
-            id: guild.id,
-            name: guild.name,
-            description: guild.description || null
-        }
-    }
-
-    const statusLayer = {
-        getStatus: async(options) => {
-            if (statusService?.getBotStatus) {
-                return statusService.getBotStatus(options)
-            }
-            return buildBotStatus()
-        },
-        refreshStatus: async(options) => {
-            if (statusService?.refreshBotStatus) {
-                return statusService.refreshBotStatus(options)
-            }
-            return buildBotStatus()
-        },
-        getGuild: async(guildId, options) => {
-            if (statusService?.getGuildSnapshot) {
-                return statusService.getGuildSnapshot(guildId, options)
-            }
-            const guild = client.guilds?.cache?.get?.(guildId)
-            return toGuildPayload(guild)
-        },
-        invalidateGuild: async(guildId) => {
-            if (statusService?.invalidateGuildSnapshot) {
-                await statusService.invalidateGuildSnapshot(guildId)
-            }
-        }
-    }
-
-    const encodeCursor = (row) => {
-        if (!row) return null
-        const createdAt = row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString()
-        const payload = { id: row.id, createdAt }
-        return Buffer.from(JSON.stringify(payload)).toString("base64")
-    }
-
-    const decodeCursor = (cursor) => {
-        if (!cursor) return null
-        try {
-            const decoded = Buffer.from(cursor, "base64").toString("utf8")
-            const payload = JSON.parse(decoded)
-            if (!payload || !payload.id || !payload.createdAt) {
-                return null
-            }
-            const createdAtDate = new Date(payload.createdAt)
-            const id = Number(payload.id)
-            if (Number.isNaN(createdAtDate.getTime()) || Number.isNaN(id)) {
-                return null
-            }
-            return {
-                id,
-                createdAt: createdAtDate
-            }
-        } catch (error) {
-            return null
-        }
-    }
-
-    const stopActiveGames = async({ notify = false } = {}) => {
-        const trackedGames = new Set(getActiveGames(client))
-        const channels = client?.channels?.cache
-        if (channels) {
-            for (const channel of channels.values()) {
-                const game = channel?.game
-                if (game && typeof game.Stop === "function") {
-                    trackedGames.add(game)
-                }
-            }
-        }
-        if (!trackedGames.size) return
-
-        const stopPromises = Array.from(trackedGames).map(async(game) => {
-            if (!game || typeof game.Stop !== "function") return
-            try {
-                await game.Stop({ notify })
-                if (!notify && game.channel && typeof game.channel.send === "function") {
-                    if (!game.channel.__chipsyDisabledNotified) {
-                        game.channel.__chipsyDisabledNotified = true
-                        await game.channel.send({
-                            embeds: [
-                                new EmbedBuilder()
-                                    .setColor(Colors.Orange || 0xf97316)
-                                    .setDescription("⚠️ La partita è stata interrotta perché Chipsy è stato disattivato dagli amministratori.")
-                            ]
-                        }).catch(() => null)
-                    }
-                }
-            } catch (error) {
-                logger.warn("Failed to stop active game while disabling bot", {
-                    scope: "admin",
-                    game: game.constructor?.name,
-                    channelId: game.channel?.id,
-                    error: error.message
-                })
-            }
-        })
-
-        await Promise.allSettled(stopPromises)
-    }
-
-    let botStateChangePending = false
-
-    const setBotEnabled = async(enabled, meta = {}) => {
-        if (botStateChangePending) {
-            throw new Error("A bot state change is already in progress")
-        }
-
-        const wasEnabled = Boolean(client.config?.enabled)
-        const willBeEnabled = Boolean(enabled)
-
-        if (wasEnabled === willBeEnabled) {
-            return statusLayer.getStatus({ reason: "no-op", ...meta })
-        }
-
-        botStateChangePending = true
-
-        try {
-            if (willBeEnabled) {
-                client.config.enabled = true
-                webSocket?.emit("enable")
-                const channels = client?.channels?.cache
-                if (channels) {
-                    for (const channel of channels.values()) {
-                        if (channel && channel.__chipsyDisabledNotified) {
-                            delete channel.__chipsyDisabledNotified
-                        }
-                    }
-                }
-            } else {
-                client.config.enabled = false
-                webSocket?.emit("disable")
-                await Promise.race([
-                    stopActiveGames({ notify: false }),
-                    new Promise((resolve) => setTimeout(resolve, 10000))
-                ])
-            }
-        } finally {
-            botStateChangePending = false
-        }
-
-        return statusLayer.refreshStatus({
-            reason: meta.reason || (willBeEnabled ? "enable" : "disable"),
-            ...meta,
-            enabled: willBeEnabled
-        })
-    }
-
-    const handleGetStatus = async(req, res) => {
+    const handleGetStatus = async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-        const status = await statusLayer.getStatus({ reason: "admin:get-status", actor: req.user?.id })
-        res.status(200).json(status)
+        try {
+            const status = await adminService.getStatus({ reason: "admin:get-status", actor: req.user?.id })
+            res.status(200).json(status)
+        } catch (error) {
+            respondWithServiceError(error, res, next)
+        }
     }
 
-    const handleBotStateChange = async(req, res) => {
+    const handleBotStateChange = async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         const { enabled } = req.body || {}
         if (typeof enabled !== "boolean") {
             return res.status(400).json({ message: "400: Bad request" })
         }
+
         try {
-            const status = await setBotEnabled(enabled, { actor: req.user?.id, reason: "admin:toggle" })
+            const status = await adminService.setBotEnabled(enabled, { actor: req.user?.id, reason: "admin:toggle" })
             return res.status(200).json(status)
         } catch (error) {
-            if (error.message.includes("already in progress")) {
-                return res.status(409).json({ message: "409: Bot state change already in progress" })
-            }
-            throw error
+            return respondWithServiceError(error, res, next)
         }
     }
-
-    const buildClientConfig = () => ({
-        id: client.config?.id,
-        ownerid: client.config?.ownerid,
-        prefix: client.config?.prefix,
-        enabled: Boolean(client.config?.enabled),
-        redirectUri: client.config?.redirectUri
-    })
 
     const handleGetClient = (req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         const csrfToken = ensureCsrfToken(req)
-        const payload = buildClientConfig()
+        const payload = adminService.getClientConfig()
         if (csrfToken) {
             payload.csrfToken = csrfToken
         }
         res.status(200).json(payload)
     }
 
-    const handleGetGuild = async(req, res) => {
+    const handleGetGuild = async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         const guildId = req.query?.id
         if (!guildId) {
             return res.status(400).json({ message: "400: Bad request" })
         }
-        const guild = await statusLayer.getGuild(guildId)
-        if (!guild) {
-            return res.status(404).json({ message: "404: Guild not found" })
-        }
-        return res.status(200).json(guild)
-    }
 
-    const handleTurnOff = async(req, res) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
         try {
-            const status = await setBotEnabled(false, { actor: req.user?.id, reason: "admin:turnoff" })
-            res.status(200).json({ message: "200: OK", status })
+            const guild = await adminService.getGuild(guildId)
+            return res.status(200).json(guild)
         } catch (error) {
-            if (error.message.includes("already in progress")) {
-                return res.status(409).json({ message: "409: Bot state change already in progress" })
-            }
-            throw error
+            return respondWithServiceError(error, res, next)
         }
     }
 
-    const handleTurnOn = async(req, res) => {
+    const handleTurnOff = async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
         try {
-            const status = await setBotEnabled(true, { actor: req.user?.id, reason: "admin:turnon" })
+            const status = await adminService.setBotEnabled(false, { actor: req.user?.id, reason: "admin:turnoff" })
             res.status(200).json({ message: "200: OK", status })
         } catch (error) {
-            if (error.message.includes("already in progress")) {
-                return res.status(409).json({ message: "409: Bot state change already in progress" })
-            }
-            throw error
+            respondWithServiceError(error, res, next)
+        }
+    }
+
+    const handleTurnOn = async(req, res, next) => {
+        if (!ensureAuthenticatedAdmin(req, res)) return
+        try {
+            const status = await adminService.setBotEnabled(true, { actor: req.user?.id, reason: "admin:turnon" })
+            res.status(200).json({ message: "200: OK", status })
+        } catch (error) {
+            respondWithServiceError(error, res, next)
         }
     }
 
@@ -296,116 +129,33 @@ const createAdminRouter = (dependencies) => {
     router.get("/guild", handleGetGuild)
     router.post("/turnoff", requireCsrfToken, handleTurnOff)
     router.post("/turnon", requireCsrfToken, handleTurnOn)
+
     router.post("/guild/leave", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-
-        // Validation handled by Zod middleware in adminEnhanced.js
         const { id: guildId } = req.body
-
-        const guild = client.guilds?.cache?.get?.(guildId)
-        if (!guild) {
-            return res.status(404).json({ message: "404: Guild not found" })
-        }
-
         try {
-            await guild.leave()
-            await statusLayer.invalidateGuild(guildId)
-            await statusLayer.refreshStatus({ reason: "admin:guild-leave", actor: req.user?.id })
+            await adminService.leaveGuild(guildId, { actor: req.user?.id })
             return res.status(200).json({ message: "200: OK" })
         } catch (error) {
-            logger.error("Failed to leave guild", {
-                scope: "admin",
-                guildId,
-                error: error.message
-            })
-            next(error)
+            return respondWithServiceError(error, res, next)
         }
     })
+
     router.post("/guild/invite/complete", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-
-        // Validation handled by Zod middleware in adminEnhanced.js
         const { code, guildId } = req.body
 
-        // Verify server dependencies
-        if (!discordApi || !clientCredentials || typeof getInviteRedirectUri !== "function") {
-            return res.status(500).json({ message: "500: Invite completion unavailable" })
-        }
-
-        const redirectUri = getInviteRedirectUri()
-        const params = new URLSearchParams({
-            client_id: client.config?.id,
-            client_secret: client.config?.secret,
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: redirectUri,
-            scope: "bot applications.commands"
-        })
-
         try {
-            await discordApi.post("/oauth2/token", params.toString(), {
-                headers: {
-                    Authorization: `Basic ${clientCredentials}`,
-                    "Content-Type": "application/x-www-form-urlencoded"
-                }
-            })
+            const status = await adminService.completeInvite({ code, guildId, meta: { actor: req.user?.id } })
+            res.status(200).json({ status })
         } catch (error) {
-            const details = error?.data || error?.response?.data || error?.message
-            logger.error("Failed to exchange invite authorization code", {
-                scope: "admin",
-                error: details
-            })
-            return res.status(502).json({
-                message: "502: Unable to finalize bot invitation",
-                details
-            })
+            respondWithServiceError(error, res, next)
         }
-
-        // Refresh guild cache if guildId provided
-        if (guildId && client?.guilds?.fetch) {
-            try {
-                await client.guilds.fetch(guildId, { force: true })
-            } catch (error) {
-                logger.warn("Unable to refresh guild cache after invite completion", {
-                    scope: "admin",
-                    guildId,
-                    error: error.message
-                })
-            }
-        }
-
-        if (guildId) {
-            await statusLayer.invalidateGuild(guildId)
-        }
-
-        const status = await statusLayer.refreshStatus({
-            reason: "admin:invite-complete",
-            guildId,
-            actor: req.user?.id
-        })
-        res.status(200).json({ status })
     })
+
     router.get("/actions", (req, res) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-        res.status(200).json({
-            actions: [
-                {
-                    id: "bot-toggle",
-                    label: "Abilita/Disabilita bot",
-                    description: "Consente di attivare o disattivare Chipsy in tempo reale.",
-                    type: "status",
-                    supports: ["enable", "disable"],
-                    dangerous: false
-                },
-                {
-                    id: "bot-kill",
-                    label: "Termina processo bot",
-                    description: "Chiude completamente il processo del bot. Richiede riavvio manuale.",
-                    type: "command",
-                    dangerous: true
-                }
-            ]
-        })
+        res.status(200).json(adminService.listActions())
     })
 
     router.post("/kill", requireCsrfToken, async(req, res) => {
@@ -425,97 +175,25 @@ const createAdminRouter = (dependencies) => {
 
     router.post("/logs", requireCsrfToken, async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-
-        // Validation handled by Zod middleware in adminEnhanced.js
         const { level, message, logType, userId } = req.body
 
         try {
-            const connection = client?.connection
-            if (!connection) {
-                return res.status(500).json({ message: "500: Database connection unavailable" })
-            }
-
-            await connection.query(
-                "INSERT INTO logs (level, message, log_type, user_id) VALUES (?, ?, ?, ?)",
-                [level, message, logType, userId]
-            )
-
+            await adminService.createLog({ level, message, logType, userId })
             res.status(201).json({ message: "201: Log saved" })
         } catch (error) {
-            logger.error("Failed to save log", {
-                scope: "admin",
-                error: error.message
-            })
-            // Let global error handler manage unexpected errors
-            next(error)
+            respondWithServiceError(error, res, next)
         }
     })
 
     router.get("/logs", async(req, res, next) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
-
-        // Validation handled by Zod middleware in adminEnhanced.js
         const { type: logType, limit, cursor } = req.query
-        const pageLimit = Number(limit) || 100
-        const decodedCursor = decodeCursor(cursor)
-
-        if (cursor && !decodedCursor) {
-            return res.status(400).json({ message: "400: Invalid cursor" })
-        }
 
         try {
-            const connection = client?.connection
-            if (!connection) {
-                return res.status(500).json({ message: "500: Database connection unavailable" })
-            }
-
-            const cursorClause = decodedCursor
-                ? "AND (created_at < ? OR (created_at = ? AND id < ?))"
-                : ""
-
-            const query = `
-                SELECT id, level, message, log_type, user_id, created_at
-                FROM logs
-                WHERE log_type = ?
-                ${cursorClause}
-                ORDER BY created_at DESC, id DESC
-                LIMIT ?
-            `
-
-            const params = decodedCursor
-                ? [logType, decodedCursor.createdAt, decodedCursor.createdAt, decodedCursor.id, pageLimit + 1]
-                : [logType, pageLimit + 1]
-
-            await analyzeQuery(connection, query, params, { label: "admin:get-logs" })
-
-            const [rows] = await connection.query(query, params)
-
-            const hasNext = rows.length > pageLimit
-            const limitedRows = rows.slice(0, pageLimit)
-            const nextCursor = hasNext && limitedRows.length > 0
-                ? encodeCursor(limitedRows[limitedRows.length - 1])
-                : null
-            const responseLogs = limitedRows.slice().reverse()
-
-            res.status(200).json({
-                logs: responseLogs,
-                nextCursor,
-                pageInfo: {
-                    hasNext,
-                    nextCursor,
-                    limit: pageLimit,
-                    cursor: nextCursor
-                }
-            })
+            const result = await adminService.getLogs({ logType, limit, cursor })
+            res.status(200).json(result)
         } catch (error) {
-            logger.error("Failed to fetch logs", {
-                scope: "admin",
-                error: error.message,
-                logType,
-                cursor
-            })
-            // Let global error handler manage unexpected errors
-            next(error)
+            respondWithServiceError(error, res, next)
         }
     })
 
@@ -523,26 +201,10 @@ const createAdminRouter = (dependencies) => {
         if (!ensureAuthenticatedAdmin(req, res)) return
 
         try {
-            const connection = client?.connection
-            if (!connection) {
-                return res.status(500).json({ message: "500: Database connection unavailable" })
-            }
-
-            const [result] = await connection.query(
-                "DELETE FROM logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 5 DAY)"
-            )
-
-            res.status(200).json({
-                message: "200: Logs cleaned up",
-                deletedCount: result.affectedRows
-            })
+            const result = await adminService.cleanupLogs()
+            res.status(200).json(result)
         } catch (error) {
-            logger.error("Failed to cleanup logs", {
-                scope: "admin",
-                error: error.message
-            })
-            // Let global error handler manage unexpected errors
-            next(error)
+            respondWithServiceError(error, res, next)
         }
     })
 

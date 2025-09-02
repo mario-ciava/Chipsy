@@ -1,5 +1,6 @@
 const { normalizeUserExperience } = require("./experience")
 const { error: logError } = require("./logger")
+const { withTransaction } = require("./db/withTransaction")
 
 const mapUserRecord = (record) => {
     if (!record) return null
@@ -14,18 +15,6 @@ const createDataHandler = (pool) => {
             message: err.message
         })
         throw err
-    }
-
-    const safeRollback = async(connection, context) => {
-        try {
-            await connection.rollback()
-        } catch (rollbackError) {
-            logError("Failed to rollback transaction", {
-                scope: "mysql",
-                ...context,
-                message: rollbackError.message
-            })
-        }
     }
 
     const getUserData = async(id) => {
@@ -43,38 +32,30 @@ const createDataHandler = (pool) => {
     const createUserData = async(id) => {
         if (!id) throw new Error("User id is required.")
 
-        const connection = await pool.getConnection()
         const context = { operation: "createUserData", id }
         try {
-            await connection.beginTransaction()
-            await connection.query("INSERT INTO `users` (`id`) VALUES (?)", [id])
-            const [results] = await connection.query("SELECT * FROM `users` WHERE `id` = ?", [id])
-            await connection.commit()
-            return mapUserRecord(results[0])
+            return await withTransaction(pool, async(connection) => {
+                await connection.query("INSERT INTO `users` (`id`) VALUES (?)", [id])
+                const [results] = await connection.query("SELECT * FROM `users` WHERE `id` = ?", [id])
+                return mapUserRecord(results[0])
+            }, context)
         } catch (error) {
-            await safeRollback(connection, context)
             handleError(error, context)
-        } finally {
-            connection.release()
         }
     }
 
     const updateUserData = async(id, user) => {
         if (!id) throw new Error("User id is required.")
 
-        const connection = await pool.getConnection()
         const context = { operation: "updateUserData", id }
         try {
-            await connection.beginTransaction()
-            await connection.query("UPDATE `users` SET ? WHERE `id` = ?", [user, id])
-            const [results] = await connection.query("SELECT * FROM `users` WHERE `id` = ?", [id])
-            await connection.commit()
-            return mapUserRecord(results[0])
+            return await withTransaction(pool, async(connection) => {
+                await connection.query("UPDATE `users` SET ? WHERE `id` = ?", [user, id])
+                const [results] = await connection.query("SELECT * FROM `users` WHERE `id` = ?", [id])
+                return mapUserRecord(results[0])
+            }, context)
         } catch (error) {
-            await safeRollback(connection, context)
             handleError(error, context)
-        } finally {
-            connection.release()
         }
     }
 

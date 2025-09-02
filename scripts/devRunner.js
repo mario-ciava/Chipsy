@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const fs = require("fs")
 const { spawn } = require("child_process")
 const path = require("path")
 
@@ -7,12 +8,70 @@ const rootDir = path.resolve(__dirname, "..")
 
 const commandOrder = ["mysql", "panel", "bot"]
 
+const commandExists = (binary) => {
+    if (!binary || typeof binary !== "string") return false
+    const extensions = process.platform === "win32"
+        ? (process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM").split(";")
+        : [""]
+    const searchPaths = (process.env.PATH || "").split(path.delimiter).filter(Boolean)
+
+    for (const searchPath of searchPaths) {
+        for (const extension of extensions) {
+            const candidate = path.join(searchPath, process.platform === "win32" ? `${binary}${extension}` : binary)
+            if (!fs.existsSync(candidate)) continue
+
+            if (process.platform === "win32") {
+                return true
+            }
+
+            try {
+                fs.accessSync(candidate, fs.constants.X_OK)
+                return true
+            } catch (error) {
+                // Try next candidate
+            }
+        }
+    }
+
+    return false
+}
+
+const resolveMysqlCommand = () => {
+    if (process.env.MYSQL_START_COMMAND) {
+        return process.env.MYSQL_START_COMMAND
+    }
+
+    if (commandExists("docker")) {
+        return "docker compose up mysql"
+    }
+
+    if (commandExists("docker-compose")) {
+        return "docker-compose up mysql"
+    }
+
+    return null
+}
+
+const mysqlCommand = resolveMysqlCommand()
+const mysqlSkipReason = (() => {
+    if (process.env.SKIP_MYSQL === "1") {
+        return "avvio MySQL saltato (SKIP_MYSQL=1)"
+    }
+
+    if (!mysqlCommand) {
+        return "Docker CLI non rilevato. Salto l'avvio di MySQL. Installa Docker, imposta MYSQL_START_COMMAND o usa SKIP_MYSQL=1."
+    }
+
+    return null
+})()
+
 const commands = [
     {
         name: "mysql",
-        command: process.env.MYSQL_START_COMMAND || "docker compose up mysql",
+        command: mysqlCommand,
         optional: true,
-        enabled: process.env.SKIP_MYSQL === "1" ? false : true
+        enabled: process.env.SKIP_MYSQL === "1" ? false : Boolean(mysqlCommand),
+        skipMessage: mysqlSkipReason
     },
     {
         name: "panel",
@@ -270,6 +329,12 @@ const shutdown = () => {
 
 process.on("SIGINT", shutdown)
 process.on("SIGTERM", shutdown)
+
+for (const command of commands) {
+    if (!command.enabled && command.skipMessage) {
+        logLine(command.name, command.skipMessage, "stderr")
+    }
+}
 
 const sortedCommands = commands
     .filter((cmd) => cmd.enabled)

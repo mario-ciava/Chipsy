@@ -1,4 +1,4 @@
-const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../util/experience")
+const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
 
 describe("experience helpers", () => {
     test("calculateRequiredExp returns base for level 0", () => {

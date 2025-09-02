@@ -1,18 +1,20 @@
 <template>
     <div class="card">
         <div class="card__header">
-            <h3 class="card__title">Server Discord collegati</h3>
+            <div>
+                <h3 class="card__title">Server Discord collegati</h3>
+                <p class="card__subtitle">
+                    Verifica in quali server il bot è già operativo e dove puoi invitarlo.
+                </p>
+            </div>
         </div>
 
         <div class="card__body guilds">
-            <p class="card__subtitle">
-                Verifica in quali server il bot è già operativo e dove puoi invitarlo.
-            </p>
             <div class="guilds__column">
                 <h4 class="guilds__title">Attivi</h4>
                 <p v-if="!hasAdded" class="guilds__empty">Il bot non è presente in nessun server gestito.</p>
                 <ul v-else class="guilds__list">
-                    <li v-for="guild in guilds.added" :key="guild.id">
+                    <li v-for="guild in addedGuilds" :key="guild.id">
                         <span class="guilds__name">{{ guild.name }}</span>
                         <div class="guilds__actions">
                             <button
@@ -35,7 +37,7 @@
                     Non ci sono altri server su cui hai i permessi necessari.
                 </p>
                 <ul v-else class="guilds__list">
-                    <li v-for="guild in guilds.available" :key="guild.id">
+                    <li v-for="guild in availableGuilds" :key="guild.id">
                         <span class="guilds__name">{{ guild.name }}</span>
                         <div class="guilds__actions">
                             <button
@@ -60,7 +62,6 @@
 import { getRuntimeOrigin, getControlPanelRedirect } from "../../utils/runtime"
 
 const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
-
 export default {
     name: "GuildOverview",
     props: {
@@ -73,11 +74,17 @@ export default {
         }
     },
     computed: {
+        addedGuilds() {
+            return Array.isArray(this.guilds.added) ? this.guilds.added : []
+        },
+        availableGuilds() {
+            return Array.isArray(this.guilds.available) ? this.guilds.available : []
+        },
         hasAdded() {
-            return Array.isArray(this.guilds.added) && this.guilds.added.length > 0
+            return this.addedGuilds.length > 0
         },
         hasAvailable() {
-            return Array.isArray(this.guilds.available) && this.guilds.available.length > 0
+            return this.availableGuilds.length > 0
         },
         inviteClientId() {
             return process.env.VUE_APP_DISCORD_CLIENT_ID
@@ -109,6 +116,6 @@ export default {
         emitLeave(guildId) {
             this.$emit("leave", guildId)
         }
-    }
+    },
 }
 </script>

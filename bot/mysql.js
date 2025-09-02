@@ -1,6 +1,6 @@
 const mysql = require("mysql2/promise")
-const { info, error } = require("./util/logger")
-const ensureSchema = require("./util/mysqlcreator")
+const { info, error } = require("./utils/logger")
+const ensureSchema = require("./utils/mysqlcreator")
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

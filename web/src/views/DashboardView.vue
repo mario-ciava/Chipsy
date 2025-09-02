@@ -31,7 +31,9 @@
                 :cooldown-target="cooldown.target"
                 :cooldown-remaining="cooldown.remaining"
                 :cooldown-duration="cooldown.duration"
+                :kill-loading="botKillPending"
                 @toggle="toggleBot"
+                @kill="handleKillRequest"
             />
             <GuildOverview :guilds="guilds" @leave="leaveGuild" />
             <RemoteActions
@@ -96,7 +98,8 @@ export default {
             cooldownInterval: null,
             cooldownStart: null,
             lastStatusEnabled: null,
-            lastStatusUpdatedAt: null
+            lastStatusUpdatedAt: null,
+            botKillPending: false
         }
     },
     computed: {
@@ -391,6 +394,40 @@ export default {
         handleActionError(message) {
             this.setFlash(message, "warning")
             this.pushLog("error", message)
+        },
+        async handleKillRequest(payload) {
+            const target = payload?.target || "bot"
+            if (target === "mysql") {
+                const message = "La terminazione del servizio MySQL non è disponibile dal pannello."
+                this.setFlash(message, "warning")
+                this.pushLog("warning", "Richiesta di terminare il servizio MySQL non supportata dal pannello.")
+                return
+            }
+            await this.requestKillBot()
+        },
+        async requestKillBot() {
+            if (this.botKillPending) return
+
+            const csrfToken = this.$store.state.session.csrfToken
+            if (!csrfToken) {
+                this.handleActionError("Impossibile terminare il processo del bot.")
+                return
+            }
+
+            this.botKillPending = true
+            this.pushLog("info", "Comando 'Termina bot' richiesto.")
+
+            try {
+                await api.killBot({ csrfToken })
+                this.handleActionSuccess("Il processo del bot verrà terminato a breve.")
+                this.pushLog("success", "Comando 'Termina bot' inviato al server.")
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to kill bot process", error)
+                this.handleActionError("Impossibile terminare il processo del bot.")
+            } finally {
+                this.botKillPending = false
+            }
         },
         ...mapActions("logs", { addLogEntry: "add" }),
         pushLog(level, message) {

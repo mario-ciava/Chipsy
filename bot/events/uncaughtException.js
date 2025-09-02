@@ -1,4 +1,4 @@
-const { error: logError } = require("../util/logger")
+const { error: logError } = require("../utils/logger")
 
 module.exports = (error, origin) => {
     logError("Uncaught exception", {

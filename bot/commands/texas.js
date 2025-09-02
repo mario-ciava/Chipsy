@@ -1,12 +1,12 @@
 const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
-const Texas = require("../structure/texas.js")
-const features = require("../structure/features.js")
-const setSeparator = require("../util/setSeparator")
-const logger = require("../util/logger")
-const createCommand = require("../util/createCommand")
+const Texas = require("../games/texas.js")
+const features = require("../games/features.js")
+const setSeparator = require("../utils/setSeparator")
+const logger = require("../utils/logger")
+const createCommand = require("../utils/createCommand")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
-const { registerGame } = require("../util/gameRegistry")
+const { registerGame } = require("../utils/gameRegistry")
 const runTexas = async(msg) => {
     if (msg?.client?.config?.enabled === false) {
         await msg.channel?.send("The bot is currently disabled by the administrators. Please try again later.").catch(() => null)

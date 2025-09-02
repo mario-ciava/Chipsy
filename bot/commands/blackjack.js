@@ -1,12 +1,12 @@
 const Discord = require("discord.js")
 const { SlashCommandBuilder } = require("discord.js")
-const BlackJack = require("../structure/blackjackGame.js")
-const features = require("../structure/features.js")
-const setSeparator = require("../util/setSeparator")
-const logger = require("../util/logger")
-const createCommand = require("../util/createCommand")
-const bankrollManager = require("../util/bankrollManager")
-const { registerGame } = require("../util/gameRegistry")
+const BlackJack = require("../games/blackjackGame.js")
+const features = require("../games/features.js")
+const setSeparator = require("../utils/setSeparator")
+const logger = require("../utils/logger")
+const createCommand = require("../utils/createCommand")
+const bankrollManager = require("../utils/bankrollManager")
+const { registerGame } = require("../utils/gameRegistry")
 const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
 
 const testerProvisionConfig = {

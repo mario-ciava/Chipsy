@@ -5,7 +5,7 @@ const helmet = require("helmet")
 const Discord = require("discord.js")
 const fetch = require("node-fetch")
 const crypto = require("crypto")
-const createSessionStore = require("../util/createSessionStore")
+const createSessionStore = require("../bot/utils/createSessionStore")
 
 const createAuthRouter = require("./routes/auth")
 const createEnhancedAdminRouter = require("./routes/adminEnhanced")
@@ -13,25 +13,11 @@ const createUsersRouter = require("./routes/users")
 const createHealthRouter = require("./routes/health")
 
 const { logger: structuredLogger, requestLogger } = require("./middleware/structuredLogger")
-const {
-    globalLimiter,
-    authLimiter,
-    adminReadLimiter,
-    adminWriteLimiter,
-    criticalActionLimiter
-} = require("./middleware/rateLimiter")
+const { globalLimiter } = require("./middleware/rateLimiter")
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler")
 const createStatusWebSocketServer = require("./websocket/statusServer")
 
 const { PermissionsBitField, PermissionFlagsBits } = Discord
-
-const formatErrorMessage = (status, message) => `${status}: ${message}`
-
-const createHttpError = (status, message) => {
-    const error = new Error(message)
-    error.status = status
-    return error
-}
 
 const buildDiscordError = (error, fallbackMessage) => {
     const status = error.status || error.response?.status || 500
@@ -42,50 +28,9 @@ const buildDiscordError = (error, fallbackMessage) => {
         || fallbackMessage
         || "Internal Server Error"
 
-    return createHttpError(status, message)
-}
-
-const createDefaultRateLimiter = ({ windowMs = 60 * 1000, max = 60 } = {}) => {
-    const hits = new Map()
-
-    return (req, res, next) => {
-        const now = Date.now()
-        const key = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress || "global"
-        let entry = hits.get(key)
-
-        if (!entry || now > entry.reset) {
-            entry = { count: 0, reset: now + windowMs }
-        }
-
-        entry.count += 1
-        hits.set(key, entry)
-
-        if (entry.count > max) {
-            const retryAfter = Math.max(1, Math.ceil((entry.reset - now) / 1000))
-            res.setHeader("Retry-After", retryAfter)
-            return res.status(429).json({ message: "429: Too Many Requests" })
-        }
-
-        if (hits.size > 1000) {
-            for (const [storedKey, value] of hits) {
-                if (value.reset <= now) {
-                    hits.delete(storedKey)
-                }
-            }
-        }
-
-        return next()
-    }
-}
-
-const createRequestLogger = (logFn = console.log) => (req, res, next) => {
-    const start = Date.now()
-    res.on("finish", () => {
-        const duration = Date.now() - start
-        logFn(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`)
-    })
-
-    next()
+    const err = new Error(message)
+    err.status = status
+    return err
 }
 
 const createDiscordApi = (fetchImpl) => {
@@ -132,7 +77,9 @@ module.exports = (client, webSocket, options = {}) => {
     const discordApi = discordApiOverride || createDiscordApi(fetchImpl)
 
     const app = express()
-    const router = express.Router()
+    const apiRouter = express.Router()
+    const v1Router = express.Router()
+    const legacyRouter = express.Router()
     const tokenCache = new Map()
 
     // Security headers with Helmet
@@ -310,7 +257,8 @@ module.exports = (client, webSocket, options = {}) => {
     })
 
     // Auth router (auth rate limiting applied in auth router itself)
-    router.use("/", authRouter)
+    v1Router.use("/", authRouter)
+    legacyRouter.use("/", authRouter)
 
     const { router: adminRouter, handlers: adminHandlers, middleware: adminMiddleware } = createEnhancedAdminRouter({
         client,
@@ -326,19 +274,20 @@ module.exports = (client, webSocket, options = {}) => {
     })
 
     // All admin endpoints are under /admin prefix
-    router.use("/admin", adminRouter)
+    v1Router.use("/admin", adminRouter)
+    legacyRouter.use("/admin", adminRouter)
 
     // Backwards compatibility for legacy /api/client endpoint
     if (adminHandlers?.getClient) {
-        router.get("/client", adminHandlers.getClient)
+        legacyRouter.get("/client", adminHandlers.getClient)
     }
 
     if (adminHandlers?.turnOff) {
-        router.post("/turnoff", requireCsrfToken, adminHandlers.turnOff)
+        legacyRouter.post("/turnoff", requireCsrfToken, adminHandlers.turnOff)
     }
 
     if (adminHandlers?.turnOn) {
-        router.post("/turnon", requireCsrfToken, adminHandlers.turnOn)
+        legacyRouter.post("/turnon", requireCsrfToken, adminHandlers.turnOn)
     }
 
     const usersRouter = createUsersRouter({
@@ -346,7 +295,8 @@ module.exports = (client, webSocket, options = {}) => {
         getAccessToken
     })
 
-    router.use("/users", usersRouter)
+    v1Router.use("/users", usersRouter)
+    legacyRouter.use("/users", usersRouter)
 
     const { router: healthRouter } = createHealthRouter({
         client,
@@ -354,9 +304,16 @@ module.exports = (client, webSocket, options = {}) => {
     })
 
     // Health check endpoints (no rate limiting, no auth)
-    app.use("/api/health", healthRouter)
+    v1Router.use("/health", healthRouter)
+    apiRouter.use("/health", healthRouter)
 
-    app.use("/api", router)
+    apiRouter.use("/v1", v1Router)
+
+    if (legacyRouter.stack.length > 0) {
+        apiRouter.use("/", legacyRouter)
+    }
+
+    app.use("/api", apiRouter)
 
     // 404 handler
     app.use(notFoundHandler)

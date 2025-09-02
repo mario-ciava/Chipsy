@@ -4,6 +4,7 @@ web/node_modules/
 config.json
 .env
 .env.local
+.env.*.local
+.env.vault.local
 web/dist/
-/Chipsy.png
-/web/public/brand
+logs/

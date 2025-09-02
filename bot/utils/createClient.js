@@ -31,8 +31,7 @@ const createClient = (config) => {
         owner: config.discord.ownerId,
         prefix: config.bot.prefix,
         enabled: config.bot.enabled,
-        redirectUri: config.web?.redirectOrigin || "http://localhost:8082",
-        avatarApplied: false
+        redirectUri: config.web?.redirectOrigin || "http://localhost:8082"
     }
 
     return client

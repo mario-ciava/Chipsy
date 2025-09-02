@@ -7,12 +7,13 @@ const normalizeMessage = (message) => {
     return typeof message === "string" ? message : String(message)
 }
 
-const createEntry = ({ level = "info", message, logType = "general", timestamp = null }) => ({
+const createEntry = ({ level = "info", message, logType = "general", timestamp = null, userId = null }) => ({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     level,
     message: normalizeMessage(message),
     logType,
-    timestamp: timestamp ? new Date(timestamp) : new Date()
+    timestamp: timestamp ? new Date(timestamp) : new Date(),
+    userId: userId ?? null
 })
 
 const shouldSaveToDatabase = (level, logType) => {
@@ -67,16 +68,17 @@ export default {
         }
     },
     actions: {
-        async add({ commit, rootState }, payload) {
+        async add({ commit, state, rootState }, payload) {
             if (!payload) return null
 
             const logType = payload.logType || "general"
 
-            if (logType === "command" && !this.state.logs.commandRecordingEnabled) {
+            if (logType === "command" && !state.commandRecordingEnabled) {
                 return null
             }
 
-            const entry = createEntry(payload)
+            const userId = payload?.userId ?? rootState.session?.user?.id ?? null
+            const entry = createEntry({ ...payload, logType, userId })
             if (!entry.message) return null
 
             commit("ADD_ENTRY", entry)
@@ -89,7 +91,8 @@ export default {
                             csrfToken,
                             level: entry.level,
                             message: entry.message,
-                            logType: entry.logType
+                            logType: entry.logType,
+                            userId
                         })
                     }
                 } catch (error) {
@@ -108,7 +111,8 @@ export default {
                     level: log.level,
                     message: log.message,
                     logType: log.log_type,
-                    timestamp: log.created_at
+                    timestamp: log.created_at,
+                    userId: log.user_id
                 }))
                 commit("SET_ENTRIES", { entries, logType })
             } catch (error) {

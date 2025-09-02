@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js")
-const createCommand = require("../util/createCommand")
+const createCommand = require("../utils/createCommand")
 
 const slashCommand = new SlashCommandBuilder().setName("ping").setDescription("Show the bot latency.")
 

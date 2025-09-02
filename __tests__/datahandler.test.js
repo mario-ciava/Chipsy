@@ -1,7 +1,7 @@
-const createDataHandler = require("../util/datahandler")
-const createSetData = require("../util/createSetData")
-const Game = require("../structure/game")
-const { calculateRequiredExp, BASE_REQUIRED_EXP, normalizeUserExperience } = require("../util/experience")
+const createDataHandler = require("../bot/utils/datahandler")
+const createSetData = require("../bot/utils/createSetData")
+const Game = require("../bot/games/game")
+const { calculateRequiredExp, BASE_REQUIRED_EXP, normalizeUserExperience } = require("../bot/utils/experience")
 
 const createMockConnection = (initialRows = []) => {
     const data = new Map()

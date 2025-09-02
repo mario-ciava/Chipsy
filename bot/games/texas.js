@@ -1,10 +1,10 @@
 const Discord = require("discord.js")
 const Hand = require('pokersolver').Hand,
-    features = require("../structure/features.js"),
+    features = require("./features.js"),
     delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
-    Game = require("../structure/game.js"),
-    cards = require("../structure/cards.js"),
-    setSeparator = require("../util/setSeparator")
+    Game = require("./game.js"),
+    cards = require("./cards.js"),
+    setSeparator = require("../utils/setSeparator")
 module.exports = class Texas extends Game {
     constructor(info) {
         super(info)
@@ -522,7 +522,6 @@ module.exports = class Texas extends Game {
                 return pl.id != player.id && pl.stack > 0
             })
         if (this.bets.currentMax == player.bets.current) {
-            //console.log(`${player.tag} - Bet: ${player.bets.current}$ - CurrentMax: ${this.bets.currentMax}$`)
             await available.push("check")
             if (avPlayers.length < 1) return available
 
@@ -531,7 +530,6 @@ module.exports = class Texas extends Game {
             if (maxLimit >= player.stack + player.bets.current) await available.push("allin")
 
         } else if (this.bets.currentMax > player.bets.current) {
-            //console.log(`${player.tag} | ${maxLimit >= player.stack + player.bets.current} - ${avPlayers.length > 0} - ${player.stack + player.bets.current <= this.bets.currentMax}`)
             if (player.stack + player.bets.current > this.bets.currentMax) {
                     await available.push("call")
                     if (!avPlayers.some((pl) => {
@@ -543,8 +541,6 @@ module.exports = class Texas extends Game {
                     if (maxLimit >= player.stack + player.bets.current) await available.push("allin")
             } else if (maxLimit >= player.stack + player.bets.current && (avPlayers.length > 0 || player.stack + player.bets.current <= this.bets.currentMax)) await available.push("allin")
         }
-        //console.log(`${player.tag} - Stack ${player.stack} $ - Current: ${player.bets.current} $ - Max: ${maxLimit}`)
-        //console.log(`CurrentMax: ${this.bets.currentMax}`)
         return available
     }
 
@@ -811,7 +807,6 @@ module.exports = class Texas extends Game {
             addedPots)
         }
 
-        //console.log(`Player: ${player ? player.tag : "none"} - BetRound: ${betRound} - SameBet: ${sameBet} - MoveDone: ${movedone}`)
         if ((!player && betRound && sameBet) || movedone) return goToNextPhase()
         
         if (player && player.stack < 1) {

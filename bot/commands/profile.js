@@ -1,8 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js")
-const playerClass = require("../structure/classes.js")
-const setSeparator = require("../util/setSeparator")
-const { normalizeUserExperience } = require("../util/experience")
-const createCommand = require("../util/createCommand")
+const playerClass = require("../games/classes.js")
+const setSeparator = require("../utils/setSeparator")
+const { normalizeUserExperience } = require("../utils/experience")
+const createCommand = require("../utils/createCommand")
 
 const slashCommand = new SlashCommandBuilder().setName("profile").setDescription("Show your Chipsy profile.")
 

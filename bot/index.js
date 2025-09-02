@@ -1,14 +1,14 @@
 const EventEmitter = require("events")
 const config = require("./config")
-const { createClient } = require("./util/createClient")
-const loadEvents = require("./util/eventloader")
-const loadCommands = require("./util/commandloader")
+const { createClient } = require("./utils/createClient")
+const loadEvents = require("./utils/eventloader")
+const loadCommands = require("./utils/commandloader")
 const initializeMySql = require("./mysql")
-const createDataHandler = require("./util/datahandler")
-const createSetData = require("./util/createSetData")
-const logger = require("./util/logger")
-const createCacheClient = require("./util/createCacheClient")
-const createStatusService = require("./server/services/statusService")
+const createDataHandler = require("./utils/datahandler")
+const createSetData = require("./utils/createSetData")
+const logger = require("./utils/logger")
+const createCacheClient = require("./utils/createCacheClient")
+const createStatusService = require("../server/services/statusService")
 
 class WebSocketBridge extends EventEmitter {}
 const webSocket = new WebSocketBridge()
@@ -24,7 +24,7 @@ const bootstrap = async() => {
         logger.info("Bootstrap started", { scope: "bootstrap" })
 
         try {
-            await loadEvents(client, config)
+            await loadEvents(client)
             logger.info("Events loaded", { scope: "bootstrap" })
 
             await loadCommands(client, config)

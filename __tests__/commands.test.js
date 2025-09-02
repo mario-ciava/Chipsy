@@ -30,7 +30,7 @@ jest.mock("discord.js", () => {
     }
 })
 
-jest.mock("../structure/features.js", () => ({
+jest.mock("../bot/games/features.js", () => ({
     applyUpgrades: jest.fn((feature) => {
         if (feature === "reward-amount") return 1500
         if (feature === "reward-time") return 1

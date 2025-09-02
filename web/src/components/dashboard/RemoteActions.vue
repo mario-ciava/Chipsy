@@ -1,16 +1,21 @@
 <template>
     <div class="card">
         <div class="card__header">
-            <h3 class="card__title">Azioni rapide</h3>
+            <div>
+                <h3 class="card__title">Azioni rapide</h3>
+                <p class="card__subtitle">
+                    Struttura modulare pronta per aggiungere comandi remoti in futuro.
+                </p>
+            </div>
         </div>
         <div class="card__body">
-            <p class="card__subtitle">
-                Struttura modulare pronta per aggiungere comandi remoti in futuro.
-            </p>
             <ul class="actions">
                 <li v-for="action in actions" :key="action.id" class="actions__item">
                     <div>
-                        <h4 class="actions__title">{{ action.label }}</h4>
+                        <h4 class="actions__title">
+                            {{ action.label }}
+                            <span v-if="action.badge" class="actions__badge">{{ action.badge }}</span>
+                        </h4>
                         <p class="actions__description">{{ action.description }}</p>
                     </div>
                     <button
@@ -24,7 +29,7 @@
                         <span v-else>Esegui</span>
                     </button>
                     <button v-else class="button button--ghost" disabled>
-                        In arrivo
+                        {{ action.pendingLabel || 'In arrivo' }}
                     </button>
                 </li>
             </ul>
@@ -57,7 +62,7 @@
 </template>
 
 <script>
-import api from "../../services/api"
+import { mapActions } from "vuex"
 
 export default {
     name: "RemoteActions",
@@ -77,19 +82,45 @@ export default {
     },
     computed: {
         confirmTitle() {
-            if (this.confirmStep === 1) {
-                return "Conferma azione"
+            if (this.pendingAction?.confirmation?.title) {
+                return this.pendingAction.confirmation.title
             }
-            return "Conferma definitiva"
+            return this.confirmStep === 1 ? "Conferma azione" : "Conferma definitiva"
         },
         confirmMessage() {
-            if (this.confirmStep === 1) {
-                return "Sei sicuro di voler terminare il processo del bot? Questa azione richiederà un riavvio manuale del bot."
+            const confirmation = this.pendingAction?.confirmation || {}
+            if (this.confirmStep === 1 && confirmation.stepOne) {
+                return confirmation.stepOne
             }
-            return "ATTENZIONE: Questa azione terminerà immediatamente il processo. Sei assolutamente sicuro di voler continuare?"
+            if (this.confirmStep === 2 && confirmation.stepTwo) {
+                return confirmation.stepTwo
+            }
+            if (this.confirmStep === 1) {
+                return "Vuoi procedere con questa operazione?"
+            }
+            return "Questa operazione è irreversibile. Confermi?"
         }
     },
     methods: {
+        ...mapActions("logs", { addLogEntry: "add" }),
+        formatCommandLabel(action) {
+            if (!action) return "comando sconosciuto"
+            const label = action.label || action.id || "comando"
+            const identifier = action.id && action.id !== label ? ` [${action.id}]` : ""
+            return `'${label}'${identifier}`
+        },
+        logCommandEvent(level, action, message) {
+            if (!action || action.type !== "command") return
+            const descriptor = this.formatCommandLabel(action)
+            const finalMessage = message || `Comando ${descriptor}.`
+            const userId = this.$store.state.session.user?.id || null
+            this.addLogEntry({
+                level,
+                message: finalMessage,
+                logType: "command",
+                userId
+            })
+        },
         handleAction(action) {
             if (action.dangerous) {
                 this.pendingAction = action
@@ -115,23 +146,20 @@ export default {
             this.pendingAction = null
         },
         async executeAction(action) {
-            if (action.id === "bot-kill") {
-                await this.killBot()
+            if (action.type !== "command") {
+                return
             }
-        },
-        async killBot() {
+
             this.loading = true
             try {
-                const csrfToken = this.$store.state.session.csrfToken
-                if (!csrfToken) {
-                    throw new Error("Missing authentication context")
-                }
-                await api.killBot({ csrfToken })
-                this.$emit("action-success", "Il processo del bot verrà terminato a breve.")
-            } catch (error) {
-                // eslint-disable-next-line no-console
-                console.error("Failed to kill bot process", error)
-                this.$emit("action-error", "Impossibile terminare il processo del bot.")
+                this.logCommandEvent("info", action, `Comando ${this.formatCommandLabel(action)} richiesto.`)
+                const descriptor = this.formatCommandLabel(action)
+                this.$emit("action-error", `L'azione ${descriptor} non è ancora disponibile lato server.`)
+                this.logCommandEvent(
+                    "warning",
+                    action,
+                    `Comando ${descriptor} non eseguito: endpoint remoto non configurato.`
+                )
             } finally {
                 this.loading = false
             }
@@ -155,16 +183,6 @@ export default {
     to {
         transform: rotate(360deg);
     }
-}
-
-.button--danger {
-    background: rgba(248, 113, 113, 0.2);
-    color: #fecaca;
-    border: 1px solid rgba(248, 113, 113, 0.35);
-}
-
-.button--danger:hover:not(:disabled) {
-    background: rgba(248, 113, 113, 0.3);
 }
 
 .modal-overlay {
