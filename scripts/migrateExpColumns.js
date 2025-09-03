@@ -1,6 +1,7 @@
 const mysql = require("mysql2/promise")
-const config = require("../config")
-const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../util/experience")
+const config = require("../bot/config")
+const logger = require("../bot/utils/logger")
+const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../bot/util/experience")
 
 const ensureDatabase = async(connection, database) => {
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\``)
@@ -75,9 +76,16 @@ const migrate = async() => {
     try {
         await ensureDatabase(connection, config.mysql.database)
         await migrateUsers(connection)
-        console.info("Experience column migration completed successfully.")
+        logger.info("Experience column migration completed successfully", {
+            scope: "migration",
+            icon: "✅"
+        })
     } catch (error) {
-        console.error("Failed to migrate experience columns:", error)
+        logger.error("Failed to migrate experience columns", {
+            scope: "migration",
+            message: error.message,
+            stack: error.stack
+        })
         process.exitCode = 1
     } finally {
         await connection.end()

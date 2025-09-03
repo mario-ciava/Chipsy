@@ -19,16 +19,14 @@ module.exports = createCommand({
     slashCommand,
     deferEphemeral: false,
     errorMessage: "Unable to load the game rules right now. Please try again later.",
-    execute: async(context) => {
-        const { client, args, reply, author } = context
-        const game = (args[0] || "").toLowerCase()
+    execute: async(interaction, client) => {
+        const game = interaction.options.getString('game', true).toLowerCase()
 
         if (game !== "blackjack") {
-            const embed = new EmbedBuilder()
-                .setColor(Colors.Red)
-                .setDescription("Please specify a supported game. Available options: blackjack.")
-
-            await reply({ embeds: [embed] })
+            await interaction.reply({
+                content: "❌ Please specify a supported game. Available: blackjack",
+                flags: Discord.MessageFlags.Ephemeral
+            })
             return
         }
 
@@ -48,8 +46,8 @@ module.exports = createCommand({
                     "Hit after splitting aces: no"
                 ].join("\n")
             })
-            .setThumbnail(client?.user?.displayAvatarURL({ extension: "png" }) ?? author?.displayAvatarURL({ extension: "png" }))
+            .setThumbnail(client.user?.displayAvatarURL({ extension: "png" }))
 
-        await reply({ embeds: [embed] })
+        await interaction.reply({ embeds: [embed] })
     }
 })

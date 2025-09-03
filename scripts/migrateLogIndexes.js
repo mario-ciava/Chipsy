@@ -3,9 +3,9 @@
  * Run this script to optimize existing database
  */
 
-const initializeMySql = require("../mysql")
-const { client } = require("../app")
-const logger = require("../util/logger")
+const initializeMySql = require("../bot/mysql")
+const { client } = require("../bot")
+const logger = require("../bot/utils/logger")
 
 const migrate = async() => {
     logger.info("Starting logs table index migration", { scope: "migration" })

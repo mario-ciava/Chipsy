@@ -1,4 +1,5 @@
 const { Client, GatewayIntentBits, Partials, Collection, REST } = require("discord.js")
+const constants = require("../../config/constants")
 const CommandRouter = require("./commandRouter")
 
 const createClient = (config) => {
@@ -31,7 +32,7 @@ const createClient = (config) => {
         owner: config.discord.ownerId,
         prefix: config.bot.prefix,
         enabled: config.bot.enabled,
-        redirectUri: config.web?.redirectOrigin || "http://localhost:8082"
+        redirectUri: config.web?.redirectOrigin || constants.urls.botApiLocal
     }
 
     return client

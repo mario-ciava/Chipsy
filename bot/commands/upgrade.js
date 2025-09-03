@@ -300,15 +300,14 @@ const slashCommand = new SlashCommandBuilder()
 module.exports = createCommand({
     name: "upgrade",
     description: "Open the Chipsy upgrade panel.",
-    aliases: ["upgrades"],
     slashCommand,
     deferEphemeral: false,
-    errorMessage: "Unable to open the upgrade panel right now. Please try again later.",
-    execute: async(context) => {
-        const message = context.message
-        if (!Array.isArray(message.params)) {
-            message.params = Array.isArray(context.args) ? [...context.args] : []
+    execute: async(interaction, client) => {
+        const messageAdapter = {
+            author: interaction.user,
+            channel: interaction.channel,
+            client
         }
-        await runUpgrade(message)
+        await runUpgrade(messageAdapter)
     }
 })

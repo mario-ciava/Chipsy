@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
 const playerClass = require("../games/classes.js")
 const setSeparator = require("../utils/setSeparator")
 const { normalizeUserExperience } = require("../utils/experience")
@@ -13,11 +13,25 @@ module.exports = createCommand({
     slashCommand,
     deferEphemeral: false,
     errorMessage: "Unable to load your profile right now. Please try again later.",
-    execute: async(context) => {
-        const { author, reply } = context
+    execute: async(interaction) => {
+        const respond = async(payload = {}) => {
+            if (interaction.deferred && !interaction.replied) {
+                return interaction.editReply(payload)
+            }
+            if (!interaction.replied) {
+                return interaction.reply(payload)
+            }
+            return interaction.followUp(payload)
+        }
+
+        const author = interaction.user
 
         if (!author) {
-            context.fail("Unable to resolve your Discord account details.")
+            await respond({
+                content: "❌ Unable to resolve your Discord account details.",
+                flags: MessageFlags.Ephemeral
+            })
+            return
         }
 
         const data = normalizeUserExperience(author.data || {})
@@ -58,6 +72,6 @@ module.exports = createCommand({
             .setThumbnail(avatarURL)
             .setFooter({ text: `${author.tag} | Last played: ${data.last_played}`, iconURL: avatarURL })
 
-        await reply({ embeds: [embed] })
+        await respond({ embeds: [embed] })
     }
 })

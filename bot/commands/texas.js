@@ -5,165 +5,93 @@ const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const createCommand = require("../utils/createCommand")
-const delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})}
+const { delay } = require("../utils/async")
 const { registerGame } = require("../utils/gameRegistry")
-const runTexas = async(msg) => {
-    if (msg?.client?.config?.enabled === false) {
-        await msg.channel?.send("The bot is currently disabled by the administrators. Please try again later.").catch(() => null)
+
+/**
+ * Run Texas Hold'em - uses Discord.js native interaction API.
+ * Clean, simple, no abstractions.
+ */
+const runTexas = async(interaction, client) => {
+    const channel = interaction.channel
+
+    const replyOrEdit = async(payload) => {
+        if (interaction.deferred && !interaction.replied) {
+            return await interaction.editReply(payload)
+        } else if (!interaction.replied) {
+            return await interaction.reply(payload)
+        } else {
+            return await interaction.followUp(payload)
+        }
+    }
+
+    if (channel.game) {
+        await replyOrEdit({
+            embeds: [new Discord.EmbedBuilder()
+                .setColor(Discord.Colors.Red)
+                .setFooter({
+                    text: `${interaction.user.tag}, access denied: a game is already existing in this channel`,
+                    iconURL: interaction.user.displayAvatarURL({ extension: "png" })
+                })
+            ]
+        })
         return
     }
+
     try {
-        if (!Array.isArray(msg.params)) msg.params = []
+        // Use Discord.js native option getters - clean and type-safe!
+        const minBetRaw = interaction.options.getString('minbet', true)
+        const maxPlayersInput = interaction.options.getInteger('maxplayers')
 
-        if (!msg.params[0]) {
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Red)
-                .setFooter({
-                    text: `${msg.author.tag}, access denied: you must specify the minimum bet amount.`,
-                    iconURL: msg.author.displayAvatarURL({ extension: "png" })
-                })
-            return await msg.channel.send({ embeds: [embed] }).catch((error) => {
-                logger.error("Failed to send texas no-bet message", {
-                    scope: "commands",
-                    command: "texas",
-                    userId: msg.author.id,
-                    channelId: msg.channel.id,
-                    error: error.message,
-                    stack: error.stack
-                })
-                throw error
-            })
-        }
-        if (msg.channel.game) {
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Red)
-                .setFooter({
-                    text: `${msg.author.tag}, access denied: a game is already existing in this channel`,
-                    iconURL: msg.author.displayAvatarURL({ extension: "png" })
-                })
-            return await msg.channel.send({ embeds: [embed] }).catch((error) => {
-                logger.error("Failed to send texas game-exists message", {
-                    scope: "commands",
-                    command: "texas",
-                    userId: msg.author.id,
-                    channelId: msg.channel.id,
-                    error: error.message,
-                    stack: error.stack
-                })
-                throw error
-            })
-        }
+        const minBet = features.inputConverter(minBetRaw)
 
-    const minBet = features.inputConverter(msg.params[0])
-    const maxPlayersInput = msg.params[1] !== undefined ? features.inputConverter(msg.params[1]) : undefined
-
-    const createErrorEmbed = (message) => new Discord.EmbedBuilder()
-        .setColor(Discord.Colors.Red)
-        .setFooter({
-            text: `${msg.author.tag}, ${message}`,
-            iconURL: msg.author.displayAvatarURL({ extension: "png" })
-        })
-
+        // Validation
         if (!Number.isFinite(minBet) || minBet <= 0) {
-            return await msg.channel.send({
-                embeds: [createErrorEmbed("access denied: minimum bet must be a positive number.")]
-            }).catch((error) => {
-                logger.error("Failed to send texas invalid-bet message", {
-                    scope: "commands",
-                    command: "texas",
-                    userId: msg.author.id,
-                    channelId: msg.channel.id,
-                    error: error.message,
-                    stack: error.stack
-                })
-                throw error
+            await replyOrEdit({
+                content: `❌ ${interaction.user.tag}, minimum bet must be a positive number.`,
+                flags: Discord.MessageFlags.Ephemeral
             })
+            return
         }
 
-        if (maxPlayersInput !== undefined && (!Number.isFinite(maxPlayersInput) || maxPlayersInput <= 0)) {
-            return await msg.channel.send({
-                embeds: [createErrorEmbed("access denied: maximum number of players must be a positive integer.")]
-            }).catch((error) => {
-                logger.error("Failed to send texas invalid-maxplayers message", {
-                    scope: "commands",
-                    command: "texas",
-                    userId: msg.author.id,
-                    channelId: msg.channel.id,
-                    error: error.message,
-                    stack: error.stack
-                })
-                throw error
-            })
-        }
-
-        const maxPlayers = maxPlayersInput !== undefined ? Math.floor(maxPlayersInput) : 9
-
-        if (!Number.isInteger(maxPlayers)) {
-            return await msg.channel.send({
-                embeds: [createErrorEmbed("access denied: maximum number of players must be an integer value.")]
-            }).catch((error) => {
-                logger.error("Failed to send texas non-integer message", {
-                    scope: "commands",
-                    command: "texas",
-                    userId: msg.author.id,
-                    channelId: msg.channel.id,
-                    error: error.message,
-                    stack: error.stack
-                })
-                throw error
-            })
-        }
-
-        if (maxPlayers > 9 || maxPlayers < 2) {
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Red)
-                .setFooter({
-                    text: `${msg.author.tag}, access denied: maximum number of players must be between 2 and 9`,
-                    iconURL: msg.author.displayAvatarURL({ extension: "png" })
-                })
-            return await msg.channel.send({ embeds: [embed] }).catch((error) => {
-                logger.error("Failed to send texas maxplayers-range message", {
-                    scope: "commands",
-                    command: "texas",
-                    userId: msg.author.id,
-                    channelId: msg.channel.id,
-                    error: error.message,
-                    stack: error.stack
-                })
-                throw error
-            })
-        }
+        // maxPlayers validated by Discord (min: 2, max: 9) or defaults to 9
+        const maxPlayers = maxPlayersInput ?? 9
 
         const safeMinBet = Math.max(1, Math.floor(minBet))
 
-        try {
-            msg.channel.game = new Texas({
-                message: msg,
-                minBet: safeMinBet,
-                maxPlayers
-            })
-            registerGame(msg.client, msg.channel.game)
-        } catch (gameError) {
-            logger.error("Failed to create Texas game instance", {
-                scope: "commands",
-                command: "texas",
-                userId: msg.author.id,
-                channelId: msg.channel.id,
-                error: gameError.message,
-                stack: gameError.stack
-            })
-            throw gameError
+        logger.debug("Creating Texas Hold'em game", {
+            scope: "commands",
+            command: "texas",
+            minBet: safeMinBet,
+            maxPlayers,
+            channelId: channel.id
+        })
+
+        // Create message adapter for game (game code expects this format)
+        const messageAdapter = {
+            author: interaction.user,
+            channel: interaction.channel,
+            client
         }
+
+        channel.game = new Texas({
+            message: messageAdapter,
+            minBet: safeMinBet,
+            maxPlayers
+        })
+        registerGame(client, channel.game)
+
         const buildGameEmbed = () => {
-            const players = msg.channel.game?.players || []
+            const players = channel.game?.players || []
+            const maxPlayersLimit = channel.game?.maxPlayers || 9
             return new Discord.EmbedBuilder()
                 .setColor(Discord.Colors.Green)
                 .addFields(
                     { name: "Texas Hold'em ❤", value: "Your game has been created", inline: false },
-                    { name: `Players [${players.length}] 🤑`, value: `${players.join(", ") || "-"}`, inline: true },
+                    { name: `Players [${players.length}/${maxPlayersLimit}] 🤑`, value: `${players.join(", ") || "-"}`, inline: true },
                     {
                         name: "Other info 💰",
-                        value: `Min buy-in: ${setSeparator(msg.channel.game.minBuyIn)}$\nMax buy-in: ${setSeparator(msg.channel.game.maxBuyIn)}$\nMinimum bet: ${setSeparator(msg.channel.game.minBet)}$`,
+                        value: `Min buy-in: ${setSeparator(channel.game.minBuyIn)}$\nMax buy-in: ${setSeparator(channel.game.maxBuyIn)}$\nMinimum bet: ${setSeparator(channel.game.minBet)}$`,
                         inline: true
                     },
                     {
@@ -180,196 +108,101 @@ const runTexas = async(msg) => {
                 .setFooter({ text: "45 Seconds left" })
         }
 
-        const statusMessage = await msg.channel.send({ embeds: [buildGameEmbed()] }).catch((error) => {
-            logger.error("Failed to send texas status message", {
-                scope: "commands",
-                command: "texas",
-                userId: msg.author.id,
-                channelId: msg.channel.id,
-                error: error.message,
-                stack: error.stack
-            })
-            throw error
+        const statusMessage = await replyOrEdit({ embeds: [buildGameEmbed()] })
+
+        channel.collector = channel.createMessageCollector({
+            filter: (mess) => !mess.author.bot && (mess.content.toLowerCase().startsWith("join") || mess.content.toLowerCase() === "leave")
         })
 
-        msg.channel.collector = msg.channel.createMessageCollector({
-            filter: (mess) => {
-                return !mess.author.bot && (mess.content.toLowerCase().startsWith("join") || mess.content.toLowerCase() == "leave")
-            }
-        })
-
-        msg.channel.collector.on("error", (error) => {
-            logger.error("Message collector error in texas", {
+        channel.collector.on("error", (error) => {
+            logger.error("Message collector error", {
                 scope: "commands",
                 command: "texas",
-                channelId: msg.channel.id,
-                error: error.message,
-                stack: error.stack
+                channelId: channel.id,
+                error: error.message
             })
         })
 
-        msg.channel.collector.on("collect", async(mess) => {
+        channel.collector.on("collect", async(mess) => {
             try {
-        if (!mess.author.data) {
-            const result = await mess.client.SetData(mess.author)
-            if (result.error) {
-                if (result.error.type === "database") {
-                    const embed = new Discord.EmbedBuilder()
-                        .setColor(Discord.Colors.Red)
-                        .setFooter({
-                            text: `${mess.author.tag}, error: unable to connect to the database.`,
-                            iconURL: mess.author.displayAvatarURL({ extension: "png" })
-                        })
-                    await mess.channel.send({ embeds: [embed] }).catch(() => null)
+                if (!mess.author.data) {
+                    const result = await client.SetData(mess.author)
+                    if (result.error) {
+                        if (result.error.type === "database") {
+                            await channel.send(`❌ ${mess.author.tag}, database connection error.`).catch(() => null)
+                        }
+                        return
+                    }
+                    if (!result.data) return
                 }
-                return
-            }
-            if (!result.data) return
-        }
-        let cont = mess.content.toLowerCase().split(" ")
-        let action = cont[0]
-            value = features.inputConverter(cont[1])
-                if (action == "join") {
-                    if (mess.author.data.money < msg.channel.game.minBuyIn || (!isNaN(value) && mess.author.data.money < value)) {
-                        const embed = new Discord.EmbedBuilder()
-                            .setColor(Discord.Colors.Red)
-                            .setFooter({
-                                text: `${mess.author.tag}, access denied: your money must be at least equal or higher than the minimum buy-in`,
-                                iconURL: mess.author.displayAvatarURL({ extension: "png" })
-                            })
-                        return await msg.channel.send({ embeds: [embed] }).catch(() => null)
-                    }
-                    if (!value) value = msg.channel.game.minBuyIn
-                    if (value < msg.channel.game.minBuyIn || value > msg.channel.game.maxBuyIn) {
-                        const embed = new Discord.EmbedBuilder()
-                            .setColor(Discord.Colors.Red)
-                            .setFooter({
-                                text: `${mess.author.tag}, access denied: your buy-in is not in the allowed range for this game`
-                            })
-                        return await msg.channel.send({ embeds: [embed] }).catch(() => null)
-                    }
-                    mess.author.stack = value
 
-                    try {
-                        await msg.channel.game.AddPlayer(mess.author)
-                    } catch (addError) {
-                        logger.error("Failed to add player to texas game", {
-                            scope: "commands",
-                            command: "texas",
-                            userId: mess.author.id,
-                            channelId: msg.channel.id,
-                            error: addError.message,
-                            stack: addError.stack
-                        })
+                const [action, valueToken] = mess.content.trim().toLowerCase().split(/\s+/)
+
+                if (action === "join") {
+                    let buyIn = channel.game.minBuyIn
+                    if (valueToken) {
+                        const parsedValue = features.inputConverter(valueToken)
+                        if (Number.isFinite(parsedValue) && parsedValue > 0) {
+                            buyIn = parsedValue
+                        }
+                    }
+
+                    if (mess.author.data.money < buyIn) {
+                        await channel.send(`❌ ${mess.author.tag}, insufficient funds for buy-in.`).catch(() => null)
                         return
                     }
-                } else {
-                    try {
-                        await msg.channel.game.RemovePlayer(mess.author)
-                    } catch (removeError) {
-                        logger.error("Failed to remove player from texas game", {
-                            scope: "commands",
-                            command: "texas",
-                            userId: mess.author.id,
-                            channelId: msg.channel.id,
-                            error: removeError.message,
-                            stack: removeError.stack
-                        })
-                        return
-                    }
+
+                    await channel.game.AddPlayer(mess.author, buyIn)
+                } else if (action === "leave") {
+                    await channel.game.RemovePlayer(mess.author)
                 }
+
+                if (!channel.game) return
 
                 await statusMessage.edit({ embeds: [buildGameEmbed()] }).catch((error) => {
-                    logger.error("Failed to edit texas status message", {
+                    logger.error("Failed to edit game status", {
                         scope: "commands",
                         command: "texas",
-                        channelId: msg.channel.id,
                         error: error.message
                     })
                 })
 
                 if (mess.deletable) {
-                    mess.delete().catch((error) => {
-                        logger.error("Failed to delete player message in texas", {
-                            scope: "commands",
-                            command: "texas",
-                            messageId: mess.id,
-                            error: error.message
-                        })
-                    })
+                    mess.delete().catch(() => null)
                 }
             } catch (collectorError) {
-                logger.error("Error in texas collector handler", {
+                logger.error("Collector handler error", {
                     scope: "commands",
                     command: "texas",
-                    userId: mess.author?.id,
-                    channelId: msg.channel.id,
-                    error: collectorError.message,
-                    stack: collectorError.stack
+                    error: collectorError.message
                 })
             }
         })
 
         await delay(45000)
-        if (msg.channel.game.playing) return
-        if (msg.channel.game.players.length > 1) msg.channel.game.Run(true)
-            else msg.channel.game.Stop()
+        if (!channel.game || channel.game.playing) return
+        if (channel.game.players.length > 1) {
+            channel.game.Run()
+        } else {
+            channel.game.Stop({ reason: "allPlayersLeft" })
+        }
     } catch (error) {
-        const disabled = msg?.client?.config?.enabled === false
-        logger.error("Failed to execute texas command", {
+        logger.error("Texas command failed", {
             scope: "commands",
             command: "texas",
-            userId: msg.author.id,
+            userId: interaction.user.id,
             error: error.message,
             stack: error.stack
         })
 
-        if (msg.channel?.game) {
-            try {
-                await msg.channel.game.Stop({ notify: !disabled })
-            } catch (stopError) {
-                logger.error("Failed to stop texas game after error", {
-                    scope: "commands",
-                    command: "texas",
-                    error: stopError.message
-                })
-            }
+        if (channel?.game) {
+            await channel.game.Stop({ notify: false }).catch(() => null)
         }
 
-        if (disabled) {
-            try {
-                await msg.channel.send({
-                    embeds: [
-                        new Discord.EmbedBuilder()
-                            .setColor(Discord.Colors.Orange)
-                            .setDescription("⚠️ Tavolo Texas Hold'em chiuso perché Chipsy è stato disattivato dagli amministratori.")
-                    ]
-                }).catch(() => null)
-            } catch (noticeError) {
-                logger.warn("Failed to send texas disable notice", {
-                    scope: "commands",
-                    command: "texas",
-                    error: noticeError.message
-                })
-            }
-            return
-        }
-
-        try {
-            await msg.channel.send({
-                embeds: [
-                    new Discord.EmbedBuilder()
-                        .setColor(Discord.Colors.Red)
-                        .setDescription("❌ An error occurred while starting the Texas Hold'em game. Please try again later.")
-                ]
-            })
-        } catch (sendError) {
-            logger.error("Failed to send error message", {
-                scope: "commands",
-                command: "texas",
-                error: sendError.message
-            })
-        }
+        await replyOrEdit({
+            content: "❌ An error occurred while starting the game. Please try again later.",
+            flags: Discord.MessageFlags.Ephemeral
+        })
     }
 }
 
@@ -379,7 +212,7 @@ const slashCommand = new SlashCommandBuilder()
     .addStringOption((option) =>
         option
             .setName("minbet")
-            .setDescription("Minimum bet required to join the table (supports shorthand like 10k).")
+            .setDescription("Minimum bet required to play (supports shorthand like 10k).")
             .setRequired(true)
     )
     .addIntegerOption((option) =>
@@ -394,17 +227,7 @@ const slashCommand = new SlashCommandBuilder()
 module.exports = createCommand({
     name: "texas",
     description: "Start a Texas Hold'em game in the current channel.",
-    aliases: ["holdem"],
     slashCommand,
     deferEphemeral: false,
-    errorMessage: "Unable to start a Texas Hold'em game right now. Please try again later.",
-    execute: async(context) => {
-        const message = context.message
-        if (!Array.isArray(message.params)) {
-            message.params = Array.isArray(context.args) ? [...context.args] : []
-        }
-        await runTexas(message)
-    }
+    execute: runTexas
 })
-
-//play <minBet> [maxPlayers]

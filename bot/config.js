@@ -1,5 +1,25 @@
 const { config: loadEnv } = require("dotenv")
 const { z } = require("zod")
+const constants = require("../config/constants")
+
+// ============================================================================
+// CONFIGURAZIONE: Validazione environment variables con Zod
+//
+// ARCHITETTURA HOST DETECTION:
+// La detection dell'ambiente (localhost vs Docker) è gestita PRIMA di questo
+// file, da devRunner.mjs (entry point). Questo file si limita a validare che
+// le variabili siano presenti e nei formati corretti.
+//
+// Flusso di detection:
+// 1. devRunner.mjs → setta process.env.MYSQL_HOST (localhost o mysql)
+// 2. bot/config.js → valida e fornisce default se non settato
+// 3. bot/mysql.js → usa semplicemente config.mysql.host
+//
+// Default MYSQL_HOST = "localhost" perché:
+// - Su macOS Docker Desktop, "localhost" funziona correttamente
+// - "127.0.0.1" causa problemi di user@host mismatch in MySQL
+// - In Docker, devRunner.mjs lo sovrascrive con "mysql" (service name)
+// ============================================================================
 
 // Load environment variables
 const result = loadEnv()
@@ -24,11 +44,13 @@ const envSchema = z.object({
 const parsedEnv = envSchema.safeParse(process.env)
 
 if (!parsedEnv.success) {
-    console.error("Configuration validation failed:")
+    // Usa console.error (non logger) perché il logger potrebbe non essere ancora inizializzato
+    console.error("\n❌ Configuration validation failed:")
     for (const issue of parsedEnv.error.issues) {
         const path = issue.path.join(".") || issue.code
-        console.error(`- ${path}: ${issue.message}`)
+        console.error(`   - ${path}: ${issue.message}`)
     }
+    console.error("\nPlease check your .env file and ensure all required variables are set correctly.\n")
     process.exit(1)
 }
 
@@ -53,6 +75,6 @@ module.exports = {
         password: env.MYSQL_PASSWORD
     },
     web: {
-        redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || "http://localhost:8082"
+        redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.botApiLocal
     }
 }

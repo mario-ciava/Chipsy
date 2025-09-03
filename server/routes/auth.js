@@ -1,4 +1,5 @@
 const express = require("express")
+const constants = require("../../config/constants")
 
 const createAuthRouter = (dependencies) => {
     const {
@@ -15,7 +16,7 @@ const createAuthRouter = (dependencies) => {
         requireCsrfToken,
         allowedRedirectOrigins = [],
         scopes = ["identify", "guilds"],
-        defaultRedirectUri = "http://localhost:8080"
+        defaultRedirectUri = constants.urls.vueDevLocal
     } = dependencies
 
     const router = express.Router()

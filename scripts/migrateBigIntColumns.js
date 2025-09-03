@@ -1,5 +1,6 @@
 const mysql = require("mysql2/promise")
-const config = require("../config")
+const config = require("../bot/config")
+const logger = require("../bot/utils/logger")
 
 const ensureDatabase = async(connection, database) => {
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\``)
@@ -36,7 +37,10 @@ const migrateUsers = async(connection) => {
         }
 
         await connection.query(`ALTER TABLE \`users\` MODIFY \`${column}\` ${definition}`)
-        console.info(`Updated users.${column} to BIGINT UNSIGNED`)
+        logger.debug(`Updated users.${column} to BIGINT UNSIGNED`, {
+            scope: "migration",
+            column
+        })
     }
 }
 
@@ -52,9 +56,16 @@ const migrate = async() => {
     try {
         await ensureDatabase(connection, config.mysql.database)
         await migrateUsers(connection)
-        console.info("BIGINT column migration completed successfully.")
+        logger.info("BIGINT column migration completed successfully", {
+            scope: "migration",
+            icon: "✅"
+        })
     } catch (error) {
-        console.error("Failed to migrate BIGINT columns:", error)
+        logger.error("Failed to migrate BIGINT columns", {
+            scope: "migration",
+            message: error.message,
+            stack: error.stack
+        })
         process.exitCode = 1
     } finally {
         await connection.end()

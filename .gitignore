@@ -8,3 +8,7 @@ config.json
 .env.vault.local
 web/dist/
 logs/
+ARCHITECTURE.md
+CONFIGURATION.md
+FINAL_REVIEW.md
+REFACTORING_NOTES.md

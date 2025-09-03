@@ -9,36 +9,21 @@ module.exports = createCommand({
     slashCommand,
     defer: false,
     errorMessage: "Unable to measure latency right now. Please try again later.",
-    execute: async(context) => {
-        const { interaction, message, author, client, reply, editReply } = context
+    execute: async(interaction, client) => {
+        const author = interaction.user
         const color = Math.floor(Math.random() * 0xffffff)
         const avatarURL = author?.displayAvatarURL?.({ extension: "png" })
         const loadingEmbed = new EmbedBuilder().setColor(color).setFooter({ text: "Ping?!" })
 
-        const baseTimestamp = interaction?.createdTimestamp ?? message?.createdTimestamp ?? Date.now()
-        const wsPing = Math.round(client?.ws?.ping ?? 0)
+        const baseTimestamp = interaction.createdTimestamp ?? Date.now()
+        const wsPing = Math.round(client?.ws?.ping ?? interaction.client?.ws?.ping ?? 0)
 
-        if (interaction) {
-            const response = await reply({
-                embeds: [loadingEmbed],
-                withResponse: true
-            })
+        const sentMessage = await interaction.reply({
+            embeds: [loadingEmbed],
+            withResponse: true
+        })
 
-            const sentMessage = response?.fetch ? await response.fetch() : await interaction.fetchReply()
-            const latency = (sentMessage.createdTimestamp - baseTimestamp).toFixed()
-            const responseEmbed = new EmbedBuilder()
-                .setColor(color)
-                .setFooter({
-                    text: `${author?.tag ?? "Unknown user"} | Pong!! (${latency}ms) | Websocket: ${wsPing}ms`,
-                    iconURL: avatarURL
-                })
-
-            await editReply({ embeds: [responseEmbed] })
-            return
-        }
-
-        const initialMessage = await reply({ embeds: [loadingEmbed] })
-        const latency = (initialMessage.createdTimestamp - baseTimestamp).toFixed()
+        const latency = (sentMessage.createdTimestamp - baseTimestamp).toFixed()
         const responseEmbed = new EmbedBuilder()
             .setColor(color)
             .setFooter({
@@ -46,6 +31,6 @@ module.exports = createCommand({
                 iconURL: avatarURL
             })
 
-        await initialMessage.edit({ embeds: [responseEmbed] })
+        await interaction.editReply({ embeds: [responseEmbed] })
     }
 })

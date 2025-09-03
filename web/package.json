@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "serve": "cross-env NODE_OPTIONS=--openssl-legacy-provider PORT=8082 vue-cli-service serve",
+    "serve": "cross-env NODE_OPTIONS=--openssl-legacy-provider PORT=8080 vue-cli-service serve",
     "build": "cross-env NODE_OPTIONS=--openssl-legacy-provider vue-cli-service build"
   },
   "dependencies": {

@@ -1,10 +1,10 @@
 const Discord = require("discord.js")
-const Hand = require('pokersolver').Hand,
-    features = require("./features.js"),
-    delay = (ms) => { return new Promise((res) => { setTimeout(() => { res() }, ms)})},
-    Game = require("./game.js"),
-    cards = require("./cards.js"),
-    setSeparator = require("../utils/setSeparator")
+const Hand = require('pokersolver').Hand
+const features = require("./features.js")
+const { delay } = require("../utils/async")
+const Game = require("./game.js")
+const cards = require("./cards.js")
+const setSeparator = require("../utils/setSeparator")
 module.exports = class Texas extends Game {
     constructor(info) {
         super(info)

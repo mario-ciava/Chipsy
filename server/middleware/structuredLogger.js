@@ -1,8 +1,9 @@
 const winston = require("winston")
 const path = require("path")
 const fs = require("fs")
+const sharedLogger = require("../../bot/utils/logger")
 
-const LOG_LEVEL = process.env.LOG_LEVEL || "info"
+const LOG_LEVEL = process.env.LOG_LEVEL || sharedLogger.getLevel()
 const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, "../../logs")
 
 // Ensure logs directory exists
@@ -17,15 +18,14 @@ const customFormat = winston.format.combine(
     winston.format.json()
 )
 
-const consoleFormat = winston.format.combine(
-    winston.format.colorize(),
-    winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-    winston.format.printf((info) => {
-        const { timestamp, level, message, metadata } = info
-        const metaStr = Object.keys(metadata).length ? `\n${JSON.stringify(metadata, null, 2)}` : ""
-        return `${timestamp} [${level}]: ${message}${metaStr}`
+const consoleFormat = winston.format.printf((info) => {
+    const { level, message, metadata } = info
+    return sharedLogger.formatConsoleMessage({
+        level,
+        message,
+        meta: metadata || {}
     })
-)
+})
 
 const logger = winston.createLogger({
     level: LOG_LEVEL,
@@ -56,10 +56,21 @@ const logger = winston.createLogger({
     ]
 })
 
-if (process.env.NODE_ENV !== "production") {
-    logger.add(new winston.transports.Console({
-        format: consoleFormat
-    }))
+logger.add(new winston.transports.Console({
+    format: consoleFormat,
+    level: LOG_LEVEL
+}))
+
+const SKIP_PATHS = new Set(["/api/health", "/health", "/favicon.ico"])
+const SKIP_PREFIXES = ["/__webpack", "/sockjs", "/static/", "/assets/"]
+const isProduction = process.env.NODE_ENV === "production"
+
+const shouldSkipRequest = (req) => {
+    const pathValue = (req.originalUrl || req.url || req.path || "").toLowerCase()
+    if (!pathValue) return false
+    if (SKIP_PATHS.has(pathValue)) return true
+    if (req.method === "OPTIONS") return true
+    return SKIP_PREFIXES.some((prefix) => pathValue.startsWith(prefix))
 }
 
 const requestLogger = (req, res, next) => {
@@ -67,26 +78,29 @@ const requestLogger = (req, res, next) => {
     req.requestId = requestId
     req.startTime = Date.now()
 
-    const originalSend = res.send
-    res.send = function(data) {
-        res.send = originalSend
-        res.locals.responseBody = data
-        return res.send(data)
-    }
-
     res.on("finish", () => {
         const duration = Date.now() - req.startTime
         const logLevel = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info"
+        const pathLabel = req.originalUrl || req.url || req.path
 
-        logger.log(logLevel, "HTTP Request", {
+        if (shouldSkipRequest(req)) {
+            return
+        }
+
+        if (!isProduction && res.statusCode < 400 && !sharedLogger.isLevelEnabled("verbose")) {
+            return
+        }
+
+        logger.log(logLevel, `${req.method} ${pathLabel}`, {
+            scope: "http",
             requestId,
             method: req.method,
-            path: req.path,
+            path: pathLabel,
             statusCode: res.statusCode,
-            duration: `${duration}ms`,
-            ip: req.ip || req.connection.remoteAddress,
-            userAgent: req.get("user-agent"),
-            userId: req.user?.id || null
+            durationMs: duration,
+            ip: req.ip || req.connection?.remoteAddress,
+            userAgent: req.get("user-agent") || undefined,
+            userId: req.user?.id || undefined
         })
     })
 

@@ -1,21 +1,38 @@
-const { info, error } = require("../utils/logger")
+const logger = require("../utils/logger")
 
 module.exports = async(client) => {
     const userTag = client?.user?.tag ?? "unknown user"
-    info(`Successfully logged-in as ${userTag}`, { scope: "events", event: "ready" })
+    logger.info(`Successfully logged-in as ${userTag}`, {
+        scope: "events",
+        event: "ready",
+        icon: "🤖",
+        guilds: client?.guilds?.cache?.size ?? 0
+    })
 
     try {
         const desiredUsername = process.env.BOT_DISPLAY_NAME || "Chipsy"
         if (client?.user && client.user.username !== desiredUsername) {
             await client.user.setUsername(desiredUsername)
-            info(`Updated bot username to ${desiredUsername}`, { scope: "events", event: "ready" })
+            logger.debug(`Updated bot username to ${desiredUsername}`, {
+                scope: "events",
+                event: "ready",
+                icon: "📝"
+            })
         }
 
         const slashCommands = client.commandRouter.getSlashCommandPayloads()
         const result = await client.application.commands.set(slashCommands)
-        info(`Registered ${result.size} slash command(s): ${slashCommands.map(c => c.name).join(', ')}`, { scope: "events", event: "ready" })
+        logger.info(
+            `Registered ${result.size} slash command(s)`,
+            {
+                scope: "events",
+                event: "ready",
+                icon: "🛠️",
+                commands: slashCommands.map((c) => c.name)
+            }
+        )
     } catch (err) {
-        error("Failed to register application commands", {
+        logger.error("Failed to register application commands", {
             scope: "events",
             event: "ready",
             message: err?.message ?? String(err)

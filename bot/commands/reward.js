@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
 const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
 const createCommand = require("../utils/createCommand")
@@ -12,16 +12,34 @@ module.exports = createCommand({
     slashCommand,
     deferEphemeral: false,
     errorMessage: "We could not process your reward. Please try again later.",
-    execute: async(context) => {
-        const { author, client, reply, fail } = context
+    execute: async(interaction, client) => {
+        const respond = async(payload = {}) => {
+            if (interaction.deferred && !interaction.replied) {
+                return interaction.editReply(payload)
+            }
+            if (!interaction.replied) {
+                return interaction.reply(payload)
+            }
+            return interaction.followUp(payload)
+        }
+
+        const author = interaction.user
 
         if (!author) {
-            fail("Unable to resolve your Discord account details.")
+            await respond({
+                content: "❌ Unable to resolve your Discord account details.",
+                flags: MessageFlags.Ephemeral
+            })
+            return
         }
 
         const profile = author.data
         if (!profile) {
-            fail("Your profile is still loading. Please try again in a moment.")
+            await respond({
+                content: "❌ Your profile is still loading. Please try again in a moment.",
+                flags: MessageFlags.Ephemeral
+            })
+            return
         }
 
         const now = Date.now()
@@ -39,11 +57,11 @@ module.exports = createCommand({
                     iconURL: author.displayAvatarURL({ extension: "png" })
                 })
 
-            await reply({ embeds: [embed] })
+            await respond({ embeds: [embed] })
             return
         }
 
-        const dataHandler = client?.dataHandler
+        const dataHandler = client?.dataHandler ?? interaction.client?.dataHandler
         if (!dataHandler) {
             throw new Error("Data handler is not available on the client.")
         }
@@ -64,6 +82,6 @@ module.exports = createCommand({
                 iconURL: author.displayAvatarURL({ extension: "png" })
             })
 
-        await reply({ embeds: [embed] })
+        await respond({ embeds: [embed] })
     }
 })

@@ -21,23 +21,24 @@ const bootstrap = async() => {
     if (bootstrapPromise) return bootstrapPromise
 
     bootstrapPromise = (async() => {
-        logger.info("Bootstrap started", { scope: "bootstrap" })
+        logger.info("Starting Chipsy bot", { scope: "bootstrap", icon: "🚀" })
 
         try {
             await loadEvents(client)
-            logger.info("Events loaded", { scope: "bootstrap" })
+            logger.debug("Events loaded", { scope: "bootstrap" })
 
             await loadCommands(client, config)
-            logger.info("Commands loaded", { scope: "bootstrap" })
+            logger.debug("Commands loaded", { scope: "bootstrap" })
 
-            const { pool, healthCheck } = await initializeMySql(client, config)
+            const { pool, healthCheck, shutdown } = await initializeMySql(client, config)
             const health = await healthCheck()
-            logger.info("Database health check completed", { scope: "mysql", ...health })
+            logger.debug("Database health check completed", { scope: "mysql", ...health })
 
             const dataHandler = createDataHandler(pool)
             client.dataHandler = dataHandler
             client.SetData = createSetData(dataHandler)
             client.healthChecks = { mysql: healthCheck }
+            client.mysqlShutdown = shutdown // Salva la funzione di shutdown per graceful shutdown
 
             const cache = await createCacheClient(config.cache?.redis)
             client.cache = cache
@@ -50,7 +51,16 @@ const bootstrap = async() => {
             client.statusService = statusService
 
             await client.login(config.discord.botToken)
-            logger.info("Discord client logged in", { scope: "bootstrap" })
+            logger.info("Discord client authenticated", { scope: "bootstrap", icon: "🔐" })
+
+            // Ritorna l'oggetto con le funzioni di shutdown per graceful shutdown
+            return {
+                mysql: {
+                    pool,
+                    healthCheck,
+                    shutdown
+                }
+            }
         } catch (error) {
             logger.error("Failed to initialize the application", {
                 scope: "bootstrap",
@@ -63,8 +73,62 @@ const bootstrap = async() => {
     return bootstrapPromise
 }
 
+// ============================================================================
+// STANDALONE MODE: Graceful shutdown quando il bot viene eseguito direttamente
+// ============================================================================
 if (require.main === module) {
-    bootstrap().catch(() => {
+    let isShuttingDown = false
+
+    const gracefulShutdown = async(signal) => {
+        if (isShuttingDown) return
+        isShuttingDown = true
+
+        logger.info(`Received ${signal} - Starting graceful shutdown...`, { scope: "bot" })
+
+        try {
+            // Chiudi il pool MySQL
+            if (client.mysqlShutdown) {
+                await client.mysqlShutdown()
+            }
+
+            // Chiudi il client Discord
+            if (client.isReady()) {
+                await client.destroy()
+            }
+
+            logger.info("Bot shutdown completed successfully", { scope: "bot" })
+            process.exit(0)
+        } catch (error) {
+            logger.error("Error during bot shutdown", {
+                scope: "bot",
+                message: error.message
+            })
+            process.exit(1)
+        }
+    }
+
+    process.on("SIGINT", () => gracefulShutdown("SIGINT"))
+    process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
+
+    process.on("uncaughtException", (error) => {
+        logger.error("Uncaught exception in bot", {
+            scope: "bot",
+            message: error.message,
+            stack: error.stack
+        })
+        gracefulShutdown("uncaughtException")
+    })
+
+    process.on("unhandledRejection", (reason) => {
+        logger.error("Unhandled rejection in bot", {
+            scope: "bot",
+            reason: reason instanceof Error ? reason.message : String(reason)
+        })
+        gracefulShutdown("unhandledRejection")
+    })
+
+    bootstrap().catch((error) => {
+        logger.error("Bootstrap failed", { scope: "bot", message: error.message })
         process.exit(1)
     })
 }

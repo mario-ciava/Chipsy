@@ -5,6 +5,9 @@ const helmet = require("helmet")
 const Discord = require("discord.js")
 const fetch = require("node-fetch")
 const crypto = require("crypto")
+const path = require("path")
+const fs = require("fs")
+const constants = require("../config/constants")
 const createSessionStore = require("../bot/utils/createSessionStore")
 
 const createAuthRouter = require("./routes/auth")
@@ -64,7 +67,7 @@ const createDiscordApi = (fetchImpl) => {
 module.exports = (client, webSocket, options = {}) => {
     const {
         listen = true,
-        port = 3000,
+        port = constants.server.defaultPort,
         rateLimiter,
         logger,
         fetch: fetchOverride,
@@ -87,7 +90,7 @@ module.exports = (client, webSocket, options = {}) => {
         contentSecurityPolicy: false, // Disable for API
         crossOriginEmbedderPolicy: false,
         hsts: {
-            maxAge: 31536000,
+            maxAge: constants.server.hstsMaxAge,
             includeSubDomains: true,
             preload: true
         }
@@ -99,10 +102,10 @@ module.exports = (client, webSocket, options = {}) => {
     // Request ID and structured logging
     app.use(requestLogger)
 
-    app.use(bodyparser.json({ limit: "10mb" }))
-    app.use(bodyparser.urlencoded({ extended: true, limit: "10mb" }))
+    app.use(bodyparser.json({ limit: constants.server.bodyLimit }))
+    app.use(bodyparser.urlencoded({ extended: true, limit: constants.server.bodyLimit }))
 
-    const sessionMaxAge = Number(process.env.SESSION_MAX_AGE_MS) || 24 * 60 * 60 * 1000
+    const sessionMaxAge = Number(process.env.SESSION_MAX_AGE_MS) || constants.server.sessionMaxAge
 
     const cookieOptions = {
         httpOnly: true,
@@ -179,9 +182,9 @@ module.exports = (client, webSocket, options = {}) => {
 
     const allowedOrigins = unique([
         client.config?.redirectUri,
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:8082",
+        constants.urls.vueDevLocal,
+        constants.urls.vueLegacyLocal,
+        constants.urls.botApiLocal,
         ...envAllowedOrigins
     ])
 
@@ -234,7 +237,7 @@ module.exports = (client, webSocket, options = {}) => {
     const getAccessToken = (req) => req.headers.token || req.session?.oauth?.accessToken || req.user?.token
 
     const buildInviteRedirectUri = () => {
-        const origin = (client.config?.redirectUri || "http://localhost:8082").replace(/\/$/, "")
+        const origin = (client.config?.redirectUri || constants.urls.botApiLocal).replace(/\/$/, "")
         const normalizedPath = inviteRedirectPath.startsWith("/") ? inviteRedirectPath : `/${inviteRedirectPath}`
         return `${origin}${normalizedPath}`
     }
@@ -315,12 +318,37 @@ module.exports = (client, webSocket, options = {}) => {
 
     app.use("/api", apiRouter)
 
-    // 404 handler
+    // Serve static files from public directory (production build)
+    const publicPath = path.join(__dirname, "../public")
+    const indexPath = path.join(publicPath, "index.html")
+    const hasBuiltFrontend = fs.existsSync(indexPath)
+
+    if (hasBuiltFrontend) {
+        // In production: serve static files and SPA fallback
+        app.use(express.static(publicPath))
+
+        // SPA fallback - serve index.html for all non-API routes (Vue Router history mode)
+        app.get("*", (req, res, next) => {
+            // Skip API routes
+            if (req.path.startsWith("/api")) {
+                return next()
+            }
+            // Serve index.html for all other routes
+            res.sendFile(indexPath)
+        })
+    }
+
+    // 404 handler (only reached if file not found)
     app.use(notFoundHandler)
 
-    // Global error handler
+    // Global error handler (must be last middleware)
     app.use(errorHandler)
 
+    // ========================================================================
+    // SERVER INITIALIZATION
+    // NOTA: Gli errori di listen (es. EADDRINUSE) devono essere gestiti dal
+    // chiamante tramite httpServer.on('error', handler). Vedi server/index.js
+    // ========================================================================
     let httpServer = options.server || null
     if (listen) {
         httpServer = app.listen(port)

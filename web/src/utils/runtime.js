@@ -1,3 +1,4 @@
+// NOTA: Deve corrispondere a constants.urls.botApiLocal
 const DEFAULT_ORIGIN = "http://localhost:8082"
 
 const normalizeOrigin = (value) => value.replace(/\/$/, "")

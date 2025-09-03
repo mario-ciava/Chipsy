@@ -1,232 +1,137 @@
-const { Collection, ApplicationCommandOptionType, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
+const { Collection, MessageFlags } = require("discord.js")
 const logger = require("./logger")
 
+/**
+ * Simple, clean command router for slash commands only.
+ * No abstractions, no adapters, just Discord.js native API.
+ */
 class CommandRouter {
     constructor(client) {
         this.client = client
-        this.messageCommands = new Collection()
-        this.slashCommands = new Collection()
+        this.commands = new Collection()
     }
 
+    /**
+     * Register a command.
+     * @param {Object} command - Command object with config and execute function
+     */
     register(command) {
-        const config = command.config || {}
-        const name = typeof config.name === "string" ? config.name.toLowerCase() : ""
-
-        if (!name) {
-            throw new Error("Command registration failed: command name is missing or invalid.")
+        const config = command.config
+        if (!config?.name) {
+            throw new Error("Command registration failed: missing name")
+        }
+        if (!config?.slashCommand?.toJSON) {
+            throw new Error(`Command '${config.name}' missing valid SlashCommandBuilder`)
+        }
+        if (typeof command.execute !== "function") {
+            throw new Error(`Command '${config.name}' missing execute function`)
         }
 
-        const handler = command.run || command.execute
-        if (typeof handler !== "function") {
-            throw new Error(`Command registration failed for '${config.name}': missing executable handler.`)
-        }
-
-        this.messageCommands.set(name, command)
-
-        const aliases = Array.isArray(config.aliases) ? config.aliases : []
-        for (const alias of aliases) {
-            if (typeof alias !== "string") continue
-            const aliasKey = alias.toLowerCase()
-            if (!aliasKey || aliasKey === name) continue
-            this.messageCommands.set(aliasKey, command)
-        }
-
-        const slashCommand = config.slashCommand || command.data
-        const slashName = typeof slashCommand?.name === "string" ? slashCommand.name.toLowerCase() : name
-
-        if (slashCommand && typeof slashCommand.toJSON === "function") {
-            this.slashCommands.set(slashName, command)
-        }
+        this.commands.set(config.name.toLowerCase(), command)
     }
 
+    /**
+     * Get all slash command payloads for Discord API registration.
+     */
     getSlashCommandPayloads() {
-        const payloads = []
-        const seen = new Set()
-        for (const command of this.slashCommands.values()) {
-            if (seen.has(command)) continue
-            seen.add(command)
+        return Array.from(this.commands.values()).map(command => {
+            const { config } = command
+            const builder = config.slashCommand
 
-            const config = command.config || {}
-            const data = config.slashCommand || command.data
-            if (!data || typeof data.toJSON !== "function") continue
-
-            if (config.defaultMemberPermissions !== undefined && typeof data.setDefaultMemberPermissions === "function") {
-                data.setDefaultMemberPermissions(config.defaultMemberPermissions)
+            if (config.defaultMemberPermissions !== undefined) {
+                builder.setDefaultMemberPermissions(config.defaultMemberPermissions)
+            }
+            if (config.dmPermission !== undefined) {
+                builder.setDMPermission(config.dmPermission)
             }
 
-            if (config.dmPermission !== undefined && typeof data.setDMPermission === "function") {
-                data.setDMPermission(config.dmPermission)
-            }
-
-            payloads.push(data.toJSON())
-        }
-        return payloads
+            return builder.toJSON()
+        })
     }
 
-    async handleMessage(message) {
-        const commandName = message.command?.toLowerCase()
-        if (!commandName) return
-
-        const command = this.messageCommands.get(commandName)
-        if (!command) return
-
-        if (!message.author.data) {
-            const result = await this.client.SetData(message.author)
-            if (result.error) {
-                if (result.error.type === "database") {
-                    const embed = new EmbedBuilder()
-                        .setColor(Colors.Red)
-                        .setFooter({
-                            text: `${message.author.tag}, error: unable to reach the database. Please try again later.`,
-                            iconURL: message.author.displayAvatarURL({ extension: "png" })
-                        })
-                    await message.channel?.send({ embeds: [embed] }).catch(() => null)
-                }
-                return
-            }
-            if (!result.data) return
-        }
-
-        try {
-            await (command.run || command.execute)({
-                type: "message",
-                message,
-                args: message.params,
-                client: this.client
-            })
-        } catch (error) {
-            logger.error("Failed to execute message command", {
-                scope: "commandRouter",
-                command: commandName,
-                userId: message.author?.id,
-                channelId: message.channel?.id,
-                error: error.message,
-                stack: error.stack
-            })
-        }
-    }
-
+    /**
+     * Handle slash command interaction.
+     * Clean, simple, no abstractions.
+     */
     async handleInteraction(interaction) {
         if (!interaction.isChatInputCommand()) return
 
-        const command = this.slashCommands.get(interaction.commandName.toLowerCase())
+        const command = this.commands.get(interaction.commandName.toLowerCase())
         if (!command) return
 
-        const args = this.resolveInteractionArgs(interaction)
-        const messageAdapter = this.createMessageAdapter(interaction, args)
+        const { config } = command
 
+        // Auto-defer if configured
         try {
-            const config = command.config || {}
-            const shouldDefer = config.defer !== undefined ? config.defer : true
-            const deferEphemeral = config.deferEphemeral !== undefined ? config.deferEphemeral : true
+            const shouldDefer = config.defer ?? true
+            const deferEphemeral = config.deferEphemeral ?? true
+
             if (shouldDefer && !interaction.deferred && !interaction.replied) {
-                const flags = deferEphemeral ? MessageFlags.Ephemeral : undefined
-                if (flags) {
-                    await interaction.deferReply({ flags })
-                } else {
-                    await interaction.deferReply()
-                }
+                await interaction.deferReply({
+                    flags: deferEphemeral ? MessageFlags.Ephemeral : undefined
+                })
             }
         } catch (error) {
-            logger.error("Failed to defer reply for slash command", {
+            logger.error("Failed to defer interaction", {
                 scope: "commandRouter",
                 command: interaction.commandName,
-                userId: interaction.user?.id,
-                guildId: interaction.guild?.id,
-                error: error.message,
-                stack: error.stack
+                error: error.message
             })
         }
 
-        if (!messageAdapter.author.data) {
-            const result = await this.client.SetData(messageAdapter.author)
+        // Load user data
+        if (!interaction.user.data) {
+            const result = await this.client.SetData(interaction.user)
             if (result.error) {
-                const response = {
-                    content:
-                        result.error.type === "database"
-                            ? "We couldn't connect to the database. Please try again later."
-                            : "Unable to prepare your player profile. Please contact support.",
-                    flags: MessageFlags.Ephemeral
-                }
+                const content = result.error.type === "database"
+                    ? "❌ Database connection failed. Please try again later."
+                    : "❌ Failed to load your profile. Please contact support."
 
-                if (interaction.deferred && !interaction.replied) {
-                    await interaction.followUp(response).catch(() => null)
-                } else if (!interaction.replied) {
-                    await interaction.reply(response).catch(() => null)
-                }
+                await this.replyOrFollowUp(interaction, {
+                    content,
+                    flags: MessageFlags.Ephemeral
+                })
                 return
             }
             if (!result.data) return
         }
 
+        // Execute command
         try {
-            await (command.run || command.execute)({
-                type: "interaction",
-                interaction,
-                message: messageAdapter,
-                args,
-                client: this.client
-            })
+            await command.execute(interaction, this.client)
         } catch (error) {
-            logger.error("Failed to execute slash command", {
+            logger.error("Command execution failed", {
                 scope: "commandRouter",
                 command: interaction.commandName,
-                userId: interaction.user?.id,
-                guildId: interaction.guild?.id,
+                userId: interaction.user.id,
                 error: error.message,
                 stack: error.stack
             })
-            const response = {
-                content: "An error occurred while executing this command.",
+
+            await this.replyOrFollowUp(interaction, {
+                content: "❌ An unexpected error occurred. Please try again later.",
                 flags: MessageFlags.Ephemeral
-            }
+            })
+        }
+    }
 
+    /**
+     * Reply or follow-up depending on interaction state.
+     */
+    async replyOrFollowUp(interaction, payload) {
+        try {
             if (interaction.deferred && !interaction.replied) {
-                await interaction.followUp(response).catch(() => null)
+                return await interaction.editReply(payload)
             } else if (!interaction.replied) {
-                await interaction.reply(response).catch(() => null)
+                return await interaction.reply(payload)
+            } else {
+                return await interaction.followUp(payload)
             }
-        } finally {
-            if (interaction.deferred && !interaction.replied) {
-                await interaction.deleteReply().catch(() => null)
-            }
-        }
-    }
-
-    resolveInteractionArgs(interaction) {
-        const args = []
-        const traverse = (options) => {
-            for (const option of options) {
-                if (
-                    option.type === ApplicationCommandOptionType.Subcommand ||
-                    option.type === ApplicationCommandOptionType.SubcommandGroup
-                ) {
-                    if (option.name) {
-                        args.push(option.name)
-                    }
-                    if (option.options?.length) traverse(option.options)
-                } else if (option.value !== undefined && option.value !== null) {
-                    args.push(String(option.value))
-                }
-            }
-        }
-
-        traverse(interaction.options.data)
-        return args
-    }
-
-    createMessageAdapter(interaction, args) {
-        return {
-            id: interaction.id,
-            author: interaction.user,
-            client: interaction.client,
-            guild: interaction.guild,
-            channel: interaction.channel,
-            createdTimestamp: Date.now(),
-            params: [...args],
-            command: interaction.commandName,
-            prefix: interaction.client?.config?.prefix,
-            interaction
+        } catch (error) {
+            logger.warn("Failed to send interaction response", {
+                scope: "commandRouter",
+                error: error.message
+            })
         }
     }
 }

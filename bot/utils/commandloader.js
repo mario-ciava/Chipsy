@@ -35,8 +35,8 @@ module.exports = async(client, _config) => {
                 throw new Error(`Command '${file}' is missing the required 'config' export.`)
             }
 
-            if (typeof command.run !== "function") {
-                throw new Error(`Command '${file}' is missing the required 'run' function.`)
+            if (typeof command.execute !== "function") {
+                throw new Error(`Command '${file}' is missing the required 'execute' function.`)
             }
 
             client.commandRouter.register(command)

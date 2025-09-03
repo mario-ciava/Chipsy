@@ -19,19 +19,21 @@
                 <span class="log-console__toggle-label">Registra comandi</span>
             </div>
         </div>
-        <div class="log-console__body" ref="scrollContainer">
-            <transition-group name="log-entry" tag="ul" class="log-console__lines">
-                <li
-                    v-for="entry in formattedLogs"
-                    :key="entry.id"
-                    :class="['log-console__line', `log-console__line--${entry.level}`]"
-                >
-                    <span class="log-console__time">{{ entry.time }}</span>
-                    <span class="log-console__level">{{ entry.levelLabel }}</span>
-                    <span class="log-console__message">{{ entry.message }}</span>
-                </li>
-            </transition-group>
-            <p v-if="!logs.length" class="log-console__empty">Nessun evento registrato al momento.</p>
+        <div class="log-console__body">
+            <div class="log-console__scroll" ref="scrollContainer">
+                <transition-group name="log-entry" tag="ul" class="log-console__lines">
+                    <li
+                        v-for="entry in formattedLogs"
+                        :key="entry.id"
+                        :class="['log-console__line', `log-console__line--${entry.level}`]"
+                    >
+                        <span class="log-console__time">{{ entry.time }}</span>
+                        <span class="log-console__level">{{ entry.levelLabel }}</span>
+                        <span class="log-console__message">{{ entry.message }}</span>
+                    </li>
+                </transition-group>
+                <p v-if="!logs.length" class="log-console__empty">Nessun evento registrato al momento.</p>
+            </div>
         </div>
         <div class="log-console__footer">
             <div class="log-console__hint">
@@ -119,24 +121,33 @@ export default {
         rgba(15, 23, 42, 0.72);
     border: 1px solid rgba(148, 163, 184, 0.18);
     backdrop-filter: blur(6px);
+    min-height: 100%;
+    height: 100%;
 }
 
 
 .log-console__header {
-    align-items: center;
+    display: flex;
+    align-items: flex-start;
     gap: 16px;
     flex-wrap: wrap;
+}
+
+.log-console__header > div:first-child {
+    flex: 1 1 auto;
 }
 
 .log-console__toggle {
     display: inline-flex;
     align-items: center;
-    gap: 12px;
-    padding: 6px 12px;
+    gap: 10px;
+    padding: 6px 14px;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    background: rgba(15, 23, 42, 0.45);
-    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.15);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: rgba(15, 23, 42, 0.38);
+    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
+    margin-left: auto;
+    align-self: flex-start;
 }
 
 .log-console__toggle-label {
@@ -194,13 +205,24 @@ export default {
     background: rgba(2, 6, 23, 0.68);
     border-radius: 14px;
     border: 1px solid rgba(15, 23, 42, 0.85);
-    padding: 16px 12px;
-    max-height: 240px;
+    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
+.log-console__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
+    padding: 16px 12px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 0.88rem;
     color: #e2e8f0;
-    box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .log-console__lines {
@@ -267,8 +289,9 @@ export default {
 
 .log-console__empty {
     margin: 0;
-    color: rgba(148, 163, 184, 0.75);
+    color: rgba(148, 163, 184, 0.7);
     text-align: center;
+    padding: 12px 0;
 }
 
 .log-console__footer {
@@ -276,6 +299,7 @@ export default {
     flex-direction: column;
     gap: 12px;
     padding-top: 4px;
+    margin-top: auto;
 }
 
 .log-console__hint {

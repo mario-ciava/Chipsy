@@ -37,59 +37,64 @@ const normalizeInteractionPayload = (payload = {}) => {
     return next
 }
 
-const buildCommandContext = ({ commandName, message, interaction, client, args, logger }) => {
-    const author = message?.author ?? interaction?.user ?? null
-    const channel = message?.channel ?? interaction?.channel ?? null
-    const guild = channel?.guild ?? interaction?.guild ?? null
-    const responded = { value: false }
-
-    const resolveSendableChannel = () => {
-        if (channel && typeof channel.send === "function") return channel
-        throw new Error(`Command '${commandName}' could not resolve a sendable channel.`)
+/**
+ * Builds command context for slash commands only.
+ * Provides clean abstraction over Discord.js interaction API.
+ */
+const buildCommandContext = ({ commandName, message, interaction, client, logger }) => {
+    if (!interaction) {
+        throw new Error(`Command '${commandName}' requires an interaction (slash commands only).`)
     }
 
+    const author = interaction.user
+    const channel = interaction.channel
+    const guild = interaction.guild
+    const responded = { value: false }
+
+    /**
+     * Reply to the interaction.
+     * Handles deferred/replied states automatically.
+     */
     const reply = async(payload = {}) => {
-        if (interaction) {
-            let response
-            const normalizedPayload = normalizeInteractionPayload(payload)
-            if (interaction.deferred && !interaction.replied) {
-                response = await interaction.editReply(normalizedPayload)
-            } else if (!interaction.replied) {
-                response = await interaction.reply(normalizedPayload)
-            } else {
-                response = await interaction.followUp(normalizedPayload)
-            }
-            responded.value = true
-            return response
+        let response
+        const normalizedPayload = normalizeInteractionPayload(payload)
+
+        if (interaction.deferred && !interaction.replied) {
+            response = await interaction.editReply(normalizedPayload)
+        } else if (!interaction.replied) {
+            response = await interaction.reply(normalizedPayload)
+        } else {
+            response = await interaction.followUp(normalizedPayload)
         }
 
-        const targetChannel = resolveSendableChannel()
-        const response = await targetChannel.send(payload)
         responded.value = true
         return response
     }
 
+    /**
+     * Send a follow-up message.
+     */
     const followUp = async(payload = {}) => {
-        if (interaction) {
-            const normalizedPayload = normalizeInteractionPayload(payload)
-            responded.value = true
-            return interaction.followUp(normalizedPayload)
-        }
-
-        const targetChannel = resolveSendableChannel()
+        const normalizedPayload = normalizeInteractionPayload(payload)
         responded.value = true
-        return targetChannel.send(payload)
+        return interaction.followUp(normalizedPayload)
     }
 
+    /**
+     * Send a message to the channel (bypasses interaction).
+     * Use this for game messages that shouldn't be ephemeral.
+     */
     const send = async(payload = {}) => {
-        const targetChannel = resolveSendableChannel()
-        return targetChannel.send(payload)
+        if (!channel || typeof channel.send !== "function") {
+            throw new Error(`Command '${commandName}' could not resolve a sendable channel.`)
+        }
+        return channel.send(payload)
     }
 
+    /**
+     * Edit the initial reply.
+     */
     const editReply = async(payload = {}) => {
-        if (!interaction) {
-            throw new Error(`Command '${commandName}' attempted to edit a reply outside of an interaction context.`)
-        }
         responded.value = true
         return interaction.editReply(payload)
     }
@@ -114,35 +119,25 @@ const buildCommandContext = ({ commandName, message, interaction, client, args, 
             .setColor(Colors.Red)
             .setDescription(text.startsWith("❌") ? text : `❌ ${text}`)
 
+    /**
+     * Reply with an error message.
+     * Errors are ephemeral by default.
+     */
     const replyError = async(text, options = {}) => {
-        const { ephemeral, embed, payload } = options
+        const { ephemeral = true, embed, payload } = options
 
         if (payload) {
             const constructedPayload = { ...payload }
-            if (interaction) {
-                if (ephemeral === true) {
-                    constructedPayload.flags = MessageFlags.Ephemeral
-                } else if (ephemeral === false && constructedPayload.flags === MessageFlags.Ephemeral) {
-                    delete constructedPayload.flags
-                } else if (constructedPayload.ephemeral === true) {
-                    constructedPayload.flags = MessageFlags.Ephemeral
-                    delete constructedPayload.ephemeral
-                }
-            } else if (ephemeral !== undefined) {
-                constructedPayload.ephemeral = ephemeral
+            if (ephemeral) {
+                constructedPayload.flags = MessageFlags.Ephemeral
             }
             return safeInvoke(reply, constructedPayload)
         }
 
         const errorEmbed = embed ?? createErrorEmbed(text)
         const responsePayload = { embeds: [errorEmbed] }
-        if (interaction) {
+        if (ephemeral) {
             responsePayload.flags = MessageFlags.Ephemeral
-            if (ephemeral === false) {
-                delete responsePayload.flags
-            }
-        } else if (ephemeral !== undefined) {
-            responsePayload.ephemeral = ephemeral
         }
         return safeInvoke(reply, responsePayload)
     }
@@ -154,9 +149,8 @@ const buildCommandContext = ({ commandName, message, interaction, client, args, 
     return {
         commandName,
         interaction,
-        message,
+        message, // Message adapter with options object
         client,
-        args: Array.isArray(args) ? args : [],
         author,
         channel,
         guild,
