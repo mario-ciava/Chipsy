@@ -1,7 +1,9 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js")
 const createCommand = require("../utils/createCommand")
 
-const slashCommand = new SlashCommandBuilder().setName("ping").setDescription("Show the bot latency.")
+const slashCommand = new SlashCommandBuilder()
+    .setName("ping")
+    .setDescription("Show the bot latency.")
 
 module.exports = createCommand({
     name: "ping",
@@ -9,7 +11,7 @@ module.exports = createCommand({
     slashCommand,
     defer: false,
     errorMessage: "Unable to measure latency right now. Please try again later.",
-    execute: async(interaction, client) => {
+    execute: async (interaction, client) => {
         const author = interaction.user
         const color = Math.floor(Math.random() * 0xffffff)
         const avatarURL = author?.displayAvatarURL?.({ extension: "png" })
@@ -18,16 +20,14 @@ module.exports = createCommand({
         const baseTimestamp = interaction.createdTimestamp ?? Date.now()
         const wsPing = Math.round(client?.ws?.ping ?? interaction.client?.ws?.ping ?? 0)
 
-        const sentMessage = await interaction.reply({
-            embeds: [loadingEmbed],
-            withResponse: true
-        })
+        await interaction.reply({ embeds: [loadingEmbed] })
+        const sentMessage = await interaction.fetchReply()
 
         const latency = (sentMessage.createdTimestamp - baseTimestamp).toFixed()
         const responseEmbed = new EmbedBuilder()
             .setColor(color)
             .setFooter({
-                text: `${author?.tag ?? "Unknown user"} | Pong!! (${latency}ms) | Websocket: ${wsPing}ms`,
+                text: `🏓 Pong: ${latency}ms | WebSocket: ${wsPing}ms`,
                 iconURL: avatarURL
             })
 

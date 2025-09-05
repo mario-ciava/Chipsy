@@ -32,11 +32,12 @@ module.exports = class Game {
         if (!cards) return []
         var output = []
         for (let card of cards) {
-            card = await card.replace(/T/g, "10")
-                .replace(/S/g, "♠")
-                .replace(/C/g, "♣")
-                .replace(/H/g, "♥")
-                .replace(/D/g, "♦")
+            card = await card
+                .replace(/T/g, "10")
+                .replace(/S/g, "♠️")
+                .replace(/C/g, "♣️")
+                .replace(/H/g, "♥️")
+                .replace(/D/g, "♦️")
             output.push(card)
         }
         return output

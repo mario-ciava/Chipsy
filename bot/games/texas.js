@@ -1,7 +1,7 @@
 const Discord = require("discord.js")
 const Hand = require('pokersolver').Hand
 const features = require("./features.js")
-const { delay } = require("../utils/async")
+const { delay } = require("../utils/helpers")
 const Game = require("./game.js")
 const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")

@@ -2,7 +2,7 @@ const mysql = require("mysql2/promise")
 const logger = require("./utils/logger")
 const ensureSchema = require("./utils/mysqlcreator")
 const constants = require("../config/constants")
-const { sleep } = require("./utils/async")
+const { sleep } = require("./utils/helpers")
 
 /**
  * Crea il database se non esiste.

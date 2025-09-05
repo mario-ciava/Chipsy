@@ -115,6 +115,15 @@ const canAfford = (player, amount, { includeStack = true, includeBankroll = true
     return true
 }
 
+const canAffordStack = (player, amount) => {
+    if (!player) return false
+    const numericAmount = toInteger(amount)
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
+    const sanitizedAmount = clampSafeInteger(numericAmount)
+    const stack = readStack(player)
+    return stack >= sanitizedAmount
+}
+
 const withdraw = (player, amount) => {
     if (!player) return false
     if (!player.data) player.data = {}
@@ -142,14 +151,50 @@ const deposit = (player, amount) => {
     return true
 }
 
+const withdrawStackOnly = (player, amount) => {
+    if (!player) return false
+    const numericAmount = toInteger(amount)
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
+    const sanitizedAmount = clampSafeInteger(numericAmount)
+    const currentStack = readStack(player)
+    if (currentStack < sanitizedAmount) return false
+    player.stack = clampSafeInteger(currentStack - sanitizedAmount)
+    return true
+}
+
+const depositStackOnly = (player, amount) => {
+    if (!player) return false
+    const numericAmount = toInteger(amount)
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
+    const sanitizedAmount = clampSafeInteger(numericAmount)
+    const currentStack = readStack(player)
+    player.stack = clampSafeInteger(currentStack + sanitizedAmount)
+    return true
+}
+
+const syncStackToBankroll = (player) => {
+    if (!player) return false
+    if (!player.data) player.data = {}
+    const currentStack = readStack(player)
+    const currentBankroll = readBankroll(player)
+    // Add stack back to bankroll (returning table stack to wallet)
+    player.data.money = clampSafeInteger(currentBankroll + currentStack)
+    player.stack = 0 // Reset stack after returning to bankroll
+    return true
+}
+
 module.exports = {
     DEFAULT_TESTER_BANKROLL,
     resolveTesterBankroll,
     ensureTesterProvision,
     normalizeBuyIn,
     canAfford,
+    canAffordStack,
     withdraw,
     deposit,
+    withdrawStackOnly,
+    depositStackOnly,
+    syncStackToBankroll,
     syncPersistentBalance,
     getStack: readStack,
     getBankroll: readBankroll

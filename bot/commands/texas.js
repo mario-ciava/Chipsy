@@ -5,7 +5,7 @@ const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const createCommand = require("../utils/createCommand")
-const { delay } = require("../utils/async")
+const { delay } = require("../utils/helpers")
 const { registerGame } = require("../utils/gameRegistry")
 
 /**

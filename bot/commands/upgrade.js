@@ -56,6 +56,26 @@ const runUpgrade = async(msg) => {
             throw error
         })
 
+        /*
+        current = 4
+        max = 10
+        function progressBar(current, max) {
+            const ratio = Math.min(current / max, 1)
+            const filled = Math.round(ratio * 10)
+            const empty = 10 - filled
+            return `🟩`.repeat(filled) + `⬜`.repeat(empty) + ` ${Math.round(ratio * 100)}%`
+        }
+
+        // Embed d’esempio
+        const emb = new Discord.EmbedBuilder()
+        .setTitle("Upgrade Progress")
+        .addFields({
+            name: "Reward amount upgrade",
+            value: `${progressBar(current, max)}\nLevel ${current}/${max}`,
+        })
+        .setColor(0x00ff99)
+        */
+
         for (let option of options) {
             await panelMessage.react(option).catch((error) => {
                 logger.error("Failed to add reaction to upgrade panel", {
