@@ -32,6 +32,7 @@ const envSchema = z.object({
     DISCORD_CLIENT_SECRET: z.string().min(1, "DISCORD_CLIENT_SECRET is required."),
     DISCORD_BOT_TOKEN: z.string().min(1, "DISCORD_BOT_TOKEN is required."),
     DISCORD_OWNER_ID: z.string().min(1, "DISCORD_OWNER_ID is required."),
+    DISCORD_TEST_GUILD_ID: z.string().optional(),
     COMMAND_PREFIX: z.string().min(1, "COMMAND_PREFIX is required."),
     MYSQL_HOST: z.string().min(1, "MYSQL_HOST is required.").default("localhost"),
     MYSQL_PORT: z.coerce.number().int().positive("MYSQL_PORT must be a positive integer.").default(3306),
@@ -61,7 +62,8 @@ module.exports = {
         clientId: env.DISCORD_CLIENT_ID,
         clientSecret: env.DISCORD_CLIENT_SECRET,
         botToken: env.DISCORD_BOT_TOKEN,
-        ownerId: env.DISCORD_OWNER_ID
+        ownerId: env.DISCORD_OWNER_ID,
+        testGuildId: env.DISCORD_TEST_GUILD_ID
     },
     bot: {
         prefix: env.COMMAND_PREFIX,
