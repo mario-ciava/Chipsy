@@ -6,6 +6,10 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const logger = require("../utils/logger")
+const {
+    renderCardTable,
+    createBlackjackTableState
+} = require("../rendering/cardTableRenderer")
 
 // Game timing constants
 const BETS_TIMEOUT_MS = 60000 // 60 seconds for bet placement
@@ -19,6 +23,7 @@ module.exports = class BlackJack extends Game {
         this.cards = [...cards, ...cards, ...cards],
         this.betsCollector = null,
         this.dealer = null
+        this.dealerStatusMessage = null
     }
 
     createPlayerSession(user, stackAmount) {
@@ -67,9 +72,9 @@ module.exports = class BlackJack extends Game {
             return null
         }
         const clientAvatar = this.client?.user?.displayAvatarURL({ extension: "png" }) ?? null
-        const sendEmbed = async(embed, components = []) => {
+        const sendEmbed = async(embed, components = [], additionalPayload = {}) => {
             try {
-                const payload = { embeds: [embed] }
+                const payload = { embeds: [embed], ...additionalPayload }
                 if (components.length > 0) {
                     payload.components = components
                 }
@@ -194,90 +199,128 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "showDealer": {
-                this.dealer.display = await this.CardReplacer(this.dealer.cards)
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Blue)
-                    .setThumbnail(clientAvatar)
-                    .setTitle("Dealer's cards")
-                    .setDescription(
-                        `Dealer will stand on 17 or higher\n\n**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : ""} ${this.dealer.BJ ? "[Blackjack]" : ""}`
-                    )
-                await sendEmbed(embed)
+                    .setTitle("Dealer Status")
+                    .setDescription(null)
+
+                const payload = {}
+                const activityLines = [
+                    "Face-down card in play.",
+                    "Awaiting dealer action."
+                ]
+
+                const snapshot = await this.captureTableRender({
+                    title: `Dealer's Turn • Round #${this.hands}`,
+                    filename: `blackjack_round_${this.hands}_dealer_${Date.now()}.png`,
+                    description: `Dealer reveal snapshot for round ${this.hands}`,
+                    hideDealerHoleCard: true,
+                    maskDealerValue: true,
+                    forceResult: null
+                })
+                if (snapshot) {
+                    embed.setImage(`attachment://${snapshot.filename}`)
+                    payload.files = [snapshot.attachment]
+                }
+
+                if (activityLines.length > 0) {
+                    embed.setFields({ name: "Activity", value: activityLines.join("\n") })
+                } else {
+                    embed.setFields([])
+                }
+                embed.setFooter({ text: "Dealer will stand on 17 or higher." })
+                const message = await sendEmbed(embed, [], payload)
+                this.dealerStatusMessage = message
+                return message
             break }
             case "showStartingCards": {
-                for (let player of this.inGamePlayers)
-                    player.hands[0].display = await this.CardReplacer(player.hands[0].cards)
-                this.dealer.display = await this.CardReplacer(this.dealer.cards)
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Blue)
                     .setTitle(`Starting cards | Round #${this.hands}`)
-                    .setDescription(
-                        `${this.inGamePlayers.map((pl) => {
-                            return `${pl} - ${pl.hands[0].display.join(" ")} - Bet ${setSeparator(pl.bets.initial)}$`
-                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display[0]} (???)`
-                    )
-                await sendEmbed(embed)
+                    .setDescription([
+                        this.inGamePlayers.map((pl) => {
+                            return `${pl} — Bet ${setSeparator(pl.bets.initial)}$`;
+                        }).join("\n") || "-",
+                        "**Dealer:** Starting hand prepared."
+                    ].filter(Boolean).join("\n\n"))
+                const payload = {}
+                const snapshot = await this.captureTableRender({
+                    title: `Starting Cards • Round #${this.hands}`,
+                    filename: `blackjack_round_${this.hands}_starting_${Date.now()}.png`,
+                    description: `Starting cards snapshot for round ${this.hands}`,
+                    hideDealerHoleCard: true,
+                    maskDealerValue: true,
+                    forceResult: null
+                })
+                if (snapshot) {
+                    embed.setImage(`attachment://${snapshot.filename}`)
+                    payload.files = [snapshot.attachment]
+                }
+                await sendEmbed(embed, [], payload)
             break }
             case "showFinalResults": {
-                for (let player of this.inGamePlayers) {
-                    for (let hand of player.hands) {
-                        hand.display = await this.CardReplacer(hand.cards)
-                    }
-                }
-                this.dealer.display = await this.CardReplacer(this.dealer.cards)
+                const snapshot = await this.captureTableRender({
+                    title: `Final Results • Round #${this.hands}`,
+                    filename: `blackjack_round_${this.hands}_${Date.now()}.png`,
+                    description: `Blackjack table snapshot for round ${this.hands}`,
+                    forceResult: null
+                })
+
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Blue)
-                    .setThumbnail(this.client.user.displayAvatarURL({ extension: "png" }))
-                    .setTitle(`Final results | Round #${this.hands}`)
-                    .setDescription(
-                        `${this.inGamePlayers.map((pl) => {
-                            return pl.hands.map((hand) => {
-                                // Calculate winning for display
-                                let displayWinning = 0
-                                let outcome = ""
+                    .setTitle("Dealer Status")
+                    .setDescription(null)
+                    .setFields([])
+                    .setFooter({ text: "Dealer will stand on 17 or higher." })
 
-                                if (hand.busted) {
-                                    outcome = "[Busted]"
-                                } else if (hand.push) {
-                                    outcome = "[Push]"
-                                    // displayWinning stays 0 for push (no profit/loss)
-                                } else {
-                                    // Calculate win factor for this hand
-                                    let wf = 1
-                                    if (this.dealer.busted) {
-                                        wf = hand.BJ ? 2.5 : 2
-                                    } else if (hand.value > this.dealer.value) {
-                                        wf = hand.BJ ? 2.5 : 2
-                                    } else if (hand.value < this.dealer.value) {
-                                        outcome = "[Lost]"
-                                    }
+                const payload = {}
+                if (snapshot) {
+                    embed.setImage(`attachment://${snapshot.filename}`)
+                    payload.files = [snapshot.attachment]
+                }
 
-                                    if (wf > 1) {
-                                        displayWinning = this.GetNetValue(hand.bet * wf, pl)
-                                        outcome = hand.BJ ? "[Blackjack!]" : "[Won]"
-                                    }
-                                }
+                const editPayload = {
+                    embeds: [embed],
+                    components: []
+                }
+                if (payload.files) {
+                    editPayload.files = payload.files
+                    editPayload.attachments = []
+                }
 
-                                const winDisplay = displayWinning > 0 ? `+${setSeparator(displayWinning)}$` : (hand.push ? "±0$" : "0$")
-                                return `${pl} **(hand #${pl.hands.indexOf(hand) + 1}):** ${hand.display.join(" ")} - Value: ${hand.value} ${outcome} - Net: ${winDisplay}`
-                            }).join("\n") || "-"
-                        }).join("\n") || "-"}\n\n**Dealer:** ${this.dealer.display.join(" ")} - Value: ${this.dealer.value} ${this.dealer.busted ? "[Busted]" : this.dealer.BJ ? "[BJ]" : ""}\n\n${this.inGamePlayers.map(pl => `${pl}: +${setSeparator(pl.status.won.expEarned)}XP`).join(" | ")}`
-                    )
-                await sendEmbed(embed)
+                if (this.dealerStatusMessage && typeof this.dealerStatusMessage.edit === "function") {
+                    try {
+                        await this.dealerStatusMessage.edit(editPayload)
+                    } catch (error) {
+                        logger.error("Failed to update dealer status with final results", {
+                            scope: "blackjackGame",
+                            error: error.message
+                        })
+                        this.dealerStatusMessage = await sendEmbed(embed, [], payload)
+                    }
+                } else {
+                    this.dealerStatusMessage = await sendEmbed(embed, [], payload)
+                }
             break }
             case "displayInfo": {
-                this.dealer.display = await this.CardReplacer(this.dealer.cards)
+                const handSummary = player.hands.map((hand, idx) => {
+                    const isCurrent = idx === player.status.currentHand;
+                    const statusParts = [Number.isFinite(hand.value) ? `${hand.value}` : "??"];
+                    if (hand.busted) statusParts.push("Busted");
+                    if (hand.BJ) statusParts.push("Blackjack");
+                    if (hand.push) statusParts.push("Push");
+                    return `${isCurrent && !info ? "▶ " : ""}Hand #${idx + 1} • ${statusParts.join(" • ")}`;
+                }).join("\n") || "No cards drawn yet.";
+
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Gold)
-                    .setThumbnail(player.displayAvatarURL({ extension: "png" }))
-                    .setTitle(`${player.tag}'s cards`)
-                    .setDescription(
-                        `${player.hands.map((hand) => {
-                            return `**Hand #${player.hands.indexOf(hand) + 1} ${player.hands.indexOf(hand) == player.status.currentHand ? "(current)" : ""}:** ${hand.display.join(" ")} | Value: ${hand.value} ${hand.busted ? "[Busted]" : hand.BJ ? "[BJ]" : ""}`
-                        }).join("\n") || "-"}${info ? "\n\n*Standing automatically*" : ""}`
-                    )
+                    .setTitle(`${player.tag} — Hand status`)
+                    .setDescription([
+                        handSummary,
+                        info ? "*Standing automatically*" : null
+                    ].filter(Boolean).join("\n\n"))
                     .setFooter({
-                        text: `Dealer's cards: ${this.dealer.display[0]} (???) | Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | 30s left`,
+                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | 30s left`,
                         iconURL: clientAvatar
                     })
 
@@ -306,7 +349,49 @@ module.exports = class BlackJack extends Game {
                     components.push(row)
                 }
 
-                await sendEmbed(embed, components)
+                const payload = {}
+                const snapshot = await this.captureTableRender({
+                    title: `${player.tag} • Round #${this.hands}`,
+                    filename: `blackjack_round_${this.hands}_info_${player.id}_${Date.now()}.png`,
+                    description: `Snapshot for ${player.tag} during round ${this.hands}`,
+                    focusPlayerId: player.id,
+                    hideDealerHoleCard: true,
+                    maskDealerValue: true,
+                    forceResult: null
+                })
+                if (snapshot) {
+                    embed.setImage(`attachment://${snapshot.filename}`)
+                    payload.files = [snapshot.attachment]
+                }
+
+                const existingMessage = player.status?.infoMessage
+                if (existingMessage && typeof existingMessage.edit === "function") {
+                    const editPayload = {
+                        embeds: [embed],
+                        components
+                    }
+                    if (payload.files) {
+                        editPayload.files = payload.files
+                        editPayload.attachments = []
+                    }
+                    try {
+                        await existingMessage.edit(editPayload)
+                    } catch (error) {
+                        logger.error("Failed to update hand status message", {
+                            scope: "blackjackGame",
+                            playerId: player.id,
+                            error: error.message
+                        })
+                        player.status.infoMessage = null
+                    }
+                }
+
+                if (!player.status.infoMessage) {
+                    const message = await sendEmbed(embed, components, payload)
+                    if (message) {
+                        player.status.infoMessage = message
+                    }
+                }
             break }
             case "noRemaining": {
                 const embed = new Discord.EmbedBuilder()
@@ -318,7 +403,7 @@ module.exports = class BlackJack extends Game {
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Red)
                     .setTitle("Busted!")
-                    .setDescription(`Hand #${player.hands.indexOf(info) + 1} - ${info.display.join(" ")} - Value: ${info.value} - Busted`)
+                    .setDescription(`Hand #${player.hands.indexOf(info) + 1} • ${Number.isFinite(info.value) ? info.value : "??"} • Busted`)
                     .setFooter({
                         text: `${player.tag} | Total bet: ${setSeparator(player.bets.total)}$`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -388,6 +473,154 @@ module.exports = class BlackJack extends Game {
         }
     }
 
+    async captureTableRender(options = {}) {
+        const {
+            dealer = this.dealer,
+            players = this.inGamePlayers,
+            title = null,
+            focusPlayerId = null,
+            result = null,
+            appearance,
+            filename,
+            description,
+            playerName,
+            hideDealerHoleCard = false,
+            maskDealerValue,
+            forceResult
+        } = options
+
+        if (!dealer || !Array.isArray(dealer.cards) || dealer.cards.length < 1) {
+            return null
+        }
+
+        const preparedPlayers = []
+        for (const player of players ?? []) {
+            if (!player || !Array.isArray(player.hands)) continue
+            const baseHands = player.hands
+                .filter((hand) => Array.isArray(hand?.cards) && hand.cards.length > 0)
+                .map((hand) => ({
+                    ...hand,
+                    cards: [...hand.cards]
+                }))
+            const totalHandsForXp = baseHands.length || 1
+            const totalXpEarned = Number.isFinite(player.status?.won?.expEarned) ? player.status.won.expEarned : 0
+            const distributedXp = totalXpEarned > 0 ? Math.round(totalXpEarned / totalHandsForXp) : 0
+            const validHands = baseHands.map((hand) => ({
+                ...hand,
+                xp: Number.isFinite(hand.xp) ? hand.xp : (distributedXp > 0 ? distributedXp : null)
+            }))
+            if (validHands.length === 0) continue
+            preparedPlayers.push({
+                id: player.id,
+                tag: player.tag,
+                username: player.username,
+                displayName: player.displayName,
+                name: player.name,
+                user: player.user,
+                hands: validHands
+            })
+        }
+
+        if (preparedPlayers.length === 0) {
+            return null
+        }
+
+        const dealerCardsCopy = Array.isArray(dealer.cards) ? [...dealer.cards] : []
+        const computeVisibleValue = cards => {
+            let total = 0
+            let aces = 0
+            for (const card of cards) {
+                const rank = card?.[0]
+                if (!rank) continue
+                if (rank === "A") {
+                    total += 11
+                    aces++
+                } else if (["K", "Q", "J", "T"].includes(rank)) {
+                    total += 10
+                } else {
+                    const parsed = parseInt(rank, 10)
+                    total += Number.isFinite(parsed) ? parsed : 0
+                }
+            }
+            while (total > 21 && aces > 0) {
+                total -= 10
+                aces--
+            }
+            return total
+        }
+
+        const concealDealerInfo = typeof maskDealerValue === "boolean" ? maskDealerValue : hideDealerHoleCard
+        const visibleCards = hideDealerHoleCard
+            ? dealerCardsCopy.filter((_, idx) => idx !== 1)
+            : dealerCardsCopy
+
+        const dealerState = {
+            ...dealer,
+            cards: dealerCardsCopy,
+            value: concealDealerInfo
+                ? computeVisibleValue(visibleCards)
+                : (dealer.value ?? dealer.total ?? dealer.score ?? 0),
+            blackjack: concealDealerInfo ? false : Boolean(dealer.blackjack || dealer.hasBlackjack || dealer.BJ),
+            busted: concealDealerInfo ? false : Boolean(dealer.busted || dealer.isBusted)
+        }
+
+        const resolvedPlayerName =
+            playerName
+            || preparedPlayers[0]?.displayName
+            || preparedPlayers[0]?.username
+            || preparedPlayers[0]?.tag
+            || this.host?.tag
+            || this.client?.user?.username
+            || "Player"
+
+        try {
+            const state = createBlackjackTableState({
+                dealer: dealerState,
+                players: preparedPlayers,
+                round: this.hands,
+                id: this.id
+            }, {
+                title,
+                focusPlayerId,
+                result,
+                appearance: appearance ?? {},
+                round: this.hands,
+                tableId: this.id,
+                playerName: resolvedPlayerName,
+                maskDealerHoleCard: hideDealerHoleCard
+            })
+
+            state.metadata = {
+                ...(state.metadata ?? {}),
+                maskDealerHoleCard: hideDealerHoleCard
+            }
+
+            if (forceResult !== undefined) {
+                state.result = forceResult
+            }
+
+            const buffer = await renderCardTable({ ...state, outputFormat: "png" })
+            const resolvedFilename = filename ?? `blackjack_table_${this.hands}_${Date.now()}.png`
+
+            return {
+                attachment: new Discord.AttachmentBuilder(buffer, {
+                    name: resolvedFilename,
+                    description: description ?? `Blackjack table snapshot for round ${this.hands}`
+                }),
+                filename: resolvedFilename
+            }
+        } catch (error) {
+            logger.error("Failed to render blackjack table snapshot", {
+                scope: "blackjackGame",
+                round: this.hands,
+                tableId: this.id,
+                error: error.message,
+                stack: error.stack
+            })
+            return null
+        }
+    }
+
     async NextHand() {
         if (!this.playing) return
         
@@ -420,7 +653,8 @@ module.exports = class BlackJack extends Game {
                     grossValue: 0,
                     netValue: 0,
                     expEarned: 0
-                }
+                },
+                infoMessage: null
             }
             player.bets = {
                 initial: 0,
@@ -435,6 +669,8 @@ module.exports = class BlackJack extends Game {
             pair: false,
             display: []
         }
+
+        this.dealerStatusMessage = null
 
         this.hands++
 
@@ -468,7 +704,9 @@ module.exports = class BlackJack extends Game {
                         cards: await this.PickRandom(this.cards, 2),
                         bet,
                         settled: false,
-                        fromSplitAce: false
+                        fromSplitAce: false,
+                        result: null,
+                        payout: 0
                     })
 
                     if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
@@ -659,7 +897,9 @@ module.exports = class BlackJack extends Game {
                         cards: await this.PickRandom(this.cards, 2),
                         bet,
                         settled: false,
-                        fromSplitAce: false
+                        fromSplitAce: false,
+                        result: null,
+                        payout: 0
                     })
 
                     if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
@@ -789,7 +1029,9 @@ module.exports = class BlackJack extends Game {
                     push: false,
                     bet: player.bets.initial,
                     display: [],
-                    fromSplitAce: false
+                    fromSplitAce: false,
+                    result: null,
+                    payout: 0
                 })
 
                 if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
@@ -856,7 +1098,6 @@ module.exports = class BlackJack extends Game {
             this.Action("stand", currentPlayer, currentPlayer.status.currentHand)
         }, 30 * 1000)
 
-        await this.UpdateDisplay(currentPlayer.hands)
         const currentHand = currentPlayer.hands[currentPlayer.status.currentHand]
         // Auto-stand on 21 or blackjack
         if (currentHand.BJ || currentHand.value === 21 || auto) {
@@ -870,13 +1111,6 @@ module.exports = class BlackJack extends Game {
         }
         await sleep(2000)
         this.SendMessage("displayInfo", currentPlayer)
-    }
-
-    async UpdateDisplay(hands) {
-        for (let hand of hands) {
-            hand.display = await this.CardReplacer(hand.cards)
-        }
-        return hands
     }
 
     async UpdateBetsMessage(message) {
@@ -1107,49 +1341,79 @@ module.exports = class BlackJack extends Game {
     async UpdateDealerMessage(message, action, newCard = null) {
         if (!message || typeof message.edit !== "function") return
 
-        this.dealer.display = await this.CardReplacer(this.dealer.cards)
-        const clientAvatar = this.client?.user?.displayAvatarURL({ extension: "png" }) ?? null
+        this.dealerStatusMessage = message
 
         let actionText = ""
         let color = Discord.Colors.Blue
-        let description = ""
+        let activityLines = []
 
         switch (action) {
             case "hit":
                 actionText = "Dealer hits!"
                 color = Discord.Colors.Purple
-                if (newCard) {
-                    const newCardDisplay = await this.CardReplacer([newCard])
-                    // Show all previous cards + highlight the new one
-                    const allCardsExceptLast = this.dealer.display.slice(0, -1)
-                    description = `**Previous cards:** ${allCardsExceptLast.join(" ") || "—"}\n**➜ Draws:** ${newCardDisplay[0]} ✨\n\n**Total value:** ${this.dealer.value}${this.dealer.busted ? " 💥 **[BUSTED]**" : ""}`
-                } else {
-                    description = `**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value}`
-                }
+                activityLines = [
+                    "Dealer draws a new card.",
+                    this.dealer.busted ? "Dealer busted!" : `Total: ${this.dealer.value}`
+                ].filter(Boolean)
                 break
             case "stand":
                 actionText = "Dealer stands!"
                 color = Discord.Colors.Green
-                description = `**Cards:** ${this.dealer.display.join(" ")}\n**Final value:** ${this.dealer.value}${this.dealer.BJ ? " 🎯 **[BLACKJACK]**" : ""}`
+                activityLines = [
+                    "Dealer stands.",
+                    `Final total: ${this.dealer.value}${this.dealer.BJ ? " • Blackjack" : ""}`
+                ]
                 break
             case "busted":
                 actionText = "Dealer busted!"
                 color = Discord.Colors.Red
-                description = `**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value}\n\n💥 **DEALER BUSTED! Players win!**`
+                activityLines = [
+                    "Dealer exceeded 21.",
+                    `Total: ${this.dealer.value}`,
+                    "Proceeding to payouts."
+                ]
                 break
             default:
                 actionText = "Dealer's turn"
-                description = `**Cards:** ${this.dealer.display.join(" ")}\n**Value:** ${this.dealer.value}`
+                activityLines = [
+                    "Dealer is evaluating next move.",
+                    `Current total: ${this.dealer.value}`
+                ]
         }
 
         const embed = new Discord.EmbedBuilder()
             .setColor(color)
-            .setThumbnail(clientAvatar)
-            .setTitle(`Dealer's cards | ${actionText}`)
-            .setDescription(description)
+            .setTitle("Dealer Status")
+            .setDescription(null)
+
+        const snapshot = await this.captureTableRender({
+            title: `Dealer's Turn • Round #${this.hands}`,
+            filename: `blackjack_round_${this.hands}_dealer_update_${Date.now()}.png`,
+            description: `Dealer action snapshot for round ${this.hands}`,
+            forceResult: null,
+            hideDealerHoleCard: false,
+            maskDealerValue: false
+        })
+
+        const editPayload = { embeds: [embed] }
+        if (snapshot) {
+            embed.setImage(`attachment://${snapshot.filename}`)
+            editPayload.files = [snapshot.attachment]
+            editPayload.attachments = []
+        } else {
+            embed.setImage(null)
+            editPayload.attachments = []
+        }
+
+        if (activityLines.length > 0) {
+            embed.setFields({ name: "Activity", value: activityLines.join("\n") })
+        } else {
+            embed.setFields([])
+        }
+        embed.setFooter({ text: "Dealer will stand on 17 or higher." })
 
         try {
-            await message.edit({ embeds: [embed] })
+            await message.edit(editPayload)
         } catch (error) {
             logger.error("Failed to update dealer message", {
                 scope: "blackjackGame",
@@ -1298,7 +1562,9 @@ module.exports = class BlackJack extends Game {
                     push: false,
                     bet: player.bets.initial,
                     display: [],
-                    fromSplitAce: splitAce
+                    fromSplitAce: splitAce,
+                    result: null,
+                    payout: 0
                 })
                 currentHand.cards = await currentHand.cards.concat(await this.PickRandom(this.cards, 1))
                 await this.ComputeHandsValue(player)
@@ -1335,7 +1601,6 @@ module.exports = class BlackJack extends Game {
 
         await sleep(2000)
         await this.ComputeHandsValue(player)
-        await this.UpdateDisplay(player.hands)
 
         if (player.hands[hand].busted) 
             this.SendMessage("busted", player, player.hands[hand])
@@ -1412,27 +1677,38 @@ module.exports = class BlackJack extends Game {
             for (let hand of player.hands) {
                 let wf = 1
                 let handWon = false
-                if (hand.busted) continue
+                hand.result = null
+                hand.payout = 0
+                if (hand.busted) {
+                    hand.result = "lose"
+                    hand.payout = -hand.bet
+                    continue
+                }
 
                 // Determine outcome and win factor
                 if (this.dealer.busted) {
                     // Dealer busted - player wins
                     wf = hand.BJ ? 2.5 : 2
                     handWon = true
+                    hand.result = "win"
                 } else {
                     // Dealer not busted
                     if (hand.value < this.dealer.value) {
                         // Player loses
+                        hand.result = "lose"
+                        hand.payout = -hand.bet
                         continue
                     } else if (hand.value == this.dealer.value) {
                         // Push - return bet only (not counted as win)
                         hand.push = true
                         wf = 1
                         handWon = false
+                        hand.result = "push"
                     } else {
                         // Player wins (hand.value > dealer.value)
                         wf = hand.BJ ? 2.5 : 2
                         handWon = true
+                        hand.result = "win"
                     }
                 }
 
@@ -1441,6 +1717,7 @@ module.exports = class BlackJack extends Game {
                     // Push: return the bet (no net gain/loss)
                     bankrollManager.depositStackOnly(player, hand.bet)
                     // grossValue and netValue stay 0 for push (player gets money back but no profit)
+                    hand.payout = 0
                 } else {
                     // Win: apply win factor and withholding tax
                     const grossWinning = hand.bet * wf
@@ -1448,6 +1725,7 @@ module.exports = class BlackJack extends Game {
                     bankrollManager.depositStackOnly(player, netWinning)
                     player.status.won.grossValue += grossWinning
                     player.status.won.netValue += netWinning
+                    hand.payout = netWinning - hand.bet
                 }
 
                 // Count individual hand wins

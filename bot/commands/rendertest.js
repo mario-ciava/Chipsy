@@ -131,9 +131,13 @@ module.exports = createCommand({
 
             const testData = scenarios[scenario];
 
-            const buffer = await renderBlackjackTable(testData);
+            const buffer = await renderBlackjackTable({ ...testData, outputFormat: "png" });
 
-            const attachment = new AttachmentBuilder(buffer, { name: "blackjack_table.png" });
+            const attachment = new AttachmentBuilder(buffer, {
+                name: "blackjack_table.png",
+                contentType: "image/png",
+                description: "Blackjack table rendering"
+            });
 
             const embed = new EmbedBuilder()
                 .setTitle(`Test Scenario: ${scenario}`)

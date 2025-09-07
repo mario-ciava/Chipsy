@@ -4,7 +4,7 @@ const logger = require("./logger");
  * Card Format Converter
  *
  * Converts between game format (2S, KH, TD) and image format (2_of_spades, king_of_hearts)
- * Used to bridge blackjackGame.js and renderBlackjackTable.js
+ * Used to bridge blackjackGame.js and the card table renderer
  */
 
 // Mapping tables
