@@ -1,440 +1,504 @@
-const fs = require("fs/promises");
 const path = require("path");
-const logger = require("../utils/logger");
-const { gameToImage, isValidGameCard } = require("../utils/cardConverter");
-const {
-    SceneNodeType,
-    createScene,
-    createNode,
-    addNode
-} = require("./sceneGraph");
-let sharp;
+const fs = require("fs/promises");
+const { createCanvas, loadImage, registerFont } = require("canvas");
 
+let sharp;
 try {
     sharp = require("sharp");
 } catch (error) {
-    logger.debug("Sharp not installed - SVG output only", {
+    sharp = null;
+    logger.debug("sharp not available - falling back to raw canvas output", {
         scope: "cardTableRenderer",
-        message: error.message
+        error: error.message
     });
+}
+const logger = require("../utils/logger");
+const { gameToImage, isValidGameCard } = require("../utils/cardConverter");
+
+const PROJECT_ROOT = path.join(__dirname, "../..");
+
+// ============================================================================
+// CONFIGURATION (tune these values to calibrate the render)
+// ============================================================================
+const DEBUG_PNG_PATH = path.join(PROJECT_ROOT, "render-debug.png");
+const DEBUG_SVG_PATH = path.join(PROJECT_ROOT, "render-debug.svg");
+
+const CONFIG = Object.freeze({
+    canvasWidth: 1280,
+    canvasHeight: 960,
+
+    backgroundTop: "#0B3B24",
+    backgroundBottom: "#092A1A",
+    dividerColor: "#C9A24A",
+
+    cardWidth: 138,
+    cardHeight: 198,
+    cardSpacing: 20,
+    cardsPath: path.join(PROJECT_ROOT, "assets/cards"),
+    cardBackColor: "#1F5F3C",
+
+    fontFamily: "SF Pro Display",
+    fontPaths: [
+        process.env.RENDER_FONT_PATH,
+        path.join(PROJECT_ROOT, "assets/fonts/SF-Pro-Display-Regular.otf")
+    ],
+
+    titleSize: 48,
+    sectionTitleSize: 36,
+    valueSize: 32,
+    infoSize: 26,
+
+    textPrimary: "#FFFFFF",
+    textSecondary: "#E0E0E0",
+    winColor: "#57C26B",
+    loseColor: "#EB5757",
+    pushColor: "#F2C94C",
+
+    shadow: {
+        offsetX: 4,
+        offsetY: 6,
+        blur: 18,
+        color: "rgba(0,0,0,0.35)"
+    },
+
+    outputScale: 1.5,
+
+    embedTargetWidth: 768,
+    embedCompressionLevel: 9,
+
+    layout: {
+        topMargin: 60,
+        titleSpacing: 26,
+        dealerSectionSpacing: 24,
+        dividerOffset: 28,
+        playersTopSpacing: 40,
+        sectionTitleSpacing: 18,
+        cardsSpacing: 22,
+        valueSpacing: 18,
+        infoSpacing: 12,
+        sectionBottomPadding: 28
+    }
+});
+
+// Register custom fonts if they exist on disk.
+for (const fontPath of CONFIG.fontPaths) {
+    if (!fontPath) continue;
+    try {
+        registerFont(fontPath, { family: CONFIG.fontFamily });
+        break;
+    } catch (error) {
+        logger.debug("Failed to register render font", {
+            scope: "cardTableRenderer",
+            fontPath,
+            error: error.message
+        });
+    }
 }
 
 // ============================================================================
-// CONFIGURATION
+// CARD ASSET CACHE
 // ============================================================================
+const cardCache = new Map();
 
-const CONFIG = {
-    scale: 0.75,
-    cardWidth: 138,
-    cardHeight: 198,
-    cardSpacing: 50,
-    fontSize: 34,
-    titleFontSize: 54,
-    subtitleFontSize: 40,
-    fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
-    fontBold: "700",
-    tableFeltDark: "#0A2E1F",
-    tableFeltLight: "#0F4A2E",
-    tableFeltAccent: "#1A5C3A",
-    dividerColor: "#D4AF37",
-    textPrimary: "#FFFFFF",
-    textSecondary: "#E0E0E0",
-    textShadow: "rgba(0, 0, 0, 0.85)",
-    winColor: "#4CAF50",
-    loseColor: "#F44336",
-    pushColor: "#FFC107",
-    chipColor: "#DC143C",
-    borderColor: "#2E7D5A",
-    cardsPath: path.join(__dirname, "../../assets/cards")
-};
-
-const CARD_BASE_WIDTH = CONFIG.cardWidth;
-const CARD_BASE_HEIGHT = CONFIG.cardHeight;
-const CARD_WIDTH = CARD_BASE_WIDTH * CONFIG.scale;
-const CARD_HEIGHT = CARD_BASE_HEIGHT * CONFIG.scale;
-const CARD_SPACING = CONFIG.cardSpacing * CONFIG.scale;
-const FONT_SIZE = CONFIG.fontSize * CONFIG.scale;
-const NAME_FONT_SIZE = FONT_SIZE * 1.12;
-const VALUE_FONT_SIZE = FONT_SIZE * 0.98;
-const TITLE_FONT_SIZE = CONFIG.titleFontSize * CONFIG.scale;
-const CARD_OVERLAP = CARD_SPACING / 2.2;
-
-const LAYOUT = Object.freeze({
-    canvasWidth: 1024,
-    minWidth: 880 * CONFIG.scale,
-    maxPlayerColumns: 3,
-    sidePadding: CARD_SPACING * 1.2,
-    columnGap: CARD_SPACING * 1.5,
-    rowGap: CARD_SPACING * 1.5,
-    handHorizontalPadding: CARD_SPACING * 0.9,
-    handVerticalPadding: CARD_SPACING * 0.6,
-    handHeaderHeight: NAME_FONT_SIZE * 2.2,
-    handFooterHeight: FONT_SIZE * 1.6,
-    dividerGap: CARD_SPACING * 1.8,
-    bannerHeight: 60 * CONFIG.scale,
-    bottomPadding: CARD_SPACING * 2,
-    minHandScale: 0.68,
-    labelGap: CARD_SPACING * 0.6
-});
-
-const DEFAULT_PALETTE = Object.freeze({
-    tableFeltDark: CONFIG.tableFeltDark,
-    tableFeltLight: CONFIG.tableFeltLight,
-    tableFeltAccent: CONFIG.tableFeltAccent,
-    dividerColor: CONFIG.dividerColor,
-    textPrimary: CONFIG.textPrimary,
-    textSecondary: CONFIG.textSecondary,
-    textShadow: CONFIG.textShadow,
-    winColor: CONFIG.winColor,
-    loseColor: CONFIG.loseColor,
-    pushColor: CONFIG.pushColor,
-    chipColor: CONFIG.chipColor,
-    borderColor: CONFIG.borderColor
-});
-
-const THEMES = {
-    "casino-classic": {},
-    "midnight-blue": {
-        tableFeltDark: "#071527",
-        tableFeltLight: "#0F2741",
-        dividerColor: "#4FC3F7",
-        textPrimary: "#E3F2FD",
-        textSecondary: "#B3E5FC",
-        textShadow: "rgba(0, 0, 0, 0.9)",
-        winColor: "#66BB6A",
-        loseColor: "#EF5350",
-        pushColor: "#FFB74D",
-        chipColor: "#FF5252",
-        borderColor: "#1E88E5"
-    },
-    "royal-velvet": {
-        tableFeltDark: "#1F0A2E",
-        tableFeltLight: "#33124D",
-        dividerColor: "#F3E5AB",
-        textPrimary: "#FCE4EC",
-        textSecondary: "#F8BBD0",
-        textShadow: "rgba(0, 0, 0, 0.85)",
-        winColor: "#C5E1A5",
-        loseColor: "#E57373",
-        pushColor: "#FFD54F",
-        chipColor: "#FF6F61",
-        borderColor: "#8E24AA"
+function normalizeCardName(card) {
+    if (!card || typeof card !== "string") {
+        throw new Error(`Invalid card name ${card}`);
     }
-};
-
-// ============================================================================
-// CARD IMAGE CACHE
-// ============================================================================
-
-const cardImageCache = new Map();
+    if (card.length === 2 && isValidGameCard(card)) {
+        return gameToImage(card);
+    }
+    return card;
+}
 
 async function loadCardImage(cardName) {
-    if (cardImageCache.has(cardName)) {
-        return cardImageCache.get(cardName);
+    const normalized = normalizeCardName(cardName);
+    if (cardCache.has(normalized)) {
+        return cardCache.get(normalized);
     }
 
-    const cardPath = path.join(CONFIG.cardsPath, `${cardName}.png`);
-
+    const cardPath = path.join(CONFIG.cardsPath, `${normalized}.png`);
     try {
-        const file = await fs.readFile(cardPath);
-        const dataUri = `data:image/png;base64,${file.toString("base64")}`;
-        cardImageCache.set(cardName, dataUri);
-        return dataUri;
+        const image = await loadImage(cardPath);
+        cardCache.set(normalized, image);
+        return image;
     } catch (error) {
-        logger.error("Failed to load card asset", {
+        logger.error("Unable to load card asset", {
             scope: "cardTableRenderer",
-            cardName,
+            cardName: normalized,
             cardPath,
             error: error.message
         });
-        throw new Error(`Card asset not found: ${cardName}`);
+        return null;
     }
+}
+
+async function preloadCards(cardNames = []) {
+    await Promise.all((cardNames || []).map(card => loadCardImage(card).catch(() => null)));
 }
 
 function clearImageCache() {
-    cardImageCache.clear();
+    cardCache.clear();
 }
 
-async function preloadCards(cardNames) {
-    await Promise.all(
-        (cardNames ?? []).map(name => loadCardImage(name).catch(() => null))
+// ============================================================================
+// DRAW HELPERS
+// ============================================================================
+function drawBackground(ctx) {
+    const { canvasWidth: width, canvasHeight: height } = CONFIG;
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, CONFIG.backgroundTop);
+    gradient.addColorStop(1, CONFIG.backgroundBottom);
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+
+    const spotlight = ctx.createRadialGradient(
+        width / 2,
+        height * 0.32,
+        width * 0.1,
+        width / 2,
+        height * 0.32,
+        width * 0.9
     );
+    spotlight.addColorStop(0, "rgba(255, 255, 255, 0.25)");
+    spotlight.addColorStop(0.45, "rgba(255, 255, 255, 0.12)");
+    spotlight.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = spotlight;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+
+    const vignette = ctx.createRadialGradient(
+        width / 2,
+        height / 2,
+        width * 0.3,
+        width / 2,
+        height / 2,
+        width * 0.85
+    );
+    vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+    vignette.addColorStop(1, "rgba(0, 0, 0, 0.55)");
+
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+
+    const noiseSize = 64;
+    const noiseCanvas = createCanvas(noiseSize, noiseSize);
+    const nctx = noiseCanvas.getContext("2d");
+    const noiseData = nctx.createImageData(noiseSize, noiseSize);
+    const buffer = noiseData.data;
+    for (let i = 0; i < buffer.length; i += 4) {
+        const shade = 30 + Math.random() * 40;
+        buffer[i] = shade;
+        buffer[i + 1] = shade;
+        buffer[i + 2] = shade;
+        buffer[i + 3] = 255;
+    }
+    nctx.putImageData(noiseData, 0, 0);
+
+    const pattern = ctx.createPattern(noiseCanvas, "repeat");
+    if (pattern) {
+        ctx.save();
+        ctx.globalAlpha = 0.04;
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+    }
 }
 
-// ============================================================================
-// LAYOUT HELPERS
-// ============================================================================
-
-function normalizeCardName(cardName) {
-    if (!cardName || typeof cardName !== "string") {
-        throw new Error(`Invalid card name: ${cardName}`);
-    }
-
-    if (cardName.length === 2 && isValidGameCard(cardName)) {
-        return gameToImage(cardName);
-    }
-
-    return cardName;
+function drawDivider(ctx, y) {
+    ctx.strokeStyle = CONFIG.dividerColor;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(CONFIG.canvasWidth * 0.12, y);
+    ctx.lineTo(CONFIG.canvasWidth * 0.88, y);
+    ctx.stroke();
 }
 
-function getCardsWidth(cardCount, cardWidth = CARD_WIDTH, overlap = CARD_OVERLAP) {
-    if (!cardCount || cardCount <= 1) {
-        return cardWidth;
+function drawText(ctx, text, {
+    x,
+    y,
+    size,
+    color,
+    align = "center",
+    baseline = "middle",
+    bold = false,
+    shadow = false
+}) {
+    if (!text) return;
+    const font = `${bold ? "700" : "400"} ${size}px "${CONFIG.fontFamily}"`;
+    ctx.font = font;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+
+    if (shadow) {
+        ctx.save();
+        ctx.shadowColor = CONFIG.shadow.color;
+        ctx.shadowBlur = CONFIG.shadow.blur * 0.6;
+        ctx.shadowOffsetX = CONFIG.shadow.offsetX * 0.4;
+        ctx.shadowOffsetY = CONFIG.shadow.offsetY * 0.4;
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
+        ctx.restore();
     }
-    return cardWidth * cardCount + overlap * (cardCount - 1);
+
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
 }
 
-function computeTableLayout(params) {
-    const { dealerCards = [], playerHands = [], result = null } = params;
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+}
 
-    const dealerCardCount = Math.max(1, dealerCards.length);
-    const playerCardCounts = playerHands.map(hand => Array.isArray(hand?.cards) ? hand.cards.length : 0);
-    const maxPlayerCards = Math.max(1, ...playerCardCounts);
+function drawCardBack(ctx, x, y) {
+    ctx.save();
+    ctx.shadowColor = CONFIG.shadow.color;
+    ctx.shadowBlur = CONFIG.shadow.blur;
+    ctx.shadowOffsetX = CONFIG.shadow.offsetX;
+    ctx.shadowOffsetY = CONFIG.shadow.offsetY;
 
-    const rawPlayerHandWidth = getCardsWidth(maxPlayerCards) + LAYOUT.handHorizontalPadding * 2;
-    const rawDealerHandWidth = getCardsWidth(dealerCardCount) + LAYOUT.handHorizontalPadding * 2;
+    drawRoundedRect(ctx, x, y, CONFIG.cardWidth, CONFIG.cardHeight, 12);
+    ctx.fillStyle = CONFIG.cardBackColor;
+    ctx.fill();
+    ctx.restore();
 
-    const playerCount = Math.max(1, playerHands.length);
-    const columns = Math.min(LAYOUT.maxPlayerColumns, playerCount);
-    const rows = Math.ceil(playerCount / columns);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 4;
+    drawRoundedRect(ctx, x + 12, y + 12, CONFIG.cardWidth - 24, CONFIG.cardHeight - 24, 10);
+    ctx.stroke();
+}
 
-    const handHeaderHeight = LAYOUT.handHeaderHeight;
-    const handFooterHeight = LAYOUT.handFooterHeight;
-    const totalHandHeight = handHeaderHeight + CARD_HEIGHT + handFooterHeight;
+function drawCardImage(ctx, image, x, y) {
+    ctx.save();
+    ctx.shadowColor = CONFIG.shadow.color;
+    ctx.shadowBlur = CONFIG.shadow.blur;
+    ctx.shadowOffsetX = CONFIG.shadow.offsetX;
+    ctx.shadowOffsetY = CONFIG.shadow.offsetY;
+    ctx.drawImage(image, x, y, CONFIG.cardWidth, CONFIG.cardHeight);
+    ctx.restore();
+}
 
-    const width = LAYOUT.canvasWidth ?? Math.max(LAYOUT.minWidth, 900 * CONFIG.scale);
-    const availableWidth = width - LAYOUT.sidePadding * 2;
+function measureTextWidth(ctx, text, font) {
+    ctx.save();
+    ctx.font = font;
+    const width = ctx.measureText(text).width;
+    ctx.restore();
+    return width;
+}
 
-    let playerHandWidth = rawPlayerHandWidth;
-    let playerColumnGap = LAYOUT.columnGap;
+function drawBadge(ctx, text, { x, y, fill, textColor, fontSize, paddingX = 14, paddingY = 6, bold = true }) {
+    const font = `${bold ? "700" : "500"} ${fontSize}px "${CONFIG.fontFamily}"`;
+    ctx.save();
+    ctx.font = font;
+    const textWidth = ctx.measureText(text).width;
+    const width = textWidth + paddingX * 2;
+    const height = fontSize + paddingY * 2;
+    const radius = height / 2;
 
-    if (playerHands.length > 0) {
-        const totalWidth = rawPlayerHandWidth * columns + playerColumnGap * (columns - 1);
-        if (totalWidth > availableWidth) {
-            const compression = availableWidth / totalWidth;
-            playerHandWidth = rawPlayerHandWidth * compression;
-            playerColumnGap = playerColumnGap * compression;
-        }
-    }
+    ctx.fillStyle = fill;
+    ctx.globalAlpha = 0.9;
+    drawRoundedRect(ctx, x, y, width, height, radius);
+    ctx.fill();
+    ctx.restore();
 
-    let dealerHandWidth = Math.min(rawDealerHandWidth, availableWidth);
-
-    const totalHandsWidth = playerHands.length > 0
-        ? playerHandWidth * columns + playerColumnGap * (columns - 1)
-        : dealerHandWidth;
-
-    const innerWidth = width - LAYOUT.sidePadding * 2;
-    const playerLeftOffset = playerHands.length > 0
-        ? LAYOUT.sidePadding + Math.max(0, (availableWidth - totalHandsWidth) / 2)
-        : LAYOUT.sidePadding + Math.max(0, (availableWidth - dealerHandWidth) / 2);
-    const dealerLeftOffset = LAYOUT.sidePadding + Math.max(0, (availableWidth - dealerHandWidth) / 2);
-
-    const titlePosition = {
-        x: LAYOUT.sidePadding,
-        y: TITLE_FONT_SIZE + CARD_SPACING * 0.4
-    };
-
-    let currentY = TITLE_FONT_SIZE + CARD_SPACING * 1.2;
-    let bannerFrame = null;
-
-    if (result) {
-        const bannerWidth = Math.min(innerWidth, width - LAYOUT.sidePadding * 0.5);
-        bannerFrame = {
-            x: (width - bannerWidth) / 2,
-            y: currentY,
-            width: bannerWidth,
-            height: LAYOUT.bannerHeight
-        };
-        currentY += LAYOUT.bannerHeight + CARD_SPACING * 0.8;
-    }
-
-    const dealerBoundsY = currentY;
-    const dealerCardsAreaY = dealerBoundsY + handHeaderHeight;
-    const dealerLayout = {
-        bounds: {
-            x: dealerLeftOffset,
-            y: dealerBoundsY,
-            width: dealerHandWidth,
-            height: totalHandHeight
-        },
-        cardsArea: {
-            x: dealerLeftOffset + LAYOUT.handHorizontalPadding,
-            y: dealerCardsAreaY,
-            width: dealerHandWidth - LAYOUT.handHorizontalPadding * 2,
-            height: CARD_HEIGHT
-        },
-        headerArea: {
-            x: dealerLeftOffset + LAYOUT.handHorizontalPadding,
-            y: dealerBoundsY,
-            width: dealerHandWidth - LAYOUT.handHorizontalPadding * 2,
-            height: handHeaderHeight
-        },
-        footerArea: {
-            x: dealerLeftOffset + LAYOUT.handHorizontalPadding,
-            y: dealerCardsAreaY + CARD_HEIGHT,
-            width: dealerHandWidth - LAYOUT.handHorizontalPadding * 2,
-            height: handFooterHeight
-        },
-        labelAnchor: {
-            x: dealerLeftOffset + LAYOUT.handHorizontalPadding,
-            y: dealerBoundsY + handHeaderHeight * 0.6
-        },
-        betAnchor: {
-            x: dealerLeftOffset + LAYOUT.handHorizontalPadding,
-            y: dealerBoundsY + handHeaderHeight * 0.85
-        }
-    };
-
-    const dividerY = dealerBoundsY + totalHandHeight + LAYOUT.dividerGap;
-    const playerStartY = dividerY + CARD_SPACING;
-    const rowStride = totalHandHeight + LAYOUT.rowGap;
-
-    const playerLayouts = playerHands.map((_, index) => {
-        const column = index % columns;
-        const row = Math.floor(index / columns);
-
-        const offsetX = playerLeftOffset + column * (playerHandWidth + playerColumnGap);
-        const cardsAreaX = offsetX + LAYOUT.handHorizontalPadding;
-        const cardsAreaWidth = playerHandWidth - LAYOUT.handHorizontalPadding * 2;
-        const baseY = playerStartY + row * rowStride;
-        const cardsAreaY = baseY + handHeaderHeight;
-
-        return {
-            bounds: {
-                x: offsetX,
-                y: baseY,
-                width: playerHandWidth,
-                height: totalHandHeight
-            },
-            cardsArea: {
-                x: cardsAreaX,
-                y: cardsAreaY,
-                width: cardsAreaWidth,
-                height: CARD_HEIGHT
-            },
-            headerArea: {
-                x: cardsAreaX,
-                y: baseY,
-                width: cardsAreaWidth,
-                height: handHeaderHeight
-            },
-            footerArea: {
-                x: cardsAreaX,
-                y: cardsAreaY + CARD_HEIGHT,
-                width: cardsAreaWidth,
-                height: handFooterHeight
-            },
-            labelAnchor: {
-                x: cardsAreaX,
-                y: baseY + handHeaderHeight * 0.6
-            },
-            betAnchor: {
-                x: cardsAreaX,
-                y: baseY + handHeaderHeight * 0.85
-            },
-            row,
-            column
-        };
+    drawText(ctx, text, {
+        x: x + width / 2,
+        y: y + height / 2,
+        size: fontSize,
+        color: textColor,
+        align: "center",
+        baseline: "middle",
+        bold
     });
 
-    const playersSectionHeight = playerHands.length > 0
-        ? (rows - 1) * rowStride + totalHandHeight
-        : 0;
+    return { width, height };
+}
 
-    const minCanvasHeight = 520 * CONFIG.scale;
-    const height = Math.max(
-        playerStartY + playersSectionHeight + LAYOUT.bottomPadding,
-        dividerY + LAYOUT.bottomPadding,
-        minCanvasHeight
-    );
+async function drawHand(ctx, hand, options) {
+    const {
+        title,
+        centerX,
+        topY,
+        maskSecondCard = false,
+        showResultBadge = true,
+        hasMultipleHands = false,
+        isCurrent = false,
+        insured = false
+    } = options;
 
-    return {
-        width,
-        height,
-        titlePosition,
-        bannerFrame,
-        dealerLayout,
-        dividerY,
-        playerLayouts,
-        columns,
-        rows,
-        rowStride,
-        metrics: {
-            dealerCardCount,
-            maxPlayerCards,
-            playerHandWidth,
-            dealerHandWidth,
-            handHeaderHeight,
-            handFooterHeight,
-            totalHandHeight
-        }
+    let cursorY = topY;
+
+    const titleFont = `700 ${CONFIG.sectionTitleSize}px "${CONFIG.fontFamily}"`;
+    const labelWidth = measureTextWidth(ctx, title, titleFont);
+
+    const badges = [];
+    const badgeFontSize = Math.max(24, CONFIG.infoSize + 2);
+    const badgePaddingX = 14;
+    const badgePaddingY = 6;
+    const badgeGap = 12;
+    const labelBadgeGap = 18;
+
+    const result = typeof hand.result === "string" ? hand.result.toLowerCase() : null;
+    const seenBadges = new Set();
+    const pushBadge = (text, fill, textColor) => {
+        if (seenBadges.has(text)) return;
+        badges.push({ text, fill, textColor });
+        seenBadges.add(text);
     };
+
+    if (showResultBadge) {
+        if (result === "win") pushBadge("WIN", CONFIG.winColor, "#0B2B18");
+        if (result === "lose") pushBadge("LOSE", CONFIG.loseColor, "#FFFFFF");
+        if (result === "push") pushBadge("PUSH", CONFIG.pushColor, "#2C2200");
+        if (hand.blackjack) pushBadge("BLACKJACK", CONFIG.winColor, "#0B2B18");
+        if (hand.busted) pushBadge("BUST", CONFIG.loseColor, "#FFFFFF");
+    }
+
+    const badgeFont = `700 ${badgeFontSize}px "${CONFIG.fontFamily}"`;
+    const badgeWidths = badges.map(badge => measureTextWidth(ctx, badge.text, badgeFont) + badgePaddingX * 2);
+    const totalBadgeWidth = badgeWidths.reduce((acc, width, index) => acc + width + (index > 0 ? badgeGap : 0), 0);
+    const titleBlockWidth = labelWidth + (badges.length > 0 ? labelBadgeGap + totalBadgeWidth : 0);
+    const startX = centerX - titleBlockWidth / 2;
+
+    drawText(ctx, title, {
+        x: startX,
+        y: cursorY,
+        size: CONFIG.sectionTitleSize,
+        color: CONFIG.textPrimary,
+        align: "left",
+        baseline: "top",
+        bold: true
+    });
+
+    if (badges.length > 0) {
+        let badgeX = startX + labelWidth + labelBadgeGap;
+        const badgeHeight = badgeFontSize + badgePaddingY * 2;
+        const badgeTop = cursorY + Math.max(0, (CONFIG.sectionTitleSize - badgeHeight) / 2);
+        badges.forEach((badge, index) => {
+            const metrics = drawBadge(ctx, badge.text, {
+                x: badgeX,
+                y: badgeTop,
+                fill: badge.fill,
+                textColor: badge.textColor,
+                fontSize: badgeFontSize,
+                paddingX: badgePaddingX,
+                paddingY: badgePaddingY,
+                bold: true
+            });
+            badgeX += metrics.width + (index < badges.length - 1 ? badgeGap : 0);
+        });
+    }
+
+    cursorY += CONFIG.sectionTitleSize + CONFIG.layout.sectionTitleSpacing;
+
+    const cards = Array.isArray(hand.cards) ? hand.cards : [];
+    const cardCount = Math.max(cards.length, 1);
+    const cardsTotalWidth = cardCount * CONFIG.cardWidth + (cardCount - 1) * CONFIG.cardSpacing;
+    const cardsStartX = centerX - cardsTotalWidth / 2;
+    const cardsY = cursorY;
+
+    await Promise.all(cards.map(card => loadCardImage(card)));
+
+    for (let i = 0; i < cardCount; i++) {
+        const cardName = cards[i];
+        const x = cardsStartX + i * (CONFIG.cardWidth + CONFIG.cardSpacing);
+        const y = cardsY;
+
+        if (maskSecondCard && i === 1) {
+            drawCardBack(ctx, x, y);
+            continue;
+        }
+
+        const image = cardName ? cardCache.get(normalizeCardName(cardName)) : null;
+        if (image) {
+            drawCardImage(ctx, image, x, y);
+        } else {
+            drawCardBack(ctx, x, y);
+        }
+    }
+
+    cursorY = cardsY + CONFIG.cardHeight + CONFIG.layout.cardsSpacing;
+    const valueY = cursorY;
+    cursorY += CONFIG.valueSize + CONFIG.layout.valueSpacing;
+
+    const valueText = Number.isFinite(hand.value)
+        ? `Value: ${hand.value}`
+        : "Value: ??";
+
+    let valueColor = CONFIG.textSecondary;
+    if (result === "win") valueColor = CONFIG.winColor;
+    if (result === "lose") valueColor = CONFIG.loseColor;
+    if (result === "push") valueColor = CONFIG.pushColor;
+    if (hand.blackjack) valueColor = CONFIG.winColor;
+    if (hand.busted) valueColor = CONFIG.loseColor;
+
+    drawText(ctx, valueText, {
+        x: centerX,
+        y: valueY,
+        size: CONFIG.valueSize,
+        color: valueColor,
+        align: "center",
+        baseline: "top",
+        bold: true
+    });
+
+    const infoParts = [];
+    if (hand.bet !== undefined && hand.bet !== null) {
+        infoParts.push(`Bet $${Number(hand.bet).toLocaleString()}`);
+    }
+    if (Number.isFinite(hand.payout) && hand.payout !== 0) {
+        const sign = hand.payout >= 0 ? "+" : "-";
+        infoParts.push(`Payout ${sign}$${Math.abs(hand.payout).toLocaleString()}`);
+    }
+    if (Number.isFinite(hand.xp) && hand.xp !== 0) {
+        const sign = hand.xp >= 0 ? "+" : "-";
+        infoParts.push(`XP ${sign}${Math.abs(hand.xp).toLocaleString()}`);
+    }
+    if (insured) {
+        infoParts.push("Insured");
+    }
+    if (hasMultipleHands && isCurrent) {
+        infoParts.push("Current");
+    }
+
+    if (infoParts.length > 0) {
+        const infoY = cursorY;
+        drawText(ctx, infoParts.join(" • "), {
+            x: centerX,
+            y: infoY,
+            size: CONFIG.infoSize,
+            color: CONFIG.textSecondary,
+            align: "center",
+            baseline: "top",
+            bold: false
+        });
+        cursorY += CONFIG.infoSize + CONFIG.layout.sectionBottomPadding;
+    } else {
+        cursorY += CONFIG.layout.sectionBottomPadding;
+    }
+
+    return cursorY;
 }
 
 // ============================================================================
-// DATA HELPERS FOR GAME INTEGRATION
+// NORMALIZATION
 // ============================================================================
-
-function inferHandResult(hand, dealerState = {}) {
-    if (!hand) return null;
-
-    const normalizeResult = value => typeof value === "string" ? value.toLowerCase() : value;
-
-    if (hand.result) {
-        return normalizeResult(hand.result);
-    }
-    if (hand.outcome) {
-        return normalizeResult(hand.outcome);
-    }
-    if (hand.win === true || hand.won === true || hand.isWinner === true) {
-        return "win";
-    }
-    if (hand.lose === true || hand.lost === true || hand.isLoser === true) {
-        return "lose";
-    }
-    if (hand.push || hand.tied || hand.tie) {
-        return "push";
-    }
-
-    const hasBlackjack = Boolean(hand.blackjack || hand.isBlackjack || hand.BJ);
-    const busted = Boolean(hand.busted || hand.isBusted);
-    if (busted) {
-        return "lose";
-    }
-
-    const dealerBlackjack = Boolean(dealerState.blackjack || dealerState.hasBlackjack || dealerState.BJ);
-    const dealerBusted = Boolean(dealerState.busted || dealerState.isBusted);
-
-    if (dealerBlackjack) {
-        if (hasBlackjack) return "push";
-        return "lose";
-    }
-
-    if (hasBlackjack) {
-        return "win";
-    }
-
-    if (dealerBusted) {
-        return "win";
-    }
-
-    const handValue = Number.isFinite(hand.value) ? hand.value
-        : Number.isFinite(hand.total) ? hand.total
-        : Number.isFinite(hand.score) ? hand.score
-        : null;
-    const dealerValue = Number.isFinite(dealerState.value) ? dealerState.value
-        : Number.isFinite(dealerState.total) ? dealerState.total
-        : null;
-
-    if (!Number.isFinite(handValue) || !Number.isFinite(dealerValue)) {
-        return null;
-    }
-
-    if (handValue > dealerValue) return "win";
-    if (handValue < dealerValue) return "lose";
-    return "push";
-}
-
 function resolvePlayerLabel(player, index = 0) {
     return (
         player?.displayName
@@ -446,828 +510,253 @@ function resolvePlayerLabel(player, index = 0) {
     );
 }
 
-/**
- * Normalize a blackjack game snapshot into renderer-ready params.
- *
- * @param {Object} gameState - Raw game state (dealer, players, etc.)
- * @param {Object} [options]
- * @param {string} [options.focusPlayerId] - Highlighted player id
- * @param {string} [options.playerName] - Override primary player name
- * @param {string} [options.result] - Override overall result (win/lose/push)
- * @param {string} [options.title] - Custom title for the render
- * @param {Object} [options.appearance] - Appearance overrides compatible with resolveAppearance()
- * @returns {Object} Renderer params compatible with renderCardTable
- */
 function createBlackjackTableState(gameState = {}, options = {}) {
-    const dealerState = gameState.dealer ?? {};
+    const dealer = gameState.dealer ?? {};
     const players = Array.isArray(gameState.players) ? gameState.players : [];
+
     const focusPlayerId = options.focusPlayerId;
-    const maskDealerHoleCard = Boolean(options.maskDealerHoleCard);
 
     const normalizedDealer = {
-        cards: dealerState.cards ?? [],
-        value: dealerState.value ?? dealerState.total ?? dealerState.score ?? 0,
-        busted: Boolean(dealerState.busted || dealerState.status === "busted" || dealerState.isBusted),
-        blackjack: Boolean(dealerState.blackjack || dealerState.hasBlackjack || dealerState.BJ)
+        cards: Array.isArray(dealer.cards) ? dealer.cards : [],
+        value: dealer.value ?? dealer.total ?? dealer.score ?? null,
+        blackjack: Boolean(dealer.blackjack || dealer.hasBlackjack),
+        busted: Boolean(dealer.busted || dealer.isBusted)
     };
 
     const playerHands = [];
+    const roundNumber = options.round ?? gameState.round ?? null;
+    const roundLabel = Number.isFinite(roundNumber) ? `Round #${Math.max(1, Math.trunc(roundNumber))}` : null;
     players.forEach((player, playerIndex) => {
         const hands = Array.isArray(player?.hands) ? player.hands : [];
-        const displayName = resolvePlayerLabel(player, playerIndex);
+        const label = resolvePlayerLabel(player, playerIndex);
         hands.forEach((hand, handIndex) => {
             if (!hand) return;
+            const insuredFlag = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
+            const isCurrent = Boolean(hand.isCurrent ?? hand.current ?? hand.active ?? hand.isActive ?? hand.playing);
+            const handRoundValue = hand.round ?? hand.roundNumber ?? null;
+            const specificRoundLabel = hand.roundLabel ?? hand.roundTitle ?? (Number.isFinite(handRoundValue) ? `Round #${Math.max(1, Math.trunc(handRoundValue))}` : null);
             playerHands.push({
-                cards: hand.cards ?? [],
-                value: hand.value ?? hand.total ?? hand.score ?? 0,
+                cards: Array.isArray(hand.cards) ? hand.cards : [],
+                value: hand.value ?? hand.total ?? hand.score ?? null,
                 bet: hand.bet ?? hand.wager ?? hand.stake ?? null,
-                blackjack: Boolean(hand.blackjack || hand.isBlackjack || hand.BJ),
+                payout: hand.payout ?? hand.net ?? null,
+                xp: hand.xp ?? hand.xpEarned ?? null,
+                result: hand.result ?? hand.outcome ?? null,
+                blackjack: Boolean(hand.blackjack || hand.isBlackjack),
                 busted: Boolean(hand.busted || hand.isBusted),
-                push: Boolean(hand.push || hand.tied || hand.tie),
-                label: hands.length > 1 ? `${displayName} (Hand ${handIndex + 1})` : displayName,
-                playerName: displayName,
-                result: inferHandResult(hand, normalizedDealer),
-                payout: hand.payout ?? hand.net ?? hand.netWinning ?? null,
-                playerId: player?.id
+                label: hands.length > 1 ? `${label} (Hand ${handIndex + 1})` : label,
+                header: roundLabel ?? specificRoundLabel,
+                playerId: player?.id,
+                insured: insuredFlag,
+                isCurrent,
+                handsForPlayer: hands.length
             });
         });
     });
 
-    const focusPlayer = players.find(p => p?.id && p.id === focusPlayerId) || players[0] || null;
-    const playerName = options.playerName
-        || resolvePlayerLabel(focusPlayer, 0)
-        || (playerHands[0]?.playerName ?? "Player");
-
-    const allResults = playerHands
-        .map(hand => hand.result)
-        .filter(Boolean);
-    const result = options.result
-        || (allResults.length > 0 && allResults.every(res => res === allResults[0]) ? allResults[0] : null);
+    const defaultName = playerHands[0]?.label ?? resolvePlayerLabel(players[0], 0);
 
     return {
-        playerName,
+        playerName: options.playerName ?? defaultName ?? "Player",
         dealerCards: normalizedDealer.cards,
         dealerValue: normalizedDealer.value,
-        dealerBusted: normalizedDealer.busted,
         dealerBlackjack: normalizedDealer.blackjack,
+        dealerBusted: normalizedDealer.busted,
         playerHands,
-        result,
-        title: options.title ?? options.defaultTitle ?? null,
+        result: options.result ?? null,
+        title: options.title ?? null,
         appearance: options.appearance ?? {},
         metadata: {
+            maskDealerHoleCard: Boolean(options.maskDealerHoleCard),
             focusPlayerId,
-            round: options.round ?? gameState.round ?? null,
-            tableId: options.tableId ?? gameState.id ?? null,
-            maskDealerHoleCard
+            round: roundNumber
         }
     };
 }
 
-// ============================================================================
-// APPEARANCE
-// ============================================================================
-
-function getPalette(themeKey = "casino-classic") {
-    const overrides = THEMES[themeKey] ?? THEMES["casino-classic"] ?? {};
-    return {
-        ...DEFAULT_PALETTE,
-        ...overrides
-    };
-}
-
-function resolveAppearance(appearance = {}) {
-    const themeKey = appearance.theme || "casino-classic";
-    const noiseConfig = appearance.noise ?? {};
-
-    const enabled = noiseConfig.enabled ?? true;
-    const density = Number.isFinite(noiseConfig.density) && noiseConfig.density > 0
-        ? noiseConfig.density
-        : 8000;
-    const intensity = Number.isFinite(noiseConfig.intensity) && noiseConfig.intensity >= 0
-        ? Math.min(noiseConfig.intensity, 1)
-        : 0.18;
-
-    return {
-        theme: themeKey,
-        palette: getPalette(themeKey),
-        noise: {
-            enabled,
-            density,
-            intensity
-        }
-    };
-}
-
-function normalizeTableRenderRequest(params) {
-    if (!params || typeof params !== "object") {
-        throw new Error("Invalid params: must be an object");
-    }
-
-    const {
-        playerName,
-        dealerCards = [],
-        dealerValue = 0,
-        dealerBusted = false,
-        dealerBlackjack = false,
-        playerHands = [],
-        result = null,
-        title = null,
-        appearance = {},
-        metadata = {},
-        outputFormat,
-        format,
-        imageFormat
-    } = params;
-
-    if (!playerName) {
-        throw new Error("playerName is required");
-    }
-
-    if (!Array.isArray(dealerCards) || dealerCards.length === 0) {
-        throw new Error("dealerCards must be a non-empty array");
-    }
-
-    if (!Array.isArray(playerHands) || playerHands.length === 0) {
-        throw new Error("playerHands must be a non-empty array");
-    }
-
-    const sanitizedParams = {
-        playerName,
-        dealerCards,
-        dealerValue,
-        dealerBusted,
-        dealerBlackjack,
-        playerHands,
-        result,
-        title,
-        metadata
+function normalizeRenderInput(params = {}) {
+    const state = {
+        dealerCards: Array.isArray(params.dealerCards) ? params.dealerCards : [],
+        dealerValue: params.dealerValue ?? null,
+        dealerBusted: Boolean(params.dealerBusted),
+        dealerBlackjack: Boolean(params.dealerBlackjack),
+        maskDealerHoleCard: Boolean(params.metadata?.maskDealerHoleCard ?? params.maskDealerHoleCard),
+        playerHands: Array.isArray(params.playerHands) ? params.playerHands : [],
+        title: params.title ?? null,
+        result: params.result ?? null
     };
 
-    const appearanceOptions = resolveAppearance(appearance);
-    const requestedFormat = String(outputFormat || format || imageFormat || "png").toLowerCase();
-
-    return {
-        sanitizedParams,
-        appearanceOptions,
-        requestedFormat
-    };
+    return state;
 }
 
 // ============================================================================
-// SCENE BUILDING
+// RENDERING
 // ============================================================================
-
-function buildCardTableScene(params, appearance) {
-    const {
-        playerName,
-        dealerCards = [],
-        dealerValue = 0,
-        dealerBusted = false,
-        dealerBlackjack = false,
-        playerHands = [],
-        result = null,
-        title = null
-    } = params;
-
-    const focusPlayerId = params.metadata?.focusPlayerId ?? params.focusPlayerId ?? null;
-    const maskDealerHoleCard = Boolean(params.metadata?.maskDealerHoleCard);
-
-    const normalizedDealerCards = dealerCards.map(normalizeCardName);
-    const normalizedPlayerHands = playerHands.map(hand => ({
-        ...hand,
-        cards: (hand.cards ?? []).map(normalizeCardName)
-    }));
-
-    const layout = computeTableLayout({
-        dealerCards: normalizedDealerCards,
-        playerHands: normalizedPlayerHands,
-        result
-    });
-
-    const inheritedMetadata = {
-        ...params.metadata,
-        game: params.metadata?.game ?? "blackjack",
-        result,
-        playerName,
-        playerCount: normalizedPlayerHands.length,
-        title,
-        theme: appearance.theme,
-        palette: appearance.palette,
-        layout: {
-            columns: layout.columns,
-            rows: layout.rows,
-            rowStride: layout.rowStride
-        }
-    };
-
-    const scene = createScene({
-        width: layout.width,
-        height: layout.height,
-        metadata: inheritedMetadata,
-        background: {
-            type: "felt",
-            theme: appearance.theme,
-            palette: appearance.palette,
-            noise: appearance.noise
-        }
-    });
-
-    if (title) {
-        inheritedMetadata.title = title;
-    }
-
-    if (layout.bannerFrame && result) {
-        addNode(scene, createNode(SceneNodeType.BANNER, {
-            result,
-            frame: layout.bannerFrame
-        }));
-    }
-
-    addNode(scene, createNode(SceneNodeType.HAND, {
-        role: "dealer",
-        label: "Dealer",
-        hand: {
-            cards: normalizedDealerCards,
-            value: dealerValue,
-            busted: dealerBusted,
-            blackjack: dealerBlackjack
-        },
-        layout: layout.dealerLayout,
-        maskHoleCard: maskDealerHoleCard
-    }));
-
-    addNode(scene, createNode(SceneNodeType.DIVIDER, {
-        y: layout.dividerY
-    }));
-
-    layout.playerLayouts.forEach((handLayout, index) => {
-        const hand = normalizedPlayerHands[index];
-        if (!hand) return;
-
-        const owner = hand.playerName || playerName;
-        const customLabel = hand.label || hand.displayName;
-        const label = customLabel
-            || (normalizedPlayerHands.length > 1 ? `${owner} (Hand ${index + 1})` : owner);
-        const isFocused = Boolean(focusPlayerId && hand.playerId && String(hand.playerId) === String(focusPlayerId));
-
-        addNode(scene, createNode(SceneNodeType.HAND, {
-            role: "player",
-            label,
-            hand,
-            layout: handLayout,
-            playerIndex: index,
-            row: handLayout.row,
-            column: handLayout.column,
-            isFocused
-        }));
-    });
-
-    return { scene, layout };
-}
-
-// ============================================================================
-// SVG RENDERING
-// ============================================================================
-
-function formatNumber(value) {
-    return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/\.00$/, "");
-}
-
-function escapeXML(value) {
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&apos;");
-}
-
-function estimateTextWidth(text, fontSize, weight = "normal") {
-    const weightFactor = weight === CONFIG.fontBold ? 0.62 : 0.55;
-    return text.length * fontSize * weightFactor;
-}
-
-function svgText({
-    x,
-    y,
-    text,
-    color,
-    fontSize,
-    fontWeight = "400",
-    glow = false,
-    anchor = "start",
-    baseline = "alphabetic",
-    palette = DEFAULT_PALETTE,
-    shadow = true
-}) {
-    const safe = escapeXML(text);
-    const lines = [];
-
-    if (shadow) {
-        lines.push(
-            `<text x="${formatNumber(x + 1.4)}" y="${formatNumber(y + 1.8)}" fill="${palette.textShadow}" font-size="${formatNumber(fontSize)}" font-family="${escapeXML(CONFIG.fontFamily)}" font-weight="${fontWeight}" opacity="0.55" dominant-baseline="${baseline}" text-anchor="${anchor}">${safe}</text>`
-        );
-    }
-
-    const glowStyle = glow
-        ? ` style="paint-order: stroke; stroke:${color}; stroke-width:${formatNumber(fontSize * 0.18)}; stroke-linejoin:round;"`
-        : "";
-
-    lines.push(
-        `<text x="${formatNumber(x)}" y="${formatNumber(y)}" fill="${color}" font-size="${formatNumber(fontSize)}" font-family="${escapeXML(CONFIG.fontFamily)}" font-weight="${fontWeight}" dominant-baseline="${baseline}" text-anchor="${anchor}"${glowStyle}>${safe}</text>`
-    );
-
-    return lines.join("\n");
-}
-
-function buildBackgroundDefs(uid, width, height, palette, noise) {
-    const defs = [];
-
-    const feltGradientId = uid("felt");
-    defs.push(
-        `<linearGradient id="${feltGradientId}" x1="0" y1="0" x2="0" y2="${formatNumber(height)}" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="${palette.tableFeltDark}" />
-            <stop offset="55%" stop-color="${palette.tableFeltLight}" />
-            <stop offset="100%" stop-color="${palette.tableFeltDark}" />
-        </linearGradient>`
-    );
-
-    const spotlightGradientId = uid("spotlight");
-    defs.push(
-        `<radialGradient id="${spotlightGradientId}" cx="50%" cy="45%" r="70%">
-            <stop offset="0%" stop-color="rgba(255,255,255,0.12)" />
-            <stop offset="60%" stop-color="rgba(255,255,255,0.04)" />
-            <stop offset="100%" stop-color="rgba(0,0,0,0.25)" />
-        </radialGradient>`
-    );
-
-    let noiseFilterId = null;
-    if (noise?.enabled) {
-        const baseFrequency = Math.max(0.02, Math.min(0.5, 2400 / noise.density));
-        const noiseOpacity = Math.min(0.35, Math.max(0.05, noise.intensity));
-        noiseFilterId = uid("noise");
-        defs.push(
-            `<filter id="${noiseFilterId}" x="-20%" y="-20%" width="140%" height="140%">
-                <feTurbulence type="fractalNoise" baseFrequency="${baseFrequency}" numOctaves="3" seed="7" result="noise" />
-                <feColorMatrix type="saturate" values="0.4" />
-                <feComponentTransfer>
-                    <feFuncA type="linear" slope="${noiseOpacity}" />
-                </feComponentTransfer>
-            </filter>`
-        );
-    }
-
-    const cardShadowId = uid("card-shadow");
-    defs.push(
-        `<filter id="${cardShadowId}" x="-20%" y="-20%" width="150%" height="150%">
-            <feDropShadow dx="3" dy="5" stdDeviation="3" flood-color="rgba(0,0,0,0.48)" />
-        </filter>`
-    );
-
-    return { defs, feltGradientId, spotlightGradientId, noiseFilterId, cardShadowId };
-}
-
-function renderHandNode(node, palette, cardShadowId, cardAssets) {
-    const { hand, layout, label } = node;
-    const { cardsArea } = layout;
-    const headerArea = layout.headerArea ?? {
-        x: cardsArea.x,
-        y: cardsArea.y - LAYOUT.handHeaderHeight,
-        width: cardsArea.width,
-        height: LAYOUT.handHeaderHeight
-    };
-    const footerArea = layout.footerArea ?? {
-        x: cardsArea.x,
-        y: cardsArea.y + CARD_HEIGHT,
-        width: cardsArea.width,
-        height: LAYOUT.handFooterHeight
-    };
-    const fragments = [];
-
-    const cardsInHand = Array.isArray(hand.cards) ? hand.cards : [];
-    const cardCount = cardsInHand.length;
-    const cardsWidth = getCardsWidth(cardCount);
-    const desiredScale = cardsArea.width < cardsWidth
-        ? Math.max(LAYOUT.minHandScale, cardsArea.width / cardsWidth)
-        : 1;
-
-    const cardWidth = CARD_WIDTH * desiredScale;
-    const cardHeight = CARD_HEIGHT * desiredScale;
-    const spacing = CARD_OVERLAP * desiredScale;
-    const totalCardWidth = cardCount > 0
-        ? cardWidth * cardCount + spacing * (cardCount - 1)
-        : cardWidth;
-
-    const startX = cardsArea.x + Math.max(0, (cardsArea.width - totalCardWidth) / 2);
-    const cardY = cardsArea.y;
-
-    const rawLabelText = label ?? "Player";
-    const labelColor = palette.textPrimary ?? CONFIG.textPrimary;
-    const textInset = Math.max(LAYOUT.handHorizontalPadding * 0.6, CARD_SPACING * 0.05);
-    const headerLeft = headerArea.x + textInset;
-    const headerRight = headerArea.x + headerArea.width - textInset;
-    const labelBaseline = headerArea.y + Math.min(FONT_SIZE, headerArea.height * 0.5);
-    const infoBaseline = footerArea.y + Math.min(footerArea.height * 0.55, footerArea.height - FONT_SIZE * 0.32);
-
-    const availableHeaderWidth = headerRight - headerLeft;
-    const minNameSlot = Math.max(160 * CONFIG.scale, availableHeaderWidth * 0.4);
-    const minValueSlot = Math.max(140 * CONFIG.scale, availableHeaderWidth * 0.25);
-    let valueSlotWidth = Math.max(
-        minValueSlot,
-        Math.min(availableHeaderWidth * 0.4, availableHeaderWidth - minNameSlot - LAYOUT.labelGap)
-    );
-    if (valueSlotWidth < 0) valueSlotWidth = minValueSlot;
-    let nameSlotWidth = availableHeaderWidth - valueSlotWidth - LAYOUT.labelGap;
-    if (nameSlotWidth < minNameSlot) {
-        nameSlotWidth = Math.max(minNameSlot, availableHeaderWidth - minValueSlot - LAYOUT.labelGap);
-        valueSlotWidth = Math.max(minValueSlot, availableHeaderWidth - nameSlotWidth - LAYOUT.labelGap);
-        if (valueSlotWidth < 0) {
-            valueSlotWidth = Math.max(minValueSlot * 0.5, availableHeaderWidth * 0.3);
-            nameSlotWidth = Math.max(availableHeaderWidth - valueSlotWidth - LAYOUT.labelGap, minNameSlot * 0.6);
-        }
-    }
-
-    const valueStartXBase = headerLeft + nameSlotWidth + LAYOUT.labelGap;
-    const maxValueSlot = Math.max(0, headerRight - valueStartXBase);
-    valueSlotWidth = Math.min(valueSlotWidth, maxValueSlot);
-
-    let labelText = rawLabelText;
-    let labelWidth = estimateTextWidth(labelText, NAME_FONT_SIZE, CONFIG.fontBold);
-    const maxLabelWidth = nameSlotWidth;
-    if (labelWidth > maxLabelWidth) {
-        const approxCharWidth = NAME_FONT_SIZE * 0.6;
-        const maxChars = Math.max(4, Math.floor(maxLabelWidth / approxCharWidth));
-        if (labelText.length > maxChars) {
-            labelText = `${labelText.slice(0, maxChars - 1)}…`;
-            labelWidth = estimateTextWidth(labelText, NAME_FONT_SIZE, CONFIG.fontBold);
-        }
-    }
-
-    fragments.push(svgText({
-        x: headerLeft,
-        y: labelBaseline,
-        text: labelText,
-        color: labelColor,
-        fontSize: NAME_FONT_SIZE,
-        fontWeight: CONFIG.fontBold,
-        anchor: "start",
-        palette
-    }));
-
-    const valueSegments = [];
-    if (Number.isFinite(hand.value)) {
-        valueSegments.push(`Value ${hand.value}`);
-    }
-    if (hand.blackjack) valueSegments.push("Blackjack");
-    if (hand.busted) valueSegments.push("Busted");
-    if (hand.push && !hand.busted && !hand.blackjack) valueSegments.push("Push");
-    if (valueSegments.length === 0) {
-        valueSegments.push("Value ??");
-    }
-
-    const uniqueValueSegments = [...new Set(valueSegments)];
-    const valueText = uniqueValueSegments.join(" • ");
-    const valueWidth = valueText ? estimateTextWidth(valueText, VALUE_FONT_SIZE, "600") : 0;
-
-    let valueColor = palette.textSecondary ?? CONFIG.textSecondary;
-    if (hand.blackjack) valueColor = palette.winColor ?? CONFIG.winColor;
-    if (hand.busted) valueColor = palette.loseColor ?? CONFIG.loseColor;
-    if (hand.push && !hand.busted && !hand.blackjack) valueColor = palette.pushColor ?? CONFIG.pushColor;
-    const normalizedResult = typeof hand.result === "string" ? hand.result.toLowerCase() : null;
-    if (normalizedResult === "win") valueColor = palette.winColor ?? CONFIG.winColor;
-    if (normalizedResult === "lose") valueColor = palette.loseColor ?? CONFIG.loseColor;
-    if (normalizedResult === "push") valueColor = palette.pushColor ?? CONFIG.pushColor;
-
-    if (valueText) {
-        const valueStartX = valueStartXBase;
-        let valueX = valueStartX;
-        let valueAnchor = "start";
-        if (valueWidth > valueSlotWidth) {
-            valueAnchor = "end";
-            valueX = valueStartX + valueSlotWidth;
-        }
-
-        fragments.push(svgText({
-            x: valueX,
-            y: labelBaseline,
-            text: valueText,
-            color: valueColor,
-            fontSize: VALUE_FONT_SIZE,
-            fontWeight: "600",
-            anchor: valueAnchor,
-            palette
-        }));
-    }
-
-    if (node.role === "player") {
-        const result = hand.result?.toLowerCase?.();
-        let badgeColor = null;
-        let badgeText = null;
-        if (result === "win") {
-            badgeColor = palette.winColor ?? CONFIG.winColor;
-            badgeText = "Win";
-        } else if (result === "lose") {
-            badgeColor = palette.loseColor ?? CONFIG.loseColor;
-            badgeText = "Lose";
-        } else if (result === "push") {
-            badgeColor = palette.pushColor ?? CONFIG.pushColor;
-            badgeText = "Push";
-        }
-
-        if (badgeColor && badgeText) {
-            const badgePaddingX = Math.max(12 * CONFIG.scale, NAME_FONT_SIZE * 0.55);
-            const badgePaddingY = Math.max(6 * CONFIG.scale, NAME_FONT_SIZE * 0.25);
-            const textWidth = estimateTextWidth(badgeText, FONT_SIZE * 0.75, "700");
-            const badgeWidth = textWidth + badgePaddingX * 2;
-            const badgeHeight = FONT_SIZE * 0.75 + badgePaddingY;
-            const badgeX = headerRight - badgeWidth;
-            const badgeY = headerArea.y + (headerArea.height - badgeHeight) / 2;
-            const radius = badgeHeight / 2;
-
-            const badgeTextColor = result === "lose" ? "#FFF" : "#000";
-            fragments.push(
-                `<g transform="translate(${formatNumber(badgeX)}, ${formatNumber(badgeY)})">` +
-                `<rect x="0" y="0" width="${formatNumber(badgeWidth)}" height="${formatNumber(badgeHeight)}" rx="${formatNumber(radius)}" ry="${formatNumber(radius)}" fill="${badgeColor}" opacity="0.9" />` +
-                svgText({
-                    x: badgeWidth / 2,
-                    y: badgeHeight / 2 + FONT_SIZE * 0.12,
-                    text: badgeText.toUpperCase(),
-                    color: badgeTextColor,
-                    fontSize: FONT_SIZE * 0.78,
-                    fontWeight: CONFIG.fontBold,
-                    anchor: "middle",
-                    baseline: "middle",
-                    shadow: false,
-                    palette
-                }) +
-                `</g>`
-            );
-        }
-    }
-
-    const infoParts = [];
-    if (hand.bet !== undefined && hand.bet !== null) {
-        infoParts.push(`Bet $${Number(hand.bet).toLocaleString()}`);
-    }
-    if (Number.isFinite(hand.payout) && hand.payout !== 0) {
-        const sign = hand.payout > 0 ? "+" : "-";
-        infoParts.push(`Payout ${sign}$${Math.abs(hand.payout).toLocaleString()}`);
-    }
-    const xpValue = Number(hand.xp ?? hand.xpEarned);
-    if (Number.isFinite(xpValue)) {
-        const xpText = xpValue === 0
-            ? "XP ±0"
-            : `XP ${xpValue > 0 ? "+" : "-"}${Math.abs(xpValue).toLocaleString()}`;
-        infoParts.push(xpText);
-    }
-    if (infoParts.length > 0) {
-        fragments.push(svgText({
-            x: cardsArea.x + cardsArea.width / 2,
-            y: infoBaseline,
-            text: infoParts.join("  •  "),
-            color: palette.textSecondary ?? CONFIG.textSecondary,
-            fontSize: FONT_SIZE * 0.7,
-            fontWeight: "500",
-            anchor: "middle",
-            baseline: "middle",
-            shadow: false,
-            palette
-        }));
-    }
-
-    cardsInHand.forEach((cardName, index) => {
-        const hideCard = node.role === "dealer" && node.maskHoleCard && index === 1;
-        const x = startX + index * (cardWidth + spacing);
-
-        if (hideCard) {
-            const radius = cardWidth * 0.12;
-            const inset = cardWidth * 0.08;
-            const innerRadius = radius * 0.7;
-            const strokeColor = palette.borderColor ?? CONFIG.borderColor;
-            const backPrimary = palette.tableFeltAccent ?? CONFIG.tableFeltAccent;
-            const backSecondary = palette.tableFeltLight ?? CONFIG.tableFeltLight;
-
-            fragments.push(
-                `<g transform="translate(${formatNumber(x)}, ${formatNumber(cardY)})" filter="url(#${cardShadowId})">
-                    <rect x="0" y="0" width="${formatNumber(cardWidth)}" height="${formatNumber(cardHeight)}" rx="${formatNumber(radius)}" ry="${formatNumber(radius)}" fill="${backPrimary}" stroke="${strokeColor}" stroke-width="${formatNumber(Math.max(1.2, cardWidth * 0.03))}" opacity="0.94" />
-                    <rect x="${formatNumber(inset)}" y="${formatNumber(inset)}" width="${formatNumber(cardWidth - inset * 2)}" height="${formatNumber(cardHeight - inset * 2)}" rx="${formatNumber(innerRadius)}" ry="${formatNumber(innerRadius)}" fill="${backSecondary}" opacity="0.85" />
-                    <path d="M ${formatNumber(cardWidth / 2)} ${formatNumber(inset * 1.2)} L ${formatNumber(cardWidth - inset * 1.4)} ${formatNumber(cardHeight / 2)} L ${formatNumber(cardWidth / 2)} ${formatNumber(cardHeight - inset * 1.2)} L ${formatNumber(inset * 1.4)} ${formatNumber(cardHeight / 2)} Z" fill="${strokeColor}" opacity="0.25" />
-                </g>`
-            );
-            return;
-        }
-
-        const dataUri = cardAssets.get(cardName);
-        if (!dataUri) {
-            logger.warn("Missing card asset for render", {
-                scope: "cardTableRenderer",
-                cardName
-            });
-            return;
-        }
-
-        fragments.push(
-            `<image href="${dataUri}" xlink:href="${dataUri}" x="${formatNumber(x)}" y="${formatNumber(cardY)}" width="${formatNumber(cardWidth)}" height="${formatNumber(cardHeight)}" preserveAspectRatio="xMidYMid slice" filter="url(#${cardShadowId})" />`
-        );
-    });
-
-    return `<g>${fragments.join("\n")}</g>`;
-}
-
-async function renderSceneToSVG(scene, options = {}) {
-    const palette = scene.metadata?.palette ?? DEFAULT_PALETTE;
-    const width = scene.width;
-    const height = scene.height;
-    const background = scene.background ?? {};
-    const noise = background.noise ?? { enabled: true, density: 8000, intensity: 0.18 };
-    let cardAssets = options.cardAssets instanceof Map
-        ? options.cardAssets
-        : new Map(Object.entries(options.cardAssets ?? {}));
-
-    if (!cardAssets || cardAssets.size === 0) {
-        const neededCards = new Set();
-        for (const node of scene.nodes) {
-            if (node.type === SceneNodeType.HAND) {
-                for (const cardName of node.hand?.cards ?? []) {
-                    neededCards.add(cardName);
-                }
-            }
-        }
-
-        if (neededCards.size > 0) {
-            const entries = await Promise.all(
-                Array.from(neededCards, async cardName => [cardName, await loadCardImage(cardName)])
-            );
-            cardAssets = new Map(entries);
-        }
-    }
-
-    let idCounter = 0;
-    const uid = (prefix = "id") => `${prefix}-${++idCounter}`;
-
-    const {
-        defs,
-        feltGradientId,
-        spotlightGradientId,
-        noiseFilterId,
-        cardShadowId
-    } = buildBackgroundDefs(uid, width, height, palette, noise);
-
-    const body = [];
-
-    body.push(
-        `<rect x="0" y="0" width="${formatNumber(width)}" height="${formatNumber(height)}" fill="url(#${feltGradientId})" />`
-    );
-
-    body.push(
-        `<rect x="0" y="0" width="${formatNumber(width)}" height="${formatNumber(height)}" fill="url(#${spotlightGradientId})" />`
-    );
-
-    if (noise?.enabled && noiseFilterId) {
-        body.push(
-            `<rect x="0" y="0" width="${formatNumber(width)}" height="${formatNumber(height)}" fill="transparent" filter="url(#${noiseFilterId})" />`
-        );
-    }
-
-    for (const node of scene.nodes) {
-        switch (node.type) {
-            case SceneNodeType.TITLE: {
-                const { text, color, position, glow = false, align = "left" } = node;
-                const anchor = align === "center" ? "middle" : align === "right" ? "end" : "start";
-                body.push(svgText({
-                    x: position.x,
-                    y: position.y,
-                    text,
-                    color,
-                    fontSize: TITLE_FONT_SIZE,
-                    fontWeight: CONFIG.fontBold,
-                    glow,
-                    anchor,
-                    palette
-                }));
-                break;
-            }
-            case SceneNodeType.BANNER: {
-                const { result, frame } = node;
-                const bannerHeight = frame.height;
-
-                let backgroundColor;
-                let textColor;
-                let text;
-                switch (result) {
-                    case "win":
-                        backgroundColor = palette.winColor ?? CONFIG.winColor;
-                        textColor = palette.textPrimary ?? "#FFFFFF";
-                        text = "YOU WIN!";
-                        break;
-                    case "lose":
-                        backgroundColor = palette.loseColor ?? CONFIG.loseColor;
-                        textColor = palette.textPrimary ?? "#FFFFFF";
-                        text = "YOU LOSE";
-                        break;
-                    case "push":
-                    default:
-                        backgroundColor = palette.pushColor ?? CONFIG.pushColor;
-                        textColor = "#000000";
-                        text = "PUSH - TIE!";
-                        break;
-                }
-
-                const radius = 18 * CONFIG.scale;
-                body.push(
-                    `<rect x="${formatNumber(frame.x)}" y="${formatNumber(frame.y)}" width="${formatNumber(frame.width)}" height="${formatNumber(bannerHeight)}" rx="${formatNumber(radius)}" fill="${backgroundColor}" filter="url(#${cardShadowId})" />`
-                );
-                const bannerTextSize = CONFIG.subtitleFontSize * CONFIG.scale;
-                const textY = frame.y + bannerHeight / 2 + bannerTextSize * 0.32;
-                body.push(
-                    `<text x="${formatNumber(frame.x + frame.width / 2)}" y="${formatNumber(textY)}" fill="${textColor}" font-size="${formatNumber(bannerTextSize)}" font-family="${escapeXML(CONFIG.fontFamily)}" font-weight="${CONFIG.fontBold}" text-anchor="middle">${escapeXML(text)}</text>`
-                );
-                break;
-            }
-            case SceneNodeType.DIVIDER: {
-                const y = node.y - CARD_SPACING;
-                const padding = CARD_SPACING * 2;
-                body.push(
-                    `<rect x="${formatNumber(padding)}" y="${formatNumber(y)}" width="${formatNumber(width - padding * 2)}" height="${formatNumber(CONFIG.scale * 3)}" fill="${palette.dividerColor}" opacity="0.9" />`
-                );
-                break;
-            }
-            case SceneNodeType.HAND: {
-                body.push(renderHandNode(node, palette, cardShadowId, cardAssets));
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    const svg = [
-        `<?xml version="1.0" encoding="UTF-8"?>`,
-        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${formatNumber(width)}" height="${formatNumber(height)}" viewBox="0 0 ${formatNumber(width)} ${formatNumber(height)}" shape-rendering="geometricPrecision">`,
-        `<defs>`,
-        defs.join("\n"),
-        `</defs>`,
-        body.join("\n"),
-        `</svg>`
-    ].join("\n");
-
-    return svg;
-}
-
-// ============================================================================
-// PUBLIC API
-// ============================================================================
-
 async function renderCardTable(params) {
-    const context = normalizeTableRenderRequest(params);
-    const svgBuffer = await renderCardTableSVG(context);
+    const requestedFormat = typeof params?.outputFormat === "string"
+        ? params.outputFormat.toLowerCase()
+        : "png";
+    const normalized = params?.sanitizedParams
+        ? params.sanitizedParams
+        : normalizeRenderInput(params);
 
-    if (context.requestedFormat === "svg") {
-        return svgBuffer;
+    const wantsSVG = requestedFormat === "svg";
+    const scale = wantsSVG ? 1 : (Number.isFinite(CONFIG.outputScale) && CONFIG.outputScale > 0 ? CONFIG.outputScale : 1);
+    const canvas = createCanvas(
+        wantsSVG ? CONFIG.canvasWidth : Math.round(CONFIG.canvasWidth * scale),
+        wantsSVG ? CONFIG.canvasHeight : Math.round(CONFIG.canvasHeight * scale),
+        wantsSVG ? "svg" : undefined
+    );
+    const ctx = canvas.getContext("2d");
+    if (!wantsSVG && scale !== 1) {
+        ctx.scale(scale, scale);
     }
 
-    if (!sharp) {
-        throw new Error("PNG output requested but 'sharp' module is not installed. Install sharp or pass outputFormat: 'svg'.");
+    drawBackground(ctx);
+
+    let cursorY = CONFIG.layout.topMargin;
+
+    if (normalized.title) {
+        drawText(ctx, normalized.title, {
+            x: CONFIG.canvasWidth / 2,
+            y: cursorY,
+            size: CONFIG.titleSize,
+            color: CONFIG.textPrimary,
+            align: "center",
+            baseline: "top",
+            bold: true,
+            shadow: true
+        });
+        cursorY += CONFIG.titleSize + CONFIG.layout.titleSpacing;
     }
 
-    return sharp(svgBuffer)
-        .png({ compressionLevel: 6, quality: 100 })
-        .toBuffer();
-}
+    cursorY = await drawHand(ctx, {
+        cards: normalized.dealerCards,
+        value: normalized.dealerValue,
+        result: normalized.dealerBusted ? "lose" : normalized.dealerBlackjack ? "win" : null
+    }, {
+        title: "Dealer",
+        centerX: CONFIG.canvasWidth / 2,
+        topY: cursorY,
+        maskSecondCard: normalized.maskDealerHoleCard,
+        showResultBadge: false
+    });
 
-async function renderCardTableSVG(paramsOrContext) {
-    const context = paramsOrContext?.sanitizedParams
-        ? paramsOrContext
-        : normalizeTableRenderRequest(paramsOrContext);
+    const dividerY = cursorY + CONFIG.layout.dealerSectionSpacing;
+    drawDivider(ctx, dividerY);
+    cursorY = dividerY + CONFIG.layout.dividerOffset;
 
-    const { sanitizedParams, appearanceOptions } = context;
-    const { scene } = buildCardTableScene(sanitizedParams, appearanceOptions);
+    const players = normalized.playerHands.length > 0
+        ? normalized.playerHands
+        : [{
+            cards: [],
+            value: null,
+            label: "Player",
+            result: normalized.result
+        }];
 
-    const cardNames = new Set();
-    for (const node of scene.nodes) {
-        if (node.type === SceneNodeType.HAND) {
-            for (const cardName of node.hand?.cards ?? []) {
-                cardNames.add(cardName);
-            }
+    const playerRowTop = cursorY + CONFIG.layout.playersTopSpacing;
+    const slotCount = players.length;
+    const slotWidth = CONFIG.canvasWidth / (slotCount || 1);
+
+    for (let i = 0; i < slotCount; i++) {
+        const hand = players[i];
+        const centerX = slotWidth * (i + 0.5);
+
+        const headerTitle = hand.header
+            ?? hand.label
+            ?? (slotCount > 1 ? `Hand ${i + 1}` : `Hand`);
+
+        const isCurrent = Boolean(hand.isCurrent ?? hand.current ?? hand.active ?? hand.isActive);
+        const insured = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
+        const hasMultipleHands = (hand.handsForPlayer ?? slotCount) > 1;
+
+        await drawHand(ctx, hand, {
+            title: headerTitle,
+            centerX,
+            topY: playerRowTop,
+            showResultBadge: true,
+            hasMultipleHands,
+            isCurrent,
+            insured
+        });
+    }
+
+    const buffer = canvas.toBuffer(wantsSVG ? "image/svg+xml" : "image/png");
+
+    if (wantsSVG) {
+        try {
+            await fs.writeFile(DEBUG_SVG_PATH, buffer);
+        } catch (error) {
+            logger.debug("Failed to store render debug SVG", {
+                scope: "cardTableRenderer",
+                path: DEBUG_SVG_PATH,
+                error: error.message
+            });
+        }
+        return buffer;
+    }
+
+    try {
+        await fs.writeFile(DEBUG_PNG_PATH, buffer);
+    } catch (error) {
+        logger.debug("Failed to store render debug PNG", {
+            scope: "cardTableRenderer",
+            path: DEBUG_PNG_PATH,
+            error: error.message
+        });
+    }
+
+    if (sharp && Number.isFinite(CONFIG.embedTargetWidth) && CONFIG.embedTargetWidth > 0) {
+        try {
+            const targetWidth = CONFIG.embedTargetWidth;
+            const aspectRatio = CONFIG.canvasHeight / CONFIG.canvasWidth;
+            const targetHeight = Math.round(targetWidth * aspectRatio);
+            const resized = await sharp(buffer)
+                .resize({
+                    width: targetWidth,
+                    height: targetHeight,
+                    fit: "inside",
+                    withoutEnlargement: true,
+                    kernel: sharp.kernel.lanczos3
+                })
+                .png({
+                    compressionLevel: CONFIG.embedCompressionLevel ?? 8,
+                    adaptiveFiltering: true,
+                    palette: true
+                })
+                .toBuffer();
+            return resized;
+        } catch (error) {
+            logger.debug("Failed to downscale render for embed", {
+                scope: "cardTableRenderer",
+                targetWidth: CONFIG.embedTargetWidth,
+                error: error.message
+            });
         }
     }
 
-    const cardEntries = await Promise.all(
-        Array.from(cardNames, async cardName => [cardName, await loadCardImage(cardName)])
-    );
-    const cardAssets = new Map(cardEntries);
-
-    const svg = await renderSceneToSVG(scene, { cardAssets });
-
-    return Buffer.from(svg, "utf8");
+    return buffer;
 }
 
+async function renderCardTableSVG(params) {
+    const context = params?.sanitizedParams
+        ? { ...params }
+        : params;
+    return renderCardTable({ ...context, outputFormat: "svg" });
+}
+
+async function renderSceneToSVG() {
+    throw new Error("renderSceneToSVG is unavailable in canvas mode.");
+}
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
 module.exports = {
     renderCardTable,
     renderCardTableSVG,
     renderSceneToSVG,
-    buildCardTableScene,
-    resolveAppearance,
     createBlackjackTableState,
     preloadCards,
     clearImageCache,

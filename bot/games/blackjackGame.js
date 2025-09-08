@@ -526,39 +526,13 @@ module.exports = class BlackJack extends Game {
         }
 
         const dealerCardsCopy = Array.isArray(dealer.cards) ? [...dealer.cards] : []
-        const computeVisibleValue = cards => {
-            let total = 0
-            let aces = 0
-            for (const card of cards) {
-                const rank = card?.[0]
-                if (!rank) continue
-                if (rank === "A") {
-                    total += 11
-                    aces++
-                } else if (["K", "Q", "J", "T"].includes(rank)) {
-                    total += 10
-                } else {
-                    const parsed = parseInt(rank, 10)
-                    total += Number.isFinite(parsed) ? parsed : 0
-                }
-            }
-            while (total > 21 && aces > 0) {
-                total -= 10
-                aces--
-            }
-            return total
-        }
 
         const concealDealerInfo = typeof maskDealerValue === "boolean" ? maskDealerValue : hideDealerHoleCard
-        const visibleCards = hideDealerHoleCard
-            ? dealerCardsCopy.filter((_, idx) => idx !== 1)
-            : dealerCardsCopy
-
         const dealerState = {
             ...dealer,
             cards: dealerCardsCopy,
             value: concealDealerInfo
-                ? computeVisibleValue(visibleCards)
+                ? null
                 : (dealer.value ?? dealer.total ?? dealer.score ?? 0),
             blackjack: concealDealerInfo ? false : Boolean(dealer.blackjack || dealer.hasBlackjack || dealer.BJ),
             busted: concealDealerInfo ? false : Boolean(dealer.busted || dealer.isBusted)

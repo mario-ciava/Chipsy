@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, AttachmentBuilder, EmbedBuilder } = require("discord.js");
 const createCommand = require("../utils/createCommand");
-const { renderBlackjackTable } = require("../utils/renderBlackjackTable");
+const { renderBlackjackTable, renderBlackjackTableSVG } = require("../utils/renderBlackjackTable");
 
 const slashCommand = new SlashCommandBuilder()
     .setName("rendertest")
@@ -131,22 +131,32 @@ module.exports = createCommand({
 
             const testData = scenarios[scenario];
 
-            const buffer = await renderBlackjackTable({ ...testData, outputFormat: "png" });
+            const pngBuffer = await renderBlackjackTable({ ...testData, outputFormat: "png" });
+            const svgBuffer = await renderBlackjackTableSVG({ ...testData, outputFormat: "svg" }).catch(() => null);
 
-            const attachment = new AttachmentBuilder(buffer, {
+            const pngAttachment = new AttachmentBuilder(pngBuffer, {
                 name: "blackjack_table.png",
                 contentType: "image/png",
-                description: "Blackjack table rendering"
+                description: "Blackjack table rendering (PNG for inline preview)"
             });
+
+            const attachments = [pngAttachment];
+            if (svgBuffer) {
+                attachments.push(new AttachmentBuilder(svgBuffer, {
+                    name: "blackjack_table.svg",
+                    contentType: "image/svg+xml",
+                    description: "High-fidelity SVG snapshot"
+                }));
+            }
 
             const embed = new EmbedBuilder()
                 .setTitle(`Test Scenario: ${scenario}`)
-                .setDescription(`Rendered ${testData.playerHands.length} hand(s) for ${testData.playerName}`)
+                .setDescription(`Rendered ${testData.playerHands.length} hand(s) for ${testData.playerName}${svgBuffer ? "\nSVG allegato." : ""}`)
                 .setImage("attachment://blackjack_table.png")
                 .setColor(testData.result === "win" ? "#00FF00" : testData.result === "lose" ? "#FF0000" : "#FFD700")
                 .setFooter({ text: "High-quality rendering with image caching" });
 
-            await interaction.editReply({ embeds: [embed], files: [attachment] });
+            await interaction.editReply({ embeds: [embed], files: attachments });
         } catch (err) {
             const logger = require("../utils/logger");
             logger.error("Render test failed", {
