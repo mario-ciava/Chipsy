@@ -8,6 +8,7 @@ const createCommand = require("../utils/createCommand")
 const bankrollManager = require("../utils/bankrollManager")
 const { registerGame } = require("../utils/gameRegistry")
 const { createLobbySession } = require("../lobbies")
+const config = require("../config")
 
 const testerProvisionConfig = {
     testerUserId: process.env.BLACKJACK_TEST_USER_ID,
@@ -83,10 +84,10 @@ const runBlackjack = async(interaction, client) => {
             return
         }
 
-        // maxPlayers is already validated by Discord (min: 1, max: 7); when omitted fall back to unlimited seats
+        // maxPlayers is already validated by Discord (min: 1, max: 7); when omitted use configured default
         const normalizedMaxPlayers = Number.isInteger(maxPlayersInput)
             ? Math.min(Math.max(maxPlayersInput, 1), 7)
-            : null
+            : config.blackjack.maxPlayersDefault.default
 
         const safeMinBet = Math.max(1, Math.floor(minBet))
         const maxBuyIn = Math.min(safeMinBet * 100, Number.MAX_SAFE_INTEGER)
@@ -95,7 +96,7 @@ const runBlackjack = async(interaction, client) => {
             scope: "commands",
             command: "blackjack",
             minBet: safeMinBet,
-            maxPlayers: normalizedMaxPlayers ?? "unlimited",
+            maxPlayers: normalizedMaxPlayers,
             channelId: channel.id
         })
 
@@ -258,7 +259,7 @@ const runBlackjack = async(interaction, client) => {
         const lobbySession = createLobbySession({
             send: replyOrEdit,
             logger,
-            collectorOptions: { time: 5 * 60 * 1000 },
+            collectorOptions: { time: config.blackjack.lobbyTimeout.default },
             render: renderLobbyView
         })
 
@@ -313,7 +314,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -327,7 +328,7 @@ const runBlackjack = async(interaction, client) => {
                     : interactionComponent.reply.bind(interactionComponent)
                 await responder({
                     content: "❌ We could not load your profile right now. Please try again later.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -346,7 +347,7 @@ const runBlackjack = async(interaction, client) => {
             if (ctx.players.length >= maxSeats) {
                 await interactionComponent.reply({
                     content: "⚠️ This table is already full.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -354,7 +355,7 @@ const runBlackjack = async(interaction, client) => {
             if (ctx.GetPlayer(interactionComponent.user.id)) {
                 await interactionComponent.reply({
                     content: "⚠️ You are already seated at this table.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -368,10 +369,10 @@ const runBlackjack = async(interaction, client) => {
                     new Discord.ActionRowBuilder().addComponents(
                         new Discord.TextInputBuilder()
                             .setCustomId("buyin")
-                            .setLabel("Buy-in (e.g., 10k)")
+                            .setLabel("Buy-in amount")
                             .setStyle(Discord.TextInputStyle.Short)
-                            .setRequired(true)
-                            .setValue(String(ctx.minBuyIn))
+                            .setRequired(false)
+                            .setPlaceholder(`Min: ${setSeparator(ctx.minBuyIn)}$ | Max: ${setSeparator(ctx.maxBuyIn)}$`)
                     )
                 )
 
@@ -400,7 +401,7 @@ const runBlackjack = async(interaction, client) => {
             if (!Number.isFinite(parsedBuyIn) || parsedBuyIn <= 0) {
                 await submission.reply({
                     content: "❌ Please enter a valid buy-in amount.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -414,17 +415,15 @@ const runBlackjack = async(interaction, client) => {
                 }
                 await submission.reply({
                     content: `❌ ${messages[buyInResult.reason] || "Unable to process your buy-in."}`,
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
 
             await ctx.AddPlayer(submission.user, { buyIn: buyInResult.amount })
 
-            await submission.reply({
-                content: `✅ You joined with **${setSeparator(buyInResult.amount)}$**.`,
-                ephemeral: true
-            }).catch(() => null)
+            // Acknowledge submission silently
+            await submission.deferUpdate().catch(() => null)
 
             refreshLobbyView()
         })
@@ -434,7 +433,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -444,7 +443,7 @@ const runBlackjack = async(interaction, client) => {
             if (!player) {
                 await interactionComponent.followUp({
                     content: "⚠️ You are not seated at this table.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -454,7 +453,7 @@ const runBlackjack = async(interaction, client) => {
 
             await interactionComponent.followUp({
                 content: "✅ You left the table.",
-                ephemeral: true
+                flags: Discord.MessageFlags.Ephemeral
             }).catch(() => null)
         })
 
@@ -463,24 +462,34 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
 
             if (interactionComponent.user.id !== hostId) {
-                await interactionComponent.reply({
+                const reply = await interactionComponent.reply({
                     content: "❌ Only the host can start the game.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
+                if (reply) {
+                    setTimeout(() => {
+                        interactionComponent.deleteReply().catch(() => null)
+                    }, 5000)
+                }
                 return
             }
 
             if (!ctx.players.length) {
-                await interactionComponent.reply({
+                const reply = await interactionComponent.reply({
                     content: "⚠️ You need at least one player before starting.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
+                if (reply) {
+                    setTimeout(() => {
+                        interactionComponent.deleteReply().catch(() => null)
+                    }, 5000)
+                }
                 return
             }
 
@@ -500,16 +509,21 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
 
             if (interactionComponent.user.id !== hostId) {
-                await interactionComponent.reply({
+                const reply = await interactionComponent.reply({
                     content: "❌ Only the host can cancel the game.",
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
+                if (reply) {
+                    setTimeout(() => {
+                        interactionComponent.deleteReply().catch(() => null)
+                    }, 5000)
+                }
                 return
             }
 

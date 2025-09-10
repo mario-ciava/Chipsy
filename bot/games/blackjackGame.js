@@ -6,24 +6,180 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const logger = require("../utils/logger")
+const config = require("../config")
 const {
     renderCardTable,
     createBlackjackTableState
 } = require("../rendering/cardTableRenderer")
 
-// Game timing constants
-const BETS_TIMEOUT_MS = 60000 // 60 seconds for bet placement
-const BETS_TIMEOUT_DISPLAY = "60 seconds" // Display string for UI
-const ACTION_TIMEOUT_MS = 30000 // 30 seconds per player action
-const MODAL_TIMEOUT_MS = 25000 // 25 seconds for modal submission
+const CARD_VALUE_MAP = {
+    A: "A",
+    K: "K",
+    Q: "Q",
+    J: "J",
+    T: "10",
+    9: "9",
+    8: "8",
+    7: "7",
+    6: "6",
+    5: "5",
+    4: "4",
+    3: "3",
+    2: "2"
+}
+
+const CARD_SUIT_MAP = {
+    S: "♠",
+    H: "♥",
+    D: "♦",
+    C: "♣"
+}
+
+function formatCardLabel(cardCode) {
+    if (!cardCode || typeof cardCode !== "string") return cardCode ?? "";
+    const value = CARD_VALUE_MAP[cardCode[0]] ?? cardCode[0];
+    const suit = CARD_SUIT_MAP[cardCode[1]] ?? cardCode[1] ?? "";
+    return `${value}${suit}`;
+}
+
+function formatPlayerName(player) {
+    if (!player) return "**Player**";
+    const tag = player.tag || player.username || player.name || player.user?.username || "Player";
+    return `**${tag}**`;
+}
+
+// Helper function to send error message that auto-deletes after 5 seconds
+async function sendEphemeralError(interaction, content) {
+    const reply = await interaction.followUp({ content, flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+    if (reply) {
+        setTimeout(() => {
+            interaction.deleteReply(reply.id).catch(() => null)
+        }, 5000)
+    }
+    return reply
+}
+
+// Helper function to format milliseconds to human-readable time
+function formatTimeout(ms) {
+    const seconds = Math.floor(ms / 1000)
+    if (seconds < 60) {
+        return `${seconds}s`
+    }
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    if (remainingSeconds === 0) {
+        return `${minutes}m`
+    }
+    return `${minutes}m ${remainingSeconds}s`
+}
+
+// Game timing constants - loaded from config
+const BETS_TIMEOUT_MS = config.blackjack.betsTimeout.default
+const ACTION_TIMEOUT_MS = config.blackjack.actionTimeout.default
+const MODAL_TIMEOUT_MS = config.blackjack.modalTimeout.default
 
 module.exports = class BlackJack extends Game {
     constructor(info) {
         super(info)
-        this.cards = [...cards, ...cards, ...cards],
-        this.betsCollector = null,
+        // Initialize deck with configured number of decks
+        const deckCount = config.blackjack.deckCount.default
+        this.cards = Array(deckCount).fill(cards).flat()
+        this.betsCollector = null
         this.dealer = null
         this.dealerStatusMessage = null
+        this.dealerTimeline = []
+        this.roundProgressMessage = null  // Single progressive embed for entire round
+        this.autobetSetupMessages = []  // Track autobet setup messages to delete on close
+        this.lastRemovalReason = null  // Track why players were removed
+    }
+
+    appendDealerTimeline(entry) {
+        if (!entry) return
+        if (!Array.isArray(this.dealerTimeline)) {
+            this.dealerTimeline = []
+        }
+        this.dealerTimeline.push({
+            at: new Date(),
+            message: entry
+        })
+        const maxEntries = config.blackjack.timelineMaxEntries.default
+        if (this.dealerTimeline.length > maxEntries) {
+            this.dealerTimeline.shift()
+        }
+        if (this.dealerStatusMessage && typeof this.dealerStatusMessage.edit === "function") {
+            this.refreshDealerTimeline().catch(() => null)
+        }
+    }
+
+    getDeckWarning() {
+        // Show warning when deck is running low
+        if (this.cards.length < config.blackjack.reshuffleThreshold.default) {
+            return " ⚠️ Deck will be reshuffled next round"
+        }
+        return ""
+    }
+
+    clearDealerTimeline() {
+        this.dealerTimeline = []
+    }
+
+    buildDealerTimelineFields() {
+        const entries = this.dealerTimeline?.slice?.() ?? []
+        if (!entries.length) {
+            return [{ name: "Timeline", value: "No activity yet.", inline: false }]
+        }
+        const formatted = entries.map((entry) => {
+            const date = entry?.at instanceof Date ? entry.at : new Date()
+            const stamp = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}:${date.getSeconds().toString().padStart(2, "0")}`
+            const message = typeof entry === "string" ? entry : entry?.message ?? ""
+            return `${stamp} ${message}`.trim()
+        })
+        const columns = Math.min(3, Math.max(1, Math.ceil(formatted.length / 5)))
+        const perColumn = Math.ceil(formatted.length / columns)
+        const fields = []
+        for (let i = 0; i < columns; i++) {
+            const chunk = formatted.slice(i * perColumn, (i + 1) * perColumn)
+            if (!chunk.length) continue
+            fields.push({
+                name: i === 0 ? "Timeline" : "\u200b",
+                value: chunk.map(line => `• ${line}`).join("\n"),
+                inline: columns > 1
+            })
+        }
+        return fields
+    }
+
+    buildDealerTimelineDescription() {
+        const entries = this.dealerTimeline?.slice?.() ?? []
+        if (!entries.length) {
+            return "No activity yet."
+        }
+        const formatted = entries.map((entry) => {
+            const date = entry?.at instanceof Date ? entry.at : new Date()
+            const stamp = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}:${date.getSeconds().toString().padStart(2, "0")}`
+            const message = typeof entry === "string" ? entry : entry?.message ?? ""
+            return `\`${stamp}\` ${message}`.trim()
+        })
+        // Limit to last 15 entries to fit in description
+        const recent = formatted.slice(-15)
+        return recent.join("\n")
+    }
+
+    async refreshDealerTimeline() {
+        if (!this.dealerStatusMessage || typeof this.dealerStatusMessage.edit !== "function") return
+        const baseEmbed = this.dealerStatusMessage.embeds?.[0]
+        if (!baseEmbed) return
+        const embed = Discord.EmbedBuilder.from(baseEmbed)
+        const timelineDesc = this.buildDealerTimelineDescription()
+        embed.setDescription(timelineDesc)
+        try {
+            await this.dealerStatusMessage.edit({ embeds: [embed] })
+        } catch (error) {
+            logger.error("Failed to refresh dealer timeline", {
+                scope: "blackjackGame",
+                error: error.message
+            })
+        }
     }
 
     createPlayerSession(user, stackAmount) {
@@ -121,22 +277,32 @@ module.exports = class BlackJack extends Game {
             break }
             case "stand":
             case "hit": {
+                const cardLabel = info?.card ? ` (${formatCardLabel(info.card)})` : ""
+                const handLabel = typeof info?.handIndex === "number" && player?.hands?.length > 1
+                    ? ` (Hand #${info.handIndex + 1})`
+                    : ""
                 const embed = new Discord.EmbedBuilder()
-                    .setColor(type == "hit" ? Discord.Colors.Purple : Discord.Colors.LuminousVividPink)
+                    .setColor(type === "hit" ? Discord.Colors.Purple : Discord.Colors.LuminousVividPink)
                     .setFooter({
-                        text: `${player.tag} ${type == "hit" ? "hit" : "stand"}s`,
+                        text: `${player.tag} ${type === "hit" ? "hit" : "stand"}s${cardLabel}`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
+                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} ${type === "hit" ? `hits${cardLabel}` : "stands"}.`)
             break }
             case "double": {
+                const cardLabel = info?.card ? ` (${formatCardLabel(info.card)})` : ""
+                const handLabel = typeof info?.handIndex === "number" && player?.hands?.length > 1
+                    ? ` (Hand #${info.handIndex + 1})`
+                    : ""
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Orange)
                     .setFooter({
-                        text: `${player.tag} doubles (-${setSeparator(player.bets.initial)}$)`,
+                        text: `${player.tag} doubles (-${setSeparator(player.bets.initial)}$)${cardLabel}`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
+                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} doubles bet${cardLabel}.`)
             break }
             case "split": {
                 const embed = new Discord.EmbedBuilder()
@@ -146,6 +312,7 @@ module.exports = class BlackJack extends Game {
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
+                this.appendDealerTimeline(`${formatPlayerName(player)} splits hand.`)
             break }
             case "insurance": {
                 const insuranceValue = Math.max(0, Number(info?.amount ?? player?.bets?.insurance ?? 0))
@@ -156,6 +323,7 @@ module.exports = class BlackJack extends Game {
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
+                this.appendDealerTimeline(`${formatPlayerName(player)} buys insurance (${setSeparator(insuranceValue)}$).`)
             break }
             case "insuranceRefund": {
                 const payout = Math.max(0, Number(info?.payout ?? 0))
@@ -166,6 +334,7 @@ module.exports = class BlackJack extends Game {
                         iconURL: player.displayAvatarURL({ extension: "png" })
                     })
                 await sendEmbed(embed)
+                this.appendDealerTimeline(`${formatPlayerName(player)} receives insurance payout (+${setSeparator(payout)}$).`)
             break }
             case "invalidBet": {
                 const embed = new Discord.EmbedBuilder()
@@ -187,35 +356,25 @@ module.exports = class BlackJack extends Game {
             break }
             case "dealerHit":
             case "dealerStand": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(type == "dealerHit" ? Discord.Colors.Purple : Discord.Colors.LuminousVividPink)
-                    .setFooter({ text: `Dealer ${type == "dealerHit" ? "hit" : "stand"}s`, iconURL: clientAvatar })
-                await sendEmbed(embed)
+                this.appendDealerTimeline(`**Dealer** ${type === "dealerHit" ? "hits" : "stands"}.`)
             break }
             case "dealerBusted": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
-                    .setFooter({ text: "Dealer busted!", iconURL: clientAvatar })
-                await sendEmbed(embed)
+                this.appendDealerTimeline("**Dealer** busted.")
             break }
             case "showDealer": {
+                this.appendDealerTimeline(`**Dealer** reveals hidden card`)
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Blue)
                     .setTitle("Dealer Status")
-                    .setDescription(null)
 
                 const payload = {}
-                const activityLines = [
-                    "Face-down card in play.",
-                    "Awaiting dealer action."
-                ]
 
                 const snapshot = await this.captureTableRender({
                     title: `Dealer's Turn • Round #${this.hands}`,
                     filename: `blackjack_round_${this.hands}_dealer_${Date.now()}.png`,
                     description: `Dealer reveal snapshot for round ${this.hands}`,
-                    hideDealerHoleCard: true,
-                    maskDealerValue: true,
+                    hideDealerHoleCard: false,
+                    maskDealerValue: false,
                     forceResult: null
                 })
                 if (snapshot) {
@@ -223,84 +382,15 @@ module.exports = class BlackJack extends Game {
                     payload.files = [snapshot.attachment]
                 }
 
-                if (activityLines.length > 0) {
-                    embed.setFields({ name: "Activity", value: activityLines.join("\n") })
-                } else {
-                    embed.setFields([])
-                }
-                embed.setFooter({ text: "Dealer will stand on 17 or higher." })
+                embed.setDescription(this.buildDealerTimelineDescription())
                 const message = await sendEmbed(embed, [], payload)
                 this.dealerStatusMessage = message
                 return message
             break }
             case "showStartingCards": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Blue)
-                    .setTitle(`Starting cards | Round #${this.hands}`)
-                    .setDescription([
-                        this.inGamePlayers.map((pl) => {
-                            return `${pl} — Bet ${setSeparator(pl.bets.initial)}$`;
-                        }).join("\n") || "-",
-                        "**Dealer:** Starting hand prepared."
-                    ].filter(Boolean).join("\n\n"))
-                const payload = {}
-                const snapshot = await this.captureTableRender({
-                    title: `Starting Cards • Round #${this.hands}`,
-                    filename: `blackjack_round_${this.hands}_starting_${Date.now()}.png`,
-                    description: `Starting cards snapshot for round ${this.hands}`,
-                    hideDealerHoleCard: true,
-                    maskDealerValue: true,
-                    forceResult: null
-                })
-                if (snapshot) {
-                    embed.setImage(`attachment://${snapshot.filename}`)
-                    payload.files = [snapshot.attachment]
-                }
-                await sendEmbed(embed, [], payload)
-            break }
-            case "showFinalResults": {
-                const snapshot = await this.captureTableRender({
-                    title: `Final Results • Round #${this.hands}`,
-                    filename: `blackjack_round_${this.hands}_${Date.now()}.png`,
-                    description: `Blackjack table snapshot for round ${this.hands}`,
-                    forceResult: null
-                })
-
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Blue)
-                    .setTitle("Dealer Status")
-                    .setDescription(null)
-                    .setFields([])
-                    .setFooter({ text: "Dealer will stand on 17 or higher." })
-
-                const payload = {}
-                if (snapshot) {
-                    embed.setImage(`attachment://${snapshot.filename}`)
-                    payload.files = [snapshot.attachment]
-                }
-
-                const editPayload = {
-                    embeds: [embed],
-                    components: []
-                }
-                if (payload.files) {
-                    editPayload.files = payload.files
-                    editPayload.attachments = []
-                }
-
-                if (this.dealerStatusMessage && typeof this.dealerStatusMessage.edit === "function") {
-                    try {
-                        await this.dealerStatusMessage.edit(editPayload)
-                    } catch (error) {
-                        logger.error("Failed to update dealer status with final results", {
-                            scope: "blackjackGame",
-                            error: error.message
-                        })
-                        this.dealerStatusMessage = await sendEmbed(embed, [], payload)
-                    }
-                } else {
-                    this.dealerStatusMessage = await sendEmbed(embed, [], payload)
-                }
+                this.clearDealerTimeline()
+                this.appendDealerTimeline(`Round #${this.hands} started. Dealing opening cards.`)
+                // Don't send separate message - will be shown in first player's embed
             break }
             case "displayInfo": {
                 const handSummary = player.hands.map((hand, idx) => {
@@ -320,7 +410,7 @@ module.exports = class BlackJack extends Game {
                         info ? "*Standing automatically*" : null
                     ].filter(Boolean).join("\n\n"))
                     .setFooter({
-                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | 30s left`,
+                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | ${Math.round(ACTION_TIMEOUT_MS / 1000)}s left`,
                         iconURL: clientAvatar
                     })
 
@@ -400,15 +490,35 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "busted": {
+                const handIndex = player.hands.indexOf(info)
+                const handLabel = handIndex >= 0 && player.hands.length > 1 ? ` (Hand #${handIndex + 1})` : ""
+                this.appendDealerTimeline(`${formatPlayerName(player)} busts${handLabel}.`)
+            break }
+            case "playersOutOfMoney": {
+                const impactedEntries = Array.isArray(info?.players) ? info.players : (player ? [player] : [])
+                const impactedPlayers = impactedEntries
+                    .map((entry) => (typeof entry === "string" ? this.GetPlayer(entry) : entry))
+                    .filter((pl) => pl && typeof pl === "object")
+                if (impactedPlayers.length < 1) {
+                    break
+                }
                 const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
-                    .setTitle("Busted!")
-                    .setDescription(`Hand #${player.hands.indexOf(info) + 1} • ${Number.isFinite(info.value) ? info.value : "??"} • Busted`)
-                    .setFooter({
-                        text: `${player.tag} | Total bet: ${setSeparator(player.bets.total)}$`,
-                        iconURL: player.displayAvatarURL({ extension: "png" })
-                    })
-                await sendEmbed(embed)
+                    .setColor(Discord.Colors.DarkRed)
+                    .setTitle(impactedPlayers.length === 1 ? "Player eliminated" : "Players eliminated")
+                    .setDescription(impactedPlayers
+                        .map((pl) => `${formatPlayerName(pl)} lost all of their money and has left the table.`)
+                        .join("\n"))
+                const footerText = info?.finalizeGame
+                    ? "Game over: no active players remain."
+                    : "Eliminated players can rebuy to rejoin the table."
+                if (footerText) {
+                    const footer = { text: footerText }
+                    if (clientAvatar) {
+                        footer.iconURL = clientAvatar
+                    }
+                    embed.setFooter(footer)
+                }
+                await sendEmbed(embed, [], { allowedMentions: { users: [] } })
             break }
             case "noMoneyBet": {
                 const embed = new Discord.EmbedBuilder()
@@ -435,7 +545,7 @@ module.exports = class BlackJack extends Game {
                             })
                             .join("\n") || "-"}`
                     })
-                    .setFooter({ text: `You have got ${BETS_TIMEOUT_DISPLAY} | Deck remaining cards: ${this.cards.length}` })
+                    .setFooter({ text: `You have got ${formatTimeout(BETS_TIMEOUT_MS)}${this.getDeckWarning()}` })
 
                 const components = [
                     new Discord.ActionRowBuilder().addComponents(
@@ -462,8 +572,8 @@ module.exports = class BlackJack extends Game {
             case "betsClosed": {
                 const allBetsPlaced = info?.allBetsPlaced === true
                 const message = allBetsPlaced
-                    ? "All players have placed their bets"
-                    : "Time is up"
+                    ? "All bets placed."
+                    : "Time is up."
                 const embed = new Discord.EmbedBuilder()
                     .setColor(Discord.Colors.Red)
                     .setTitle(`Bets closed | Round #${this.hands}`)
@@ -597,23 +707,21 @@ module.exports = class BlackJack extends Game {
 
     async NextHand() {
         if (!this.playing) return
-        
+
         await this.Reset()
+        this.lastRemovalReason = null
         if (this.hands < 1) await this.Shuffle(this.cards)
 
-        if (this.cards.length < 25) {
-            this.cards = [...cards, ...cards, ...cards]
+        if (this.cards.length < config.blackjack.reshuffleThreshold.default) {
+            const deckCount = config.blackjack.deckCount.default
+            this.cards = Array(deckCount).fill(cards).flat()
             await this.Shuffle(this.cards)
             await this.SendMessage("deckRestored")
             await sleep(2000)
         }
 
-        for (let player of this.players) {
-            // Stack is maintained from buy-in and previous hands, not reset to bankroll
-            if (this.hands > 0 && player.stack < this.minBet) {
-                this.RemovePlayer(player)
-                continue
-            }
+        // Reset all player state for the new round
+        for (const player of this.players) {
             player.data.last_played = new Date
             player.hands = []
             player.status = {
@@ -637,6 +745,22 @@ module.exports = class BlackJack extends Game {
             }
         }
 
+        // Check for and remove players without enough money AFTER resetting bets
+        // This ensures we check their actual available stack, not mid-round bets
+        const removedForNoMoney = []
+        for (const player of [...this.players]) {
+            if (this.hands > 0 && player.stack < this.minBet) {
+                removedForNoMoney.push(player)
+                this.lastRemovalReason = "noMoney"
+                await this.RemovePlayer(player, { skipStop: true })
+            }
+        }
+
+        if (removedForNoMoney.length > 0 && this.players.length < 1) {
+            await this.Stop({ notify: false, reason: "allPlayersRanOutOfMoney" })
+            return
+        }
+
         this.dealer = {
             cards: [],
             value: 0,
@@ -645,10 +769,67 @@ module.exports = class BlackJack extends Game {
         }
 
         this.dealerStatusMessage = null
+        this.roundProgressMessage = null
 
         this.hands++
 
         this.AwaitBets()
+    }
+
+    async handlePlayersOutOfFunds(players, options = {}) {
+        const { finalizeGame = false } = options
+        if (!Array.isArray(players) || players.length < 1) {
+            return { removed: 0, endedGame: false }
+        }
+
+        const uniquePlayers = []
+        const seenIds = new Set()
+        for (const entry of players) {
+            const resolvedPlayer = typeof entry === "string" ? this.GetPlayer(entry) : entry
+            if (!resolvedPlayer || typeof resolvedPlayer !== "object") continue
+            const playerId = resolvedPlayer.id || resolvedPlayer.user?.id
+            if (!playerId || seenIds.has(playerId)) continue
+            const tablePlayer = this.GetPlayer(playerId) || resolvedPlayer
+            if (!tablePlayer || typeof tablePlayer !== "object") continue
+            seenIds.add(playerId)
+            uniquePlayers.push(tablePlayer)
+        }
+
+        if (uniquePlayers.length === 0) {
+            return { removed: 0, endedGame: false }
+        }
+
+        for (const bustedPlayer of uniquePlayers) {
+            this.appendDealerTimeline(`${formatPlayerName(bustedPlayer)} lost all of their money.`)
+        }
+
+        try {
+            await this.SendMessage("playersOutOfMoney", null, {
+                players: uniquePlayers,
+                finalizeGame
+            })
+        } catch (error) {
+            logger.debug("Failed to send playersOutOfMoney notification", {
+                scope: "blackjackGame",
+                error: error.message
+            })
+        }
+
+        for (const bustedPlayer of uniquePlayers) {
+            this.lastRemovalReason = "noMoney"
+            try {
+                await this.RemovePlayer(bustedPlayer, { skipStop: true })
+            } catch (error) {
+                logger.error("Failed to remove player with depleted stack", {
+                    scope: "blackjackGame",
+                    playerId: bustedPlayer?.id,
+                    error: error.message
+                })
+            }
+        }
+
+        const endedGame = finalizeGame || this.players.length === 0
+        return { removed: uniquePlayers.length, endedGame }
     }
 
     async AwaitBets() {
@@ -699,6 +880,7 @@ module.exports = class BlackJack extends Game {
 
         // Check if all active players have placed their bets (via autobet)
         const allBetsPlaced = this.players.filter(p => !p.newEntry).every(p => p.bets && p.bets.initial > 0)
+        const someBetsPlaced = this.players.filter(p => !p.newEntry).some(p => p.bets && p.bets.initial > 0)
 
         this.betsMessage = await this.SendMessage("betsOpened")
         if (!this.betsMessage) {
@@ -709,8 +891,13 @@ module.exports = class BlackJack extends Game {
             return this.Stop({ reason: "error", notify: false })
         }
 
-        // If all bets placed via autobet, use short timeout (3 seconds) to allow disable
-        const betTimeout = allBetsPlaced ? 3000 : BETS_TIMEOUT_MS
+        // If any bets were placed via autobet, update the message to show them
+        if (someBetsPlaced) {
+            await this.UpdateBetsMessage(this.betsMessage)
+        }
+
+        // If all bets placed via autobet, use short timeout to allow disable
+        const betTimeout = allBetsPlaced ? config.blackjack.autobetShortTimeout.default : BETS_TIMEOUT_MS
 
         this.betsCollector = this.betsMessage.createMessageComponentCollector({
             filter: (interaction) => {
@@ -727,23 +914,31 @@ module.exports = class BlackJack extends Game {
             const player = this.GetPlayer(interaction.user.id)
 
             if (!player || !player.data) {
-                await interaction.reply({ content: "⚠️ You are not in this game.", ephemeral: true }).catch(() => null)
+                await interaction.reply({ content: "⚠️ You are not in this game.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
                 return
             }
 
             if (action === "leave") {
                 await interaction.deferUpdate().catch(() => null)
 
-                // Update bets message to show player leaving
-                await this.UpdateBetsMessageForLeave(player)
+                const leavingPlayer = player
 
-                await this.RemovePlayer(player)
+                await this.RemovePlayer(leavingPlayer, { skipStop: true })
 
-                // Check if all players left during betting phase
+                // If everyone left, close bets with the proper reason and stop the round gracefully
                 if (this.players.length === 0) {
-                    // Stop collector and game
-                    if (this.betsCollector) this.betsCollector.stop("allPlayersLeft")
+                    // Always update the embed first, then clean up
+                    await this.CloseBetsMessage("allPlayersLeft")
+                    if (this.betsCollector && !this.betsCollector.ended) {
+                        this.betsCollector.stop("allPlayersLeft")
+                    }
+                    this.betsCollector = null
+                    await this.Stop({ reason: "allPlayersLeft", notify: false })
+                    return
                 }
+
+                // Otherwise refresh the bets panel for remaining players
+                await this.UpdateBetsMessageForLeave(leavingPlayer)
                 return
             }
 
@@ -751,7 +946,7 @@ module.exports = class BlackJack extends Game {
                 if (player.bets && player.bets.initial > 0) {
                     const reply = await interaction.reply({
                         content: "⚠️ You have already placed your bet for this round.",
-                        ephemeral: true
+                        flags: Discord.MessageFlags.Ephemeral
                     }).catch(() => null)
 
                     if (reply) {
@@ -789,37 +984,43 @@ module.exports = class BlackJack extends Game {
                 const setupReply = await interaction.reply({
                     content: "🔄 **Autobet Setup**\n\nSelect how many consecutive rounds you want to autobet:",
                     components: [row],
-                    ephemeral: true
+                    flags: Discord.MessageFlags.Ephemeral
                 }).catch(() => null)
+
+                // Track this message for cleanup
+                if (setupReply) {
+                    this.autobetSetupMessages.push({ interaction, messageId: setupReply.id })
+                }
 
                 // Wait for select menu interaction
                 const selectFilter = (i) => i.customId.startsWith("bj_autobet_rounds:") && i.user.id === interaction.user.id
                 const selectCollector = interaction.channel.createMessageComponentCollector({
                     filter: selectFilter,
-                    time: 30000,
+                    time: ACTION_TIMEOUT_MS,
                     max: 1
                 })
 
                 selectCollector.on("collect", async(selectInteraction) => {
                     const rounds = parseInt(selectInteraction.values[0])
 
-                    // Delete the setup message after selection
+                    // Delete the setup message after selection and remove from tracking
                     if (setupReply) {
                         interaction.deleteReply().catch(() => null)
+                        this.autobetSetupMessages = this.autobetSetupMessages.filter(msg => msg.messageId !== setupReply.id)
                     }
 
                     // Now show modal for bet amount
                     const modalCustomId = `bj_autobet_modal:${selectInteraction.message.id}:${selectInteraction.user.id}:${rounds}`
                     const modal = new Discord.ModalBuilder()
                         .setCustomId(modalCustomId)
-                        .setTitle("Autobet Amount")
+                        .setTitle(`Autobet Setup (${rounds} rounds)`)
 
                     const betInput = new Discord.TextInputBuilder()
                         .setCustomId("bet_amount")
-                        .setLabel(`Bet amount (per round, ${rounds} times)`)
+                        .setLabel("Bet amount per round")
                         .setStyle(Discord.TextInputStyle.Short)
-                        .setPlaceholder(`Min: ${setSeparator(this.minBet)}$ | Max: ${setSeparator(Math.min(this.maxBuyIn, player.stack))}$`)
-                        .setRequired(true)
+                        .setRequired(false)
+                        .setPlaceholder(`Min: ${setSeparator(this.minBet)}$ | Max: ${setSeparator(this.maxBuyIn)}$`)
 
                     const actionRow = new Discord.ActionRowBuilder().addComponents(betInput)
                     modal.addComponents(actionRow)
@@ -841,16 +1042,23 @@ module.exports = class BlackJack extends Game {
 
                     await submission.deferUpdate().catch(() => null)
 
-                    const betAmountStr = submission.fields.getTextInputValue("bet_amount")
-                    const bet = features.inputConverter(betAmountStr)
+                    // Check if bets collector has ended (timeout/closure)
+                    if (!this.betsCollector || this.betsCollector.ended) {
+                        await sendEphemeralError(submission, "❌ Betting time has ended.")
+                        return
+                    }
+
+                    const betAmountStr = submission.fields.getTextInputValue("bet_amount")?.trim()
+                    const parsedBet = betAmountStr ? features.inputConverter(betAmountStr) : this.minBet
+                    const bet = parsedBet
 
                     if (!Number.isFinite(bet) || bet < this.minBet || bet > this.maxBuyIn) {
-                        await submission.followUp({ content: `❌ Invalid bet amount. Please bet between ${setSeparator(this.minBet)}$ and ${setSeparator(this.maxBuyIn)}$`, ephemeral: true }).catch(() => null)
+                        await sendEphemeralError(submission, `❌ Invalid bet amount. Please bet between ${setSeparator(this.minBet)}$ and ${setSeparator(this.maxBuyIn)}$`)
                         return
                     }
 
                     if (!bankrollManager.withdrawStackOnly(player, bet)) {
-                        await submission.followUp({ content: "❌ Insufficient funds.", ephemeral: true }).catch(() => null)
+                        await sendEphemeralError(submission, "❌ Insufficient funds.")
                         return
                     }
 
@@ -884,7 +1092,7 @@ module.exports = class BlackJack extends Game {
 
                     const confirmReply = await submission.followUp({
                         content: `✅ Autobet active: ${setSeparator(bet)}$ x ${rounds} rounds\n💰 First bet placed: ${setSeparator(bet)}$`,
-                        ephemeral: true
+                        flags: Discord.MessageFlags.Ephemeral
                     }).catch(() => null)
 
                     // Delete after 5 seconds
@@ -908,7 +1116,7 @@ module.exports = class BlackJack extends Game {
                 if (player.bets && player.bets.initial > 0) {
                     const reply = await interaction.reply({
                         content: "⚠️ You have already placed your bet for this round.",
-                        ephemeral: true
+                        flags: Discord.MessageFlags.Ephemeral
                     }).catch(() => null)
 
                     if (reply) {
@@ -923,15 +1131,15 @@ module.exports = class BlackJack extends Game {
                 const modalCustomId = `bj_bet_modal:${interaction.message.id}:${interaction.user.id}`
                 const modal = new Discord.ModalBuilder()
                     .setCustomId(modalCustomId)
-                    .setTitle("Place your bet")
+                    .setTitle(`Place Your Bet (Round #${this.hands})`)
                     .addComponents(
                         new Discord.ActionRowBuilder().addComponents(
                             new Discord.TextInputBuilder()
                                 .setCustomId("betAmount")
-                                .setLabel("Bet amount (e.g., 10k or leave empty for min)")
+                                .setLabel("Bet amount")
                                 .setStyle(Discord.TextInputStyle.Short)
                                 .setRequired(false)
-                                .setPlaceholder(`Min: ${setSeparator(this.minBet)}$`)
+                                .setPlaceholder(`Min: ${setSeparator(this.minBet)}$ | Max: ${setSeparator(player.stack)}$`)
                         )
                     )
 
@@ -959,29 +1167,38 @@ module.exports = class BlackJack extends Game {
 
                 if (!submission) return
 
+                // Acknowledge submission immediately to prevent modal error
+                await submission.deferUpdate().catch(() => null)
+
+                // Check if bets collector has ended (timeout/closure)
+                if (!this.betsCollector || this.betsCollector.ended) {
+                    await sendEphemeralError(submission, "❌ Betting time has ended.")
+                    return
+                }
+
                 const rawBetInput = submission.fields.getTextInputValue("betAmount")?.trim()
                 const parsedBet = rawBetInput ? features.inputConverter(rawBetInput) : this.minBet
                 let bet = parsedBet
 
                 if (!Number.isFinite(bet) || bet <= 0) {
-                    await submission.reply({ content: "❌ Invalid bet amount.", ephemeral: true }).catch(() => null)
+                    await sendEphemeralError(submission, "❌ Invalid bet amount.")
                     return
                 }
 
                 bet = Math.floor(bet)
 
                 if (bet < this.minBet) {
-                    await submission.reply({ content: `❌ Minimum bet is ${setSeparator(this.minBet)}$.`, ephemeral: true }).catch(() => null)
+                    await sendEphemeralError(submission, `❌ Minimum bet is ${setSeparator(this.minBet)}$.`)
                     return
                 }
 
                 if (!bankrollManager.canAffordStack(player, bet)) {
-                    await submission.reply({ content: "❌ You don't have enough chips for that bet.", ephemeral: true }).catch(() => null)
+                    await sendEphemeralError(submission, "❌ You don't have enough chips for that bet.")
                     return
                 }
 
                 if (!bankrollManager.withdrawStackOnly(player, bet)) {
-                    await submission.reply({ content: "❌ Failed to place bet.", ephemeral: true }).catch(() => null)
+                    await sendEphemeralError(submission, "❌ Failed to place bet.")
                     return
                 }
 
@@ -1014,18 +1231,6 @@ module.exports = class BlackJack extends Game {
                 // Update the bets message instead of sending a new one
                 await this.UpdateBetsMessage(this.betsMessage)
 
-                // Send ephemeral message that auto-deletes after 5 seconds
-                const replied = await submission
-                    .reply({ content: `✅ Bet placed: ${setSeparator(bet)}$`, ephemeral: true })
-                    .then(() => true)
-                    .catch(() => false)
-
-                if (replied) {
-                    setTimeout(() => {
-                        submission.deleteReply().catch(() => null)
-                    }, 5000)
-                }
-
                 let remaining = this.players.filter((player) => {
                     return player.bets ? player.bets.initial < 1 : true == false
                 }).length
@@ -1034,21 +1239,34 @@ module.exports = class BlackJack extends Game {
             }
         })
         this.betsCollector.on("end", async(coll, reason) => {
+            // If game already stopped or collector already nullified, skip
+            if (!this.playing || !this.betsCollector) return
+
             await this.UpdateInGame()
 
-            // If all players left during betting, stop game without further messages
+            // Everyone left during betting: close the panel with the proper notice and shut down quietly
             if (reason === "allPlayersLeft") {
-                return this.Stop({ reason: "allPlayersLeft", notify: false })
+                await this.CloseBetsMessage("allPlayersLeft")
+                this.betsCollector = null
+                await this.Stop({ reason: "allPlayersLeft", notify: false })
+                return
             }
 
+            // No bets placed - modify embed to show game deleted and stop
             if (this.inGamePlayers.length < 1 && this.playing) {
-                // No bets placed - stop game without showing "bets closed" message
-                return this.Stop({ reason: "noBetsPlaced" })
+                await this.CloseBetsMessage("noBetsPlaced")
+                this.betsCollector = null
+                await this.Stop({ reason: "noBetsPlaced", notify: false })
+                return
             }
 
             // Bets were placed - modify existing bets message to show closed state
-            const allBetsPlaced = reason === "allBetsPlaced"
-            await this.CloseBetsMessage(allBetsPlaced)
+            // Check if all active players have placed bets (even if reason is timeout from autobet)
+            const allBetsPlaced = this.players.filter(p => !p.newEntry).every(p => p.bets && p.bets.initial > 0)
+            const closureReason = (reason === "allBetsPlaced" || allBetsPlaced)
+                ? "allBetsPlaced"
+                : reason === "forced" ? "forced" : "timeout"
+            await this.CloseBetsMessage(closureReason)
             await sleep(1000)
             if (!this.collector) await this.CreateOptions()
             this.betsCollector = null
@@ -1067,10 +1285,15 @@ module.exports = class BlackJack extends Game {
         await this.UpdateInGame()
         let currentPlayer = player ? player : this.inGamePlayers[0]
         currentPlayer.status.current = true
+        currentPlayer.status.actionLog = [] // Initialize action log for this turn
+        // Initialize currentHand to 0 if not set (first time this player plays)
+        if (!Number.isFinite(currentPlayer.status.currentHand)) {
+            currentPlayer.status.currentHand = 0
+        }
         currentPlayer.availableOptions = await this.GetAvailableOptions(currentPlayer, currentPlayer.status.currentHand)
         this.timer = setTimeout(() => {
             this.Action("stand", currentPlayer, currentPlayer.status.currentHand)
-        }, 30 * 1000)
+        }, ACTION_TIMEOUT_MS)
 
         const currentHand = currentPlayer.hands[currentPlayer.status.currentHand]
         // Auto-stand on 21 or blackjack
@@ -1079,35 +1302,51 @@ module.exports = class BlackJack extends Game {
             this.timer = null
             currentPlayer.availableOptions = []
             await sleep(2000)
-            this.SendMessage("displayInfo", currentPlayer, true)
+            await this.updateRoundProgressEmbed(currentPlayer, true)
             await sleep(3500)
             return this.Action("stand", currentPlayer, currentPlayer.status.currentHand, true)
         }
         await sleep(2000)
-        this.SendMessage("displayInfo", currentPlayer)
+        await this.updateRoundProgressEmbed(currentPlayer)
     }
 
     async UpdateBetsMessage(message) {
         if (!message || typeof message.edit !== "function") return
 
-        // Build list of bet statuses for each player
-        const betStatuses = this.players.filter((p) => !p.newEntry).map((p) => {
+        // Separate players into those who have bet and those who haven't
+        const playersWithBets = []
+        const playersWaiting = []
+
+        this.players.filter((p) => !p.newEntry).forEach((p) => {
             const hasBet = p.bets && p.bets.initial > 0
-            const betDisplay = hasBet
-                ? `✅ ${setSeparator(p.bets.initial)}$`
-                : "⏳ Waiting..."
-            return `${p} - ${betDisplay}`
+            if (hasBet) {
+                playersWithBets.push(`${p} - ✅ ${setSeparator(p.bets.initial)}$`)
+            } else {
+                playersWaiting.push(`${p} - ⏳ Waiting... (Stack: ${setSeparator(p.stack)}$)`)
+            }
         })
 
         const embed = new Discord.EmbedBuilder()
             .setColor(Discord.Colors.Green)
             .setTitle(`Bets opened | Round #${this.hands}`)
             .setDescription("Click **Bet** to place your bet, or **Leave** to exit the game.")
-            .addFields({
+
+        // Add fields conditionally
+        if (playersWithBets.length > 0) {
+            embed.addFields({
                 name: "Bet Status",
-                value: betStatuses.join("\n") || "—"
+                value: playersWithBets.join("\n")
             })
-            .setFooter({ text: `You have got ${BETS_TIMEOUT_DISPLAY} | Deck remaining cards: ${this.cards.length}` })
+        }
+
+        if (playersWaiting.length > 0) {
+            embed.addFields({
+                name: "Available stacks",
+                value: playersWaiting.join("\n")
+            })
+        }
+
+        embed.setFooter({ text: `You have got ${formatTimeout(BETS_TIMEOUT_MS)}${this.getDeckWarning()}` })
 
         // Keep the same buttons from the original message
         const components = message.components
@@ -1125,181 +1364,113 @@ module.exports = class BlackJack extends Game {
 
     async UpdateBetsMessageForLeave(leavingPlayer) {
         if (!this.betsMessage || typeof this.betsMessage.edit !== "function") return
+        if (this.players.length === 0) return
 
-        // Build current bet list
-        const betStatuses = this.players.filter((p) => !p.newEntry && p.id !== leavingPlayer.id).map((p) => {
+        // Separate players into those who have bet and those who haven't
+        const playersWithBets = []
+        const playersWaiting = []
+
+        this.players.filter((p) => !p.newEntry).forEach((p) => {
             const hasBet = p.bets && p.bets.initial > 0
-            const betDisplay = hasBet
-                ? `✅ ${setSeparator(p.bets.initial)}$`
-                : "⏳ Waiting..."
-            return `${p} - ${betDisplay}`
-        })
-
-        // Check if this was the last player
-        const isLastPlayer = this.players.filter(p => p.id !== leavingPlayer.id).length === 0
-
-        if (isLastPlayer) {
-            // Game will be cancelled - show final message
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Orange)
-                .setTitle(`Game Cancelled | Round #${this.hands}`)
-                .setDescription(`${leavingPlayer} left the game.\n\nAll players have left. The game has been cancelled.`)
-                .setFooter({ text: "Start a new game to play" })
-
-            // Disable all buttons
-            const disabledComponents = this.betsMessage.components.map((row) => {
-                const newRow = Discord.ActionRowBuilder.from(row)
-                newRow.components.forEach((component) => {
-                    if (typeof component.setDisabled === 'function') {
-                        component.setDisabled(true)
-                    }
-                })
-                return newRow
-            })
-
-            try {
-                await this.betsMessage.edit({ embeds: [embed], components: disabledComponents })
-            } catch (error) {
-                logger.error("Failed to update bets message for leave", {
-                    scope: "blackjackGame",
-                    channelId: this.channel?.id,
-                    error: error.message
-                })
+            if (hasBet) {
+                playersWithBets.push(`${p} - ✅ ${setSeparator(p.bets.initial)}$`)
+            } else {
+                playersWaiting.push(`${p} - ⏳ Waiting... (Stack: ${setSeparator(p.stack)}$)`)
             }
-        } else {
-            // Game continues - just update the player list
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Yellow)
-                .setTitle(`Bets opened | Round #${this.hands}`)
-                .setDescription(`${leavingPlayer} left the game.\n\nClick **Bet** to place your bet, or **Leave** to exit the game.`)
-                .addFields({
-                    name: "Bet Status",
-                    value: betStatuses.join("\n") || "—"
-                })
-                .setFooter({ text: `You have got ${BETS_TIMEOUT_DISPLAY} | Deck remaining cards: ${this.cards.length}` })
-
-            // Keep the same buttons
-            const components = this.betsMessage.components
-
-            try {
-                await this.betsMessage.edit({ embeds: [embed], components })
-            } catch (error) {
-                logger.error("Failed to update bets message for leave", {
-                    scope: "blackjackGame",
-                    channelId: this.channel?.id,
-                    error: error.message
-                })
-            }
-        }
-    }
-
-    async CloseBetsMessage(allBetsPlaced = false) {
-        if (!this.betsMessage || typeof this.betsMessage.edit !== "function") return
-
-        const message = allBetsPlaced
-            ? "All players have placed their bets"
-            : "Time is up"
-
-        // Build final bet list
-        const betStatuses = this.players.filter((p) => !p.newEntry).map((p) => {
-            const hasBet = p.bets && p.bets.initial > 0
-            const betDisplay = hasBet
-                ? `✅ ${setSeparator(p.bets.initial)}$`
-                : "❌ No bet"
-            return `${p} - ${betDisplay}`
         })
 
         const embed = new Discord.EmbedBuilder()
-            .setColor(Discord.Colors.Red)
+            .setColor(Discord.Colors.Yellow)
+            .setTitle(`Bets opened | Round #${this.hands}`)
+            .setDescription(`${leavingPlayer} left the game.\n\nClick **Bet** to place your bet, or **Leave** to exit the game.`)
+
+        // Add fields conditionally
+        if (playersWithBets.length > 0) {
+            embed.addFields({
+                name: "Bet Status",
+                value: playersWithBets.join("\n")
+            })
+        }
+
+        if (playersWaiting.length > 0) {
+            embed.addFields({
+                name: "Available stacks",
+                value: playersWaiting.join("\n")
+            })
+        }
+
+        embed.setFooter({ text: `You have got ${formatTimeout(BETS_TIMEOUT_MS)}${this.getDeckWarning()}` })
+
+        const components = this.betsMessage.components
+
+        try {
+            await this.betsMessage.edit({ embeds: [embed], components })
+        } catch (error) {
+            logger.error("Failed to update bets message for leave", {
+                scope: "blackjackGame",
+                channelId: this.channel?.id,
+                error: error.message
+            })
+        }
+    }
+
+    async CloseBetsMessage(reason = "timeout") {
+        if (!this.betsMessage || typeof this.betsMessage.edit !== "function") return
+
+        let message = "Time is up."
+        let color = Discord.Colors.Red
+        let isGameDeleted = false
+
+        if (reason === "allBetsPlaced") {
+            message = "All bets placed."
+            color = Discord.Colors.Green
+        } else if (reason === "allPlayersLeft") {
+            message = "Game deleted: all players left."
+            color = Discord.Colors.Orange
+            isGameDeleted = true
+        } else if (reason === "allPlayersRanOutOfMoney") {
+            message = "Game ended: all players ran out of money."
+            color = Discord.Colors.Orange
+            isGameDeleted = true
+        } else if (reason === "noBetsPlaced") {
+            message = "Game deleted: bets not placed."
+            color = Discord.Colors.Orange
+            isGameDeleted = true
+        } else if (reason === "forced") {
+            message = "Betting closed by the dealer."
+            color = Discord.Colors.Orange
+        }
+
+        const embed = new Discord.EmbedBuilder()
+            .setColor(color)
             .setTitle(`Bets closed | Round #${this.hands}`)
             .setDescription(message)
-            .addFields({
-                name: "Final Bets",
+
+        // Only show bet status if game is not deleted (players are still active)
+        if (!isGameDeleted) {
+            // Regenerate bet status to ensure we show current bet values, not cached embed
+            const betStatuses = this.players.filter((p) => !p.newEntry).map((p) => {
+                const hasBet = p.bets && p.bets.initial > 0
+                const betDisplay = hasBet
+                    ? `✅ ${setSeparator(p.bets.initial)}$`
+                    : "⏳ Waiting..."
+                return `${p} - ${betDisplay}`
+            })
+
+            embed.addFields({
+                name: "Bet Status",
                 value: betStatuses.join("\n") || "—"
             })
-
-        // Check if any player has active autobet
-        const playersWithAutobet = this.players.filter(p => p.autobet && p.autobet.remaining > 0)
-
-        let components = []
-
-        if (playersWithAutobet.length > 0) {
-            // Single button for all players with autobet
-            const autobetRow = new Discord.ActionRowBuilder()
-            autobetRow.addComponents(
-                new Discord.ButtonBuilder()
-                    .setCustomId("bj_disable_autobet")
-                    .setLabel("Disable Autobet")
-                    .setStyle(Discord.ButtonStyle.Danger)
-                    .setEmoji("🛑")
-            )
-
-            components.push(autobetRow)
-
-            // Set up a temporary collector for disable autobet button
-            const disableCollector = this.betsMessage.createMessageComponentCollector({
-                filter: (i) => i.customId === "bj_disable_autobet",
-                time: 5000 // 5 seconds to disable
-            })
-
-            disableCollector.on("collect", async(interaction) => {
-                const player = this.GetPlayer(interaction.user.id)
-
-                if (!player || !player.autobet) {
-                    const reply = await interaction.reply({
-                        content: "❌ You don't have an active autobet.",
-                        ephemeral: true
-                    }).catch(() => null)
-
-                    // Delete after 5 seconds
-                    if (reply) {
-                        setTimeout(() => {
-                            interaction.deleteReply().catch(() => null)
-                        }, 5000)
-                    }
-                    return
-                }
-
-                delete player.autobet
-                const reply = await interaction.reply({
-                    content: "✅ Autobet disabled successfully.",
-                    ephemeral: true
-                }).catch(() => null)
-
-                // Delete after 5 seconds
-                if (reply) {
-                    setTimeout(() => {
-                        interaction.deleteReply().catch(() => null)
-                    }, 5000)
-                }
-
-                // Check if anyone still has autobet
-                const stillHaveAutobet = this.players.some(p => p.autobet && p.autobet.remaining > 0)
-                if (!stillHaveAutobet) {
-                    // Remove the button
-                    try {
-                        await this.betsMessage.edit({ embeds: [embed], components: [] })
-                    } catch (error) {
-                        logger.error("Failed to update autobet button", {
-                            scope: "blackjackGame",
-                            error: error.message
-                        })
-                    }
-                }
-            })
-        } else {
-            // No autobet - disable all betting buttons
-            const disabledComponents = this.betsMessage.components.map((row) => {
-                const newRow = Discord.ActionRowBuilder.from(row)
-                newRow.components.forEach((component) => {
-                    if (typeof component.setDisabled === 'function') {
-                        component.setDisabled(true)
-                    }
-                })
-                return newRow
-            })
-            components = disabledComponents
         }
+
+        // Only show footer if there's a deck warning
+        const deckWarning = this.getDeckWarning()
+        if (deckWarning) {
+            embed.setFooter({ text: deckWarning.trim() })
+        }
+
+        // Remove all buttons from bets closed message
+        const components = []
 
         try {
             await this.betsMessage.edit({ embeds: [embed], components })
@@ -1310,6 +1481,21 @@ module.exports = class BlackJack extends Game {
                 error: error.message
             })
         }
+
+        // Delete any pending autobet setup messages
+        for (const setupMsg of this.autobetSetupMessages) {
+            try {
+                if (setupMsg.interaction && typeof setupMsg.interaction.deleteReply === "function") {
+                    await setupMsg.interaction.deleteReply().catch(() => null)
+                }
+            } catch (error) {
+                logger.debug("Failed to delete autobet setup message", {
+                    scope: "blackjackGame",
+                    error: error.message
+                })
+            }
+        }
+        this.autobetSetupMessages = []
     }
 
     async UpdateDealerMessage(message, action, newCard = null) {
@@ -1319,46 +1505,27 @@ module.exports = class BlackJack extends Game {
 
         let actionText = ""
         let color = Discord.Colors.Blue
-        let activityLines = []
 
         switch (action) {
             case "hit":
                 actionText = "Dealer hits!"
                 color = Discord.Colors.Purple
-                activityLines = [
-                    "Dealer draws a new card.",
-                    this.dealer.busted ? "Dealer busted!" : `Total: ${this.dealer.value}`
-                ].filter(Boolean)
                 break
             case "stand":
                 actionText = "Dealer stands!"
                 color = Discord.Colors.Green
-                activityLines = [
-                    "Dealer stands.",
-                    `Final total: ${this.dealer.value}${this.dealer.BJ ? " • Blackjack" : ""}`
-                ]
                 break
             case "busted":
                 actionText = "Dealer busted!"
                 color = Discord.Colors.Red
-                activityLines = [
-                    "Dealer exceeded 21.",
-                    `Total: ${this.dealer.value}`,
-                    "Proceeding to payouts."
-                ]
                 break
             default:
                 actionText = "Dealer's turn"
-                activityLines = [
-                    "Dealer is evaluating next move.",
-                    `Current total: ${this.dealer.value}`
-                ]
         }
 
         const embed = new Discord.EmbedBuilder()
             .setColor(color)
             .setTitle("Dealer Status")
-            .setDescription(null)
 
         const snapshot = await this.captureTableRender({
             title: `Dealer's Turn • Round #${this.hands}`,
@@ -1379,12 +1546,7 @@ module.exports = class BlackJack extends Game {
             editPayload.attachments = []
         }
 
-        if (activityLines.length > 0) {
-            embed.setFields({ name: "Activity", value: activityLines.join("\n") })
-        } else {
-            embed.setFields([])
-        }
-        embed.setFooter({ text: "Dealer will stand on 17 or higher." })
+        embed.setDescription(this.buildDealerTimelineDescription())
 
         try {
             await message.edit(editPayload)
@@ -1398,27 +1560,53 @@ module.exports = class BlackJack extends Game {
     }
 
     async CreateOptions() {
-        // Component collector for button interactions
+        // Component collector for button interactions (actions + disable autobet)
         this.collector = this.channel.createMessageComponentCollector({
             filter: (interaction) => {
                 if (!interaction || interaction.user?.bot) return false
+                // Accept both action buttons and disable autobet button
+                if (interaction.customId === "bj_disable_autobet") return true
                 if (!interaction.customId || !interaction.customId.startsWith("bj_action:")) return false
-                const player = this.GetPlayer(interaction.user.id)
-                return player && player.status && player.status.current
+                // Allow all players to click (permission check happens in collect handler)
+                return true
             },
             time: 5 * 60 * 1000 // 5 minutes timeout
         })
         this.collector.on("collect", async(interaction) => {
+            // Handle disable autobet button
+            if (interaction.customId === "bj_disable_autobet") {
+                const player = this.GetPlayer(interaction.user.id)
+                if (!player || !player.autobet || player.autobet.remaining <= 0) {
+                    await interaction.reply({ content: "⚠️ You don't have an active autobet.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                    return
+                }
+
+                player.autobet = null
+                await interaction.reply({ content: "✅ Autobet disabled.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                return
+            }
+
+            // Handle regular action buttons
             const [, action, playerId] = interaction.customId.split(":")
             const player = this.GetPlayer(playerId)
 
             if (!player || !player.status || !player.status.current) {
-                await interaction.reply({ content: "⚠️ It's not your turn.", ephemeral: true }).catch(() => null)
+                const reply = await interaction.reply({ content: "⚠️ It's not your turn.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                if (reply) {
+                    setTimeout(() => {
+                        interaction.deleteReply().catch(() => null)
+                    }, 5000)
+                }
                 return
             }
 
             if (interaction.user.id !== playerId) {
-                await interaction.reply({ content: "⚠️ It's not your turn.", ephemeral: true }).catch(() => null)
+                const reply = await interaction.reply({ content: "⚠️ You're not allowed to do this action.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                if (reply) {
+                    setTimeout(() => {
+                        interaction.deleteReply().catch(() => null)
+                    }, 5000)
+                }
                 return
             }
 
@@ -1434,27 +1622,37 @@ module.exports = class BlackJack extends Game {
             }).length
             hand.value = 0
 
-            for (let card of hand.cards) {
-                let firstCard = hand.cards[0].split("")[0],
-                    secondCard = hand.cards[1].split("")[0]
-
-                if (hand.cards.length == 2 && !hand.pair && firstCard == secondCard) hand.pair = true
-                if (!hand.pair && hand.cards.length == 2 && aces == 1 && (player ? player.hands.length < 2 : true == true)) {
-                    let fig = hand.cards.filter((card) => {
-                        return ["K", "Q", "J", "T"].includes(card.split("")[0])
-                    }).length
-                    if (fig > 0) hand.BJ = true
+            // Check for pair BEFORE the loop (only if we have exactly 2 cards)
+            if (hand.cards.length == 2 && !hand.pair) {
+                const firstCard = hand.cards[0].split("")[0]
+                const secondCard = hand.cards[1].split("")[0]
+                if (firstCard == secondCard) {
+                    hand.pair = true
                 }
+            }
 
+            // Check for blackjack (only if we have exactly 2 cards, 1 ace, and no pair)
+            if (!hand.pair && hand.cards.length == 2 && aces == 1 && (player ? player.hands.length < 2 : true == true)) {
+                let fig = hand.cards.filter((card) => {
+                    return ["K", "Q", "J", "T"].includes(card.split("")[0])
+                }).length
+                if (fig > 0) hand.BJ = true
+            }
+
+            // Calculate hand value
+            for (let card of hand.cards) {
                 let val = parseInt(card.split("")[0])
                 if (!isNaN(val)) hand.value += val
                     else if (card.split("")[0] == "A") hand.value += 11
-                        else hand.value += 10                
+                        else hand.value += 10
             }
+
+            // Adjust for aces
             while (hand.value > 21 && aces > 0) {
                 hand.value -= 10
                 aces--
             }
+
             if (hand.value > 21) hand.busted = true
                 else hand.busted = false
             return hand
@@ -1486,40 +1684,89 @@ module.exports = class BlackJack extends Game {
 
     async Action(type, player, hand, automatic) {
         if (!player.availableOptions.includes(type) && !automatic) return
+
+        // Prevent race condition: if action is already in progress, ignore subsequent calls
+        if (player.status?.actionInProgress) {
+            logger.debug("Action already in progress, ignoring duplicate call", {
+                scope: "blackjackGame",
+                playerId: player.id,
+                action: type
+            })
+            return
+        }
+
+        // Mark action as in progress
+        if (!player.status) player.status = {}
+        player.status.actionInProgress = true
+
+        // Clear timer to prevent auto-stand from firing
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
+
         await this.ComputeHandsValue(player)
+
+        let shouldUpdateEmbed = false
+        let cardDrawn = null
+
         switch(type) {
             case `stand`:
-                await this.SendMessage("stand", player)
+                const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
+                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} stands.`)
+                if (player.status.actionLog) {
+                    player.status.actionLog.push(`Stood${handLabel}`)
+                }
+                shouldUpdateEmbed = true
             break
-            case `hit`:
-                player.hands[hand].cards = player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
+            case `hit`: {
+                const newCard = await this.PickRandom(this.cards, 1)
+                player.hands[hand].cards = player.hands[hand].cards.concat(newCard)
                 await this.ComputeHandsValue(player)
-                await this.SendMessage("hit", player)
-                if (!player.hands[hand].busted) return this.NextPlayer(player)
-            break
+                const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
+                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} hits (${formatCardLabel(newCard[0])}).`)
+                if (player.status.actionLog) {
+                    player.status.actionLog.push(`Hit${handLabel} → ${formatCardLabel(newCard[0])}`)
+                }
+                cardDrawn = newCard[0]
+                shouldUpdateEmbed = true
+                if (!player.hands[hand].busted) {
+                    player.status.actionInProgress = false
+                    return this.NextPlayer(player)
+                }
+            break }
             case `double`: {
                 const additionalBet = Number.isFinite(player.bets?.initial) ? player.bets.initial : 0
                 if (additionalBet < 1 || !bankrollManager.canAffordStack(player, additionalBet)) {
                     await this.SendMessage("noMoneyBet", player)
+                    player.status.actionInProgress = false
                     return this.NextPlayer(player)
                 }
-                player.hands[hand].cards = player.hands[hand].cards.concat(await this.PickRandom(this.cards, 1))
+                const newCard = await this.PickRandom(this.cards, 1)
+                player.hands[hand].cards = player.hands[hand].cards.concat(newCard)
                 if (!bankrollManager.withdrawStackOnly(player, additionalBet)) {
                     await this.SendMessage("noMoneyBet", player)
+                    player.status.actionInProgress = false
                     return this.NextPlayer(player)
                 }
                 player.bets.total += additionalBet
                 player.hands[hand].bet += additionalBet
                 await this.ComputeHandsValue(player)
-                await this.SendMessage("double", player)
-                if (!player.hands[hand].busted) return this.NextPlayer(player, true)
+                const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
+                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} doubles bet (${formatCardLabel(newCard[0])}).`)
+                if (player.status.actionLog) {
+                    player.status.actionLog.push(`Doubled${handLabel} → ${formatCardLabel(newCard[0])}`)
+                }
+                cardDrawn = newCard[0]
+                shouldUpdateEmbed = true
+                if (!player.hands[hand].busted) {
+                    player.status.actionInProgress = false
+                    return this.NextPlayer(player, true)
+                }
             break }
             case `split`: {
                 const splitCost = Number.isFinite(player.bets?.initial) ? player.bets.initial : 0
                 if (splitCost < 1 || !bankrollManager.canAffordStack(player, splitCost)) {
                     await this.SendMessage("noMoneyBet", player)
+                    player.status.actionInProgress = false
                     return this.NextPlayer(player)
                 }
                 const currentHand = player.hands[hand]
@@ -1544,22 +1791,33 @@ module.exports = class BlackJack extends Game {
                 await this.ComputeHandsValue(player)
                 if (!bankrollManager.withdrawStackOnly(player, splitCost)) {
                     await this.SendMessage("noMoneyBet", player)
+                    player.status.actionInProgress = false
                     return this.NextPlayer(player)
                 }
                 player.bets.total += splitCost
-                await this.SendMessage("split", player)
+                this.appendDealerTimeline(`${formatPlayerName(player)} splits hand.`)
+                if (player.status.actionLog) {
+                    player.status.actionLog.push("Split hand")
+                }
+                shouldUpdateEmbed = true
+                player.status.actionInProgress = false
                 return this.NextPlayer(player)
             }
             case `insurance`: {
                 const insuranceBet = Math.floor(player.bets.initial / 2)
-                if (insuranceBet < 1 || player.bets.insurance > 0) return this.NextPlayer(player)
+                if (insuranceBet < 1 || player.bets.insurance > 0) {
+                    player.status.actionInProgress = false
+                    return
+                }
                 if (!bankrollManager.canAffordStack(player, insuranceBet)) {
                     await this.SendMessage("noMoneyBet", player)
-                    return this.NextPlayer(player)
+                    player.status.actionInProgress = false
+                    return
                 }
                 if (!bankrollManager.withdrawStackOnly(player, insuranceBet)) {
                     await this.SendMessage("noMoneyBet", player)
-                    return this.NextPlayer(player)
+                    player.status.actionInProgress = false
+                    return
                 }
                 player.bets.insurance += insuranceBet
                 player.bets.total += insuranceBet
@@ -1567,17 +1825,40 @@ module.exports = class BlackJack extends Game {
                     wager: insuranceBet,
                     settled: false
                 }
-                await this.SendMessage("insurance", player, { amount: insuranceBet })
-                return this.NextPlayer(player)
+                this.appendDealerTimeline(`${formatPlayerName(player)} buys insurance (${setSeparator(insuranceBet)}$).`)
+                if (player.status.actionLog) {
+                    player.status.actionLog.push(`Bought insurance (${setSeparator(insuranceBet)}$)`)
+                }
+                // Don't call NextPlayer - just recalculate options and continue turn
+                player.availableOptions = await this.GetAvailableOptions(player, player.status.currentHand)
+                player.status.actionInProgress = false
+                // Update embed with insurance purchase and new options
+                await this.updateRoundProgressEmbed(player)
+                // Insurance doesn't end the turn - return to keep collecting actions
+                return
             }
             break
+        }
+
+        // Update player embed with new action (always call, not dependent on infoMessage)
+        if (shouldUpdateEmbed) {
+            await this.updateRoundProgressEmbed(player)
         }
 
         await sleep(2000)
         await this.ComputeHandsValue(player)
 
-        if (player.hands[hand].busted) 
-            this.SendMessage("busted", player, player.hands[hand])
+        if (player.hands[hand].busted) {
+            const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
+            this.appendDealerTimeline(`${formatPlayerName(player)} busts${handLabel}.`)
+            // Always update embed to show bust result
+            await this.updateRoundProgressEmbed(player)
+            // Give user time to see the bust result before moving on
+            await sleep(3000)
+        }
+
+        // Reset action in progress flag
+        player.status.actionInProgress = false
 
         if (player.hands[hand + 1]) {
             player.status.currentHand++
@@ -1590,6 +1871,172 @@ module.exports = class BlackJack extends Game {
         }
     }
 
+    async updateRoundProgressEmbed(player, autoStanding = false) {
+        try {
+            const handSummary = player.hands.map((hand, idx) => {
+                const isCurrent = idx === player.status.currentHand
+                const statusParts = [Number.isFinite(hand.value) ? `${hand.value}` : "??"]
+                if (hand.busted) statusParts.push("Busted")
+                if (hand.BJ) statusParts.push("Blackjack")
+                if (hand.push) statusParts.push("Push")
+                return `${isCurrent ? "▶ " : ""}Hand #${idx + 1} • ${statusParts.join(" • ")}`
+            }).join("\n") || "No cards drawn yet."
+
+            // Build action log description
+            const actionLogText = player.status.actionLog && player.status.actionLog.length > 0
+                ? player.status.actionLog.join("\n")
+                : "No activity yet."
+
+            const embed = new Discord.EmbedBuilder()
+                .setColor(Discord.Colors.Gold)
+                .setTitle(`${player.tag}'s turn`)
+                .setDescription(actionLogText)
+                .setFooter({
+                    text: `Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"}${autoStanding ? "" : ` | ${Math.round(ACTION_TIMEOUT_MS / 1000)}s left`}`,
+                    iconURL: this.client?.user?.displayAvatarURL({ extension: "png" }) ?? null
+                })
+
+            const components = []
+            if (player.availableOptions && player.availableOptions.length > 0 && !autoStanding) {
+                const row = new Discord.ActionRowBuilder()
+                const optionButtons = {
+                    stand: { label: "Stand", style: Discord.ButtonStyle.Secondary, emoji: "🛑" },
+                    hit: { label: "Hit", style: Discord.ButtonStyle.Primary, emoji: "🎯" },
+                    double: { label: "Double", style: Discord.ButtonStyle.Success, emoji: "💰" },
+                    split: { label: "Split", style: Discord.ButtonStyle.Success, emoji: "✂️" },
+                    insurance: { label: "Insurance", style: Discord.ButtonStyle.Danger, emoji: "🛡️" }
+                }
+                for (const option of player.availableOptions) {
+                    if (optionButtons[option]) {
+                        const btn = optionButtons[option]
+                        row.addComponents(
+                            new Discord.ButtonBuilder()
+                                .setCustomId(`bj_action:${option}:${player.id}`)
+                                .setLabel(btn.label)
+                                .setStyle(btn.style)
+                                .setEmoji(btn.emoji)
+                        )
+                    }
+                }
+                components.push(row)
+            }
+
+            // Add disable autobet button if player has active autobet
+            if (player.autobet && player.autobet.remaining > 0) {
+                const autobetRow = new Discord.ActionRowBuilder()
+                autobetRow.addComponents(
+                    new Discord.ButtonBuilder()
+                        .setCustomId("bj_disable_autobet")
+                        .setLabel("Disable Autobet")
+                        .setStyle(Discord.ButtonStyle.Danger)
+                        .setEmoji("🛑")
+                )
+                components.push(autobetRow)
+            }
+
+            // Render image FIRST before sending/editing
+            const snapshot = await this.captureTableRender({
+                title: `${player.tag} • Round #${this.hands}`,
+                filename: `blackjack_round_${this.hands}_progress_${Date.now()}.png`,
+                description: `Round progress snapshot for ${player.tag}`,
+                focusPlayerId: player.id,
+                hideDealerHoleCard: true,
+                maskDealerValue: true,
+                forceResult: null
+            })
+
+            // Build payload with image ready BEFORE any Discord API call
+            const payload = {
+                embeds: [embed],
+                components
+            }
+
+            if (snapshot) {
+                embed.setImage(`attachment://${snapshot.filename}`)
+                payload.files = [snapshot.attachment]
+                // When editing, clear old attachments to prevent glitch
+                if (this.roundProgressMessage) {
+                    payload.attachments = []
+                }
+            }
+
+            // Edit existing message or create new one
+            if (this.roundProgressMessage && typeof this.roundProgressMessage.edit === "function") {
+                await this.roundProgressMessage.edit(payload)
+            } else {
+                const channel = this.channel
+                if (channel && typeof channel.send === "function") {
+                    this.roundProgressMessage = await channel.send(payload)
+                }
+            }
+        } catch (error) {
+            logger.error("Failed to update round progress embed", {
+                scope: "blackjackGame",
+                playerId: player?.id,
+                error: error.message
+            })
+        }
+    }
+
+    async updateDealerProgressEmbed(isFinal = false) {
+        try {
+            const timelineText = this.buildDealerTimelineDescription()
+
+            const embed = new Discord.EmbedBuilder()
+                .setColor(isFinal ? Discord.Colors.Blue : Discord.Colors.Purple)
+                .setTitle(isFinal ? "Final Results" : "Dealer Status")
+                .setDescription(timelineText)
+
+            // Render image FIRST before editing
+            const snapshot = await this.captureTableRender({
+                title: isFinal ? `Final Results • Round #${this.hands}` : `Dealer's Turn • Round #${this.hands}`,
+                filename: `blackjack_round_${this.hands}_dealer_${Date.now()}.png`,
+                description: `Dealer ${isFinal ? 'final' : 'turn'} snapshot for round ${this.hands}`,
+                hideDealerHoleCard: false,
+                maskDealerValue: false,
+                forceResult: null
+            })
+
+            // Build payload with image ready BEFORE any Discord API call
+            const payload = {
+                embeds: [embed],
+                components: []
+            }
+
+            if (snapshot) {
+                embed.setImage(`attachment://${snapshot.filename}`)
+                payload.files = [snapshot.attachment]
+                // When editing, clear old attachments to prevent glitch
+                if (this.roundProgressMessage) {
+                    payload.attachments = []
+                }
+            }
+
+            // Edit the same progressive message
+            if (this.roundProgressMessage && typeof this.roundProgressMessage.edit === "function") {
+                await this.roundProgressMessage.edit(payload)
+            } else {
+                const channel = this.channel
+                if (channel && typeof channel.send === "function") {
+                    this.roundProgressMessage = await channel.send(payload)
+                }
+            }
+
+            // Also keep reference as dealerStatusMessage for compatibility
+            this.dealerStatusMessage = this.roundProgressMessage
+        } catch (error) {
+            logger.error("Failed to update dealer progress embed", {
+                scope: "blackjackGame",
+                error: error.message
+            })
+        }
+    }
+
+    async updatePlayerInfoEmbed(player) {
+        // Deprecated - now using updateRoundProgressEmbed
+        await this.updateRoundProgressEmbed(player)
+    }
+
     async DealerAction() {
         await this.ComputeHandsValue(null, this.dealer)
         await this.UpdateInGame()
@@ -1600,129 +2047,151 @@ module.exports = class BlackJack extends Game {
             })
         })
 
+        let eliminationResult = { removed: 0, endedGame: false }
+
         if (remainingPlayers.length < 1) {
-            this.SendMessage("noRemaining")
             for (let player of this.inGamePlayers) {
                 player.status.won.expEarned += 10
                 await this.CheckExp(player.status.won.expEarned, player)
                 await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
             }
-            return this.NextHand()
-        }
+        } else {
+            // Update progressive embed to show dealer's turn
+            this.appendDealerTimeline(`**Dealer** reveals hidden card`)
+            await this.updateDealerProgressEmbed()
+            await sleep(3500)
 
-        // Show initial dealer cards
-        const dealerMessage = await this.SendMessage("showDealer")
-        await sleep(3500)
+            // Dealer draws cards until 17 or higher
+            while (this.dealer.value < 17) {
+                const newCard = await this.PickRandom(this.cards, 1)
+                this.dealer.cards = this.dealer.cards.concat(newCard)
+                await this.ComputeHandsValue(null, this.dealer)
+                this.appendDealerTimeline(`**Dealer** draws ${formatCardLabel(newCard[0])} (total ${this.dealer.value}).`)
 
-        // Dealer draws cards until 17 or higher
-        while (this.dealer.value < 17) {
-            const newCard = await this.PickRandom(this.cards, 1)
-            this.dealer.cards = this.dealer.cards.concat(newCard)
-            await this.ComputeHandsValue(null, this.dealer)
-
-            // Update the same embed instead of sending new messages, highlighting new card
-            if (dealerMessage) {
-                await this.UpdateDealerMessage(dealerMessage, "hit", newCard[0])
+                // Update the progressive embed
+                await this.updateDealerProgressEmbed()
                 await sleep(3500)
             }
-        }
 
-        // Final dealer status update
-        if (dealerMessage) {
+            // Final dealer status update
             const finalAction = this.dealer.busted ? "busted" : "stand"
-            await this.UpdateDealerMessage(dealerMessage, finalAction)
+            if (finalAction === "busted") {
+                this.appendDealerTimeline("**Dealer** busts.")
+            } else {
+                this.appendDealerTimeline(`**Dealer** stands at ${this.dealer.value}.`)
+            }
+            await this.updateDealerProgressEmbed()
             await sleep(3500)
-        }
 
-        for (let player of this.inGamePlayers) {
+            for (let player of this.inGamePlayers) {
                 player.status.won.expEarned += 10
                 // Count total hands played (important for split scenarios)
                 player.data.hands_played += player.hands.length
-            const insuranceWager = player.status.insurance?.wager || 0
-            if (this.dealer.BJ && insuranceWager > 0 && !player.status.insurance.settled) {
-                const insurancePayout = insuranceWager * 3
-                bankrollManager.depositStackOnly(player, insurancePayout)
-                player.status.insurance.settled = true
-                player.status.won.grossValue += insurancePayout
-                player.status.won.netValue += (insurancePayout - insuranceWager)
-                await this.SendMessage("insuranceRefund", player, { payout: insurancePayout })
-                await sleep(1000)
-            }
-            for (let hand of player.hands) {
-                let wf = 1
-                let handWon = false
-                hand.result = null
-                hand.payout = 0
-                if (hand.busted) {
-                    hand.result = "lose"
-                    hand.payout = -hand.bet
-                    continue
+                const insuranceWager = player.status.insurance?.wager || 0
+                if (this.dealer.BJ && insuranceWager > 0 && !player.status.insurance.settled) {
+                    const insurancePayout = insuranceWager * 3
+                    bankrollManager.depositStackOnly(player, insurancePayout)
+                    player.status.insurance.settled = true
+                    player.status.won.grossValue += insurancePayout
+                    player.status.won.netValue += (insurancePayout - insuranceWager)
+                    this.appendDealerTimeline(`${formatPlayerName(player)} receives insurance payout (+${setSeparator(insurancePayout)}$).`)
+                    await sleep(1000)
                 }
-
-                // Determine outcome and win factor
-                if (this.dealer.busted) {
-                    // Dealer busted - player wins
-                    wf = hand.BJ ? 2.5 : 2
-                    handWon = true
-                    hand.result = "win"
-                } else {
-                    // Dealer not busted
-                    if (hand.value < this.dealer.value) {
-                        // Player loses
+                for (let hand of player.hands) {
+                    let wf = 1
+                    let handWon = false
+                    hand.result = null
+                    hand.payout = 0
+                    if (hand.busted) {
                         hand.result = "lose"
                         hand.payout = -hand.bet
                         continue
-                    } else if (hand.value == this.dealer.value) {
-                        // Push - return bet only (not counted as win)
-                        hand.push = true
-                        wf = 1
-                        handWon = false
-                        hand.result = "push"
-                    } else {
-                        // Player wins (hand.value > dealer.value)
+                    }
+
+                    // Determine outcome and win factor
+                    if (this.dealer.busted) {
+                        // Dealer busted - player wins
                         wf = hand.BJ ? 2.5 : 2
                         handWon = true
                         hand.result = "win"
+                    } else {
+                        // Dealer not busted
+                        if (hand.value < this.dealer.value) {
+                            // Player loses
+                            hand.result = "lose"
+                            hand.payout = -hand.bet
+                            continue
+                        } else if (hand.value == this.dealer.value) {
+                            // Push - return bet only (not counted as win)
+                            hand.push = true
+                            wf = 1
+                            handWon = false
+                            hand.result = "push"
+                        } else {
+                            // Player wins (hand.value > dealer.value)
+                            wf = hand.BJ ? 2.5 : 2
+                            handWon = true
+                            hand.result = "win"
+                        }
+                    }
+
+                    // Calculate winnings
+                    if (hand.push) {
+                        // Push: return the bet (no net gain/loss)
+                        bankrollManager.depositStackOnly(player, hand.bet)
+                        // grossValue and netValue stay 0 for push (player gets money back but no profit)
+                        hand.payout = 0
+                    } else {
+                        // Win: apply win factor and withholding tax
+                        const grossWinning = hand.bet * wf
+                        const netWinning = this.GetNetValue(grossWinning, player)
+                        bankrollManager.depositStackOnly(player, netWinning)
+                        player.status.won.grossValue += grossWinning
+                        player.status.won.netValue += netWinning
+                        hand.payout = netWinning - hand.bet
+                    }
+
+                    // Count individual hand wins
+                    if (handWon) {
+                        player.data.hands_won++
                     }
                 }
-
-                // Calculate winnings
-                if (hand.push) {
-                    // Push: return the bet (no net gain/loss)
-                    bankrollManager.depositStackOnly(player, hand.bet)
-                    // grossValue and netValue stay 0 for push (player gets money back but no profit)
-                    hand.payout = 0
-                } else {
-                    // Win: apply win factor and withholding tax
-                    const grossWinning = hand.bet * wf
-                    const netWinning = this.GetNetValue(grossWinning, player)
-                    bankrollManager.depositStackOnly(player, netWinning)
-                    player.status.won.grossValue += grossWinning
-                    player.status.won.netValue += netWinning
-                    hand.payout = netWinning - hand.bet
+                if (player.status.won.grossValue > 0) {
+                    player.status.won.expEarned += parseInt((Math.log(player.status.won.grossValue)) * (1.2 + (Math.sqrt(player.status.won.grossValue) * 0.003)) + 10)
                 }
-
-                // Count individual hand wins
-                if (handWon) {
-                    player.data.hands_won++
-                }
+                if (player.status.won.grossValue > player.data.biggest_won) player.data.biggest_won = player.status.won.grossValue
+                await this.CheckExp(player.status.won.expEarned, player)
+                // Save stats (but not stack - stack stays at table for next hand)
+                await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
             }
-            if (player.status.won.grossValue > 0) {
-                player.status.won.expEarned += parseInt((Math.log(player.status.won.grossValue)) * (1.2 + (Math.sqrt(player.status.won.grossValue) * 0.003)) + 10)
-            }
-            if (player.status.won.grossValue > player.data.biggest_won) player.data.biggest_won = player.status.won.grossValue
-            await this.CheckExp(player.status.won.expEarned, player)
-            // Save stats (but not stack - stack stays at table for next hand)
-            await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
         }
 
-        this.SendMessage("showFinalResults")
+        const playersOutOfMoney = this.players.filter((pl) => {
+            return pl.stack < this.minBet
+        })
+        if (playersOutOfMoney.length > 0) {
+            const finalizeGame = playersOutOfMoney.length >= this.players.length
+            eliminationResult = await this.handlePlayersOutOfFunds(playersOutOfMoney, { finalizeGame })
+        }
+
+        this.appendDealerTimeline(`Round #${this.hands} showdown.`)
+        await this.updateDealerProgressEmbed(true)
+
+        if (eliminationResult?.endedGame) {
+            await this.Stop({ notify: false, reason: "allPlayersRanOutOfMoney" })
+            return
+        }
+
         this.UpdateInGame()
         await sleep(4500)
         let available = this.players.filter((pl) => {
             return pl.stack > 0
         })
-        if (this.playing && available.length < 1) return this.Stop()
+        if (this.playing && available.length < 1) {
+            const notify = this.lastRemovalReason !== "noMoney"
+            await this.Stop({ notify, reason: notify ? undefined : "allPlayersRanOutOfMoney" })
+            return
+        }
         this.NextHand()
     }
 
@@ -1768,11 +2237,12 @@ module.exports = class BlackJack extends Game {
         // playerAdded message removed - lobby will handle the update
     }
 
-    async RemovePlayer(player) {
+    async RemovePlayer(player, options = {}) {
+        const { skipStop = false, stopOptions = {} } = options
         const playerId = typeof player === "object" ? player?.id : player
-        if (!playerId) return
+        if (!playerId) return false
         const existing = this.GetPlayer(playerId)
-        if (!existing) return
+        if (!existing) return false
 
         // Return stack to bankroll before removing player
         if (existing.stack > 0) {
@@ -1782,10 +2252,21 @@ module.exports = class BlackJack extends Game {
 
         const index = this.players.indexOf(existing)
         if (index !== -1) this.players.splice(index, 1)
-        // playerRemoved message removed - lobby will handle the update
-        if (this.players.length < 1) {
+        this.UpdateInGame()
+
+        const noPlayersLeft = this.players.length < 1
+        if (noPlayersLeft && !skipStop) {
+            const stopPayload = { ...stopOptions }
+            if (!Object.prototype.hasOwnProperty.call(stopPayload, "reason")) {
+                // Use more specific reason if available
+                if (this.lastRemovalReason === "noMoney") {
+                    stopPayload.reason = "allPlayersRanOutOfMoney"
+                } else {
+                    stopPayload.reason = "allPlayersLeft"
+                }
+            }
             try {
-                await this.Stop()
+                await this.Stop(stopPayload)
             } catch (error) {
                 logger.error("Failed to stop blackjack after removing last player", {
                     scope: "blackjackGame",
@@ -1795,12 +2276,11 @@ module.exports = class BlackJack extends Game {
                 })
             }
         }
+        return true
     }
 
     UpdateInGame() {
-        return this.inGamePlayers = this.players.filter((pl) => {
-            return !pl.newEntry && (pl.bets ? pl.bets.initial > 0 : false == true)
-        })
+        return this.inGamePlayers = this.players.filter((pl) => pl && !pl.newEntry && pl.bets && pl.bets.initial > 0)
     }
 
     async Reset () {
@@ -1816,6 +2296,7 @@ module.exports = class BlackJack extends Game {
             await delete player.hands
             await delete player.newEntry
         }
+        this.dealerTimeline = []
     }
     async Stop(options = {}) {
         if (this.__stopping) {
@@ -1824,6 +2305,44 @@ module.exports = class BlackJack extends Game {
         this.__stopping = true
         const notify = Object.prototype.hasOwnProperty.call(options || {}, "notify") ? options.notify : true
         const reason = options.reason || "allPlayersLeft"
+
+        // Remove buttons from progressive round embed
+        if (this.roundProgressMessage && typeof this.roundProgressMessage.edit === "function") {
+            try {
+                const progressEmbed = this.roundProgressMessage.embeds?.[0]
+                if (progressEmbed) {
+                    const updatedEmbed = Discord.EmbedBuilder.from(progressEmbed)
+                    await this.roundProgressMessage.edit({
+                        embeds: [updatedEmbed],
+                        components: []
+                    })
+                }
+            } catch (error) {
+                logger.debug("Failed to remove buttons from progress embed on stop", {
+                    scope: "blackjackGame",
+                    error: error.message
+                })
+            }
+        }
+
+        // Remove buttons from bets message
+        if (this.betsMessage && typeof this.betsMessage.edit === "function") {
+            try {
+                const betsEmbed = this.betsMessage.embeds?.[0]
+                if (betsEmbed) {
+                    const updatedEmbed = Discord.EmbedBuilder.from(betsEmbed)
+                    await this.betsMessage.edit({
+                        embeds: [updatedEmbed],
+                        components: []
+                    })
+                }
+            } catch (error) {
+                logger.debug("Failed to remove buttons from bets embed on stop", {
+                    scope: "blackjackGame",
+                    error: error.message
+                })
+            }
+        }
 
         // Sync all stacks to bankroll before stopping
         for (const player of this.players) {

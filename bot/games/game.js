@@ -10,7 +10,7 @@ module.exports = class Game {
         this.minBet = info.minBet || null
         this.minBuyIn = info.minBuyIn|| info.minBet * 8 || null
         this.maxBuyIn = info.maxBuyIn || info.minBet * 40 || null
-        this.maxPlayers = info.maxPlayers || null
+        this.maxPlayers = info.maxPlayers !== undefined ? info.maxPlayers : null
         this.client = info.message.client
         this.dataHandler = this.client?.dataHandler
         if (!this.dataHandler) {

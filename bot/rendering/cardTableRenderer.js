@@ -23,6 +23,8 @@ const PROJECT_ROOT = path.join(__dirname, "../..");
 const DEBUG_PNG_PATH = path.join(PROJECT_ROOT, "render-debug.png");
 const DEBUG_SVG_PATH = path.join(PROJECT_ROOT, "render-debug.svg");
 
+let cardBackPromise = null;
+
 const CONFIG = Object.freeze({
     canvasWidth: 1280,
     canvasHeight: 960,
@@ -35,7 +37,7 @@ const CONFIG = Object.freeze({
     cardHeight: 198,
     cardSpacing: 20,
     cardsPath: path.join(PROJECT_ROOT, "assets/cards"),
-    cardBackColor: "#1F5F3C",
+    cardBackImage: path.join(PROJECT_ROOT, "assets/cards/back.png"),
 
     fontFamily: "SF Pro Display",
     fontPaths: [
@@ -45,6 +47,7 @@ const CONFIG = Object.freeze({
 
     titleSize: 48,
     sectionTitleSize: 36,
+    subtitleSize: 24,
     valueSize: 32,
     infoSize: 26,
 
@@ -73,6 +76,7 @@ const CONFIG = Object.freeze({
         dividerOffset: 28,
         playersTopSpacing: 40,
         sectionTitleSpacing: 18,
+        subtitleSpacing: 6,
         cardsSpacing: 22,
         valueSpacing: 18,
         infoSpacing: 12,
@@ -110,6 +114,26 @@ function normalizeCardName(card) {
     return card;
 }
 
+async function ensureCardBackLoaded() {
+    if (cardCache.has("__card_back__")) return;
+    if (!cardBackPromise) {
+        cardBackPromise = loadImage(CONFIG.cardBackImage)
+            .then(image => {
+                cardCache.set("__card_back__", image);
+                return image;
+            })
+            .catch(error => {
+                logger.error("Failed to load card back image", {
+                    scope: "cardTableRenderer",
+                    path: CONFIG.cardBackImage,
+                    error: error.message
+                });
+                return null;
+            });
+    }
+    await cardBackPromise;
+}
+
 async function loadCardImage(cardName) {
     const normalized = normalizeCardName(cardName);
     if (cardCache.has(normalized)) {
@@ -133,11 +157,43 @@ async function loadCardImage(cardName) {
 }
 
 async function preloadCards(cardNames = []) {
+    await ensureCardBackLoaded();
     await Promise.all((cardNames || []).map(card => loadCardImage(card).catch(() => null)));
 }
 
 function clearImageCache() {
     cardCache.clear();
+}
+
+function createSeededRandom(seed = 0xdecafbad) {
+    let state = seed >>> 0;
+    return () => {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        return state / 0x100000000;
+    };
+}
+
+let backgroundNoiseCanvas = null;
+
+function getBackgroundNoiseCanvas(size = 64) {
+    if (backgroundNoiseCanvas) {
+        return backgroundNoiseCanvas;
+    }
+    const noiseCanvas = createCanvas(size, size);
+    const nctx = noiseCanvas.getContext("2d");
+    const imageData = nctx.createImageData(size, size);
+    const data = imageData.data;
+    const random = createSeededRandom();
+    for (let i = 0; i < data.length; i += 4) {
+        const shade = 22 + random() * 32;
+        data[i] = shade;
+        data[i + 1] = shade * 0.95;
+        data[i + 2] = shade * 0.9;
+        data[i + 3] = 255;
+    }
+    nctx.putImageData(imageData, 0, 0);
+    backgroundNoiseCanvas = noiseCanvas;
+    return backgroundNoiseCanvas;
 }
 
 // ============================================================================
@@ -153,63 +209,54 @@ function drawBackground(ctx) {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
-    const spotlight = ctx.createRadialGradient(
-        width / 2,
-        height * 0.32,
-        width * 0.1,
-        width / 2,
-        height * 0.32,
-        width * 0.9
-    );
-    spotlight.addColorStop(0, "rgba(255, 255, 255, 0.25)");
-    spotlight.addColorStop(0.45, "rgba(255, 255, 255, 0.12)");
-    spotlight.addColorStop(1, "rgba(255, 255, 255, 0)");
-
+    // Subtle light band at center
+    const bandHeight = height * 0.18;
+    const bandY = height * 0.22;
+    const bandGradient = ctx.createLinearGradient(0, bandY, 0, bandY + bandHeight);
+    bandGradient.addColorStop(0, "rgba(255,255,255,0)");
+    bandGradient.addColorStop(0.5, "rgba(255,255,255,0.12)");
+    bandGradient.addColorStop(1, "rgba(255,255,255,0)");
     ctx.save();
-    ctx.globalAlpha = 0.45;
-    ctx.fillStyle = spotlight;
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = bandGradient;
+    ctx.fillRect(0, bandY, width, bandHeight);
+    ctx.restore();
+
+    const bottomGlow = ctx.createLinearGradient(0, height * 0.65, 0, height);
+    bottomGlow.addColorStop(0, "rgba(0,0,0,0)");
+    bottomGlow.addColorStop(1, "rgba(0,0,0,0.55)");
+    ctx.save();
+    ctx.fillStyle = bottomGlow;
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
 
-    const vignette = ctx.createRadialGradient(
-        width / 2,
-        height / 2,
-        width * 0.3,
-        width / 2,
-        height / 2,
-        width * 0.85
-    );
-    vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
-    vignette.addColorStop(1, "rgba(0, 0, 0, 0.55)");
-
+    const edgeGlow = ctx.createRadialGradient(width / 2, height * 0.55, width * 0.1, width / 2, height * 0.55, width * 0.7);
+    edgeGlow.addColorStop(0, "rgba(255,255,255,0.2)");
+    edgeGlow.addColorStop(1, "rgba(255,255,255,0)");
     ctx.save();
-    ctx.globalAlpha = 0.6;
-    ctx.fillStyle = vignette;
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = edgeGlow;
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
 
-    const noiseSize = 64;
-    const noiseCanvas = createCanvas(noiseSize, noiseSize);
-    const nctx = noiseCanvas.getContext("2d");
-    const noiseData = nctx.createImageData(noiseSize, noiseSize);
-    const buffer = noiseData.data;
-    for (let i = 0; i < buffer.length; i += 4) {
-        const shade = 30 + Math.random() * 40;
-        buffer[i] = shade;
-        buffer[i + 1] = shade;
-        buffer[i + 2] = shade;
-        buffer[i + 3] = 255;
-    }
-    nctx.putImageData(noiseData, 0, 0);
-
+    const noiseCanvas = getBackgroundNoiseCanvas();
     const pattern = ctx.createPattern(noiseCanvas, "repeat");
     if (pattern) {
         ctx.save();
-        ctx.globalAlpha = 0.04;
+        ctx.globalAlpha = 0.045;
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, width, height);
         ctx.restore();
     }
+
+    const vignette = ctx.createRadialGradient(width / 2, height / 2, width * 0.35, width / 2, height / 2, width * 0.78);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+    ctx.save();
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
 }
 
 function drawDivider(ctx, y) {
@@ -267,31 +314,22 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
 }
 
 function drawCardBack(ctx, x, y) {
-    ctx.save();
-    ctx.shadowColor = CONFIG.shadow.color;
-    ctx.shadowBlur = CONFIG.shadow.blur;
-    ctx.shadowOffsetX = CONFIG.shadow.offsetX;
-    ctx.shadowOffsetY = CONFIG.shadow.offsetY;
-
-    drawRoundedRect(ctx, x, y, CONFIG.cardWidth, CONFIG.cardHeight, 12);
-    ctx.fillStyle = CONFIG.cardBackColor;
-    ctx.fill();
-    ctx.restore();
-
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
-    ctx.lineWidth = 4;
-    drawRoundedRect(ctx, x + 12, y + 12, CONFIG.cardWidth - 24, CONFIG.cardHeight - 24, 10);
-    ctx.stroke();
+    const back = cardCache.get("__card_back__");
+    if (back) {
+        ctx.drawImage(back, x, y, CONFIG.cardWidth, CONFIG.cardHeight);
+    } else {
+        drawRoundedRect(ctx, x, y, CONFIG.cardWidth, CONFIG.cardHeight, 12);
+        ctx.fillStyle = "#1F5F3C";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.25)";
+        ctx.lineWidth = 4;
+        drawRoundedRect(ctx, x + 12, y + 12, CONFIG.cardWidth - 24, CONFIG.cardHeight - 24, 10);
+        ctx.stroke();
+    }
 }
 
 function drawCardImage(ctx, image, x, y) {
-    ctx.save();
-    ctx.shadowColor = CONFIG.shadow.color;
-    ctx.shadowBlur = CONFIG.shadow.blur;
-    ctx.shadowOffsetX = CONFIG.shadow.offsetX;
-    ctx.shadowOffsetY = CONFIG.shadow.offsetY;
     ctx.drawImage(image, x, y, CONFIG.cardWidth, CONFIG.cardHeight);
-    ctx.restore();
 }
 
 function measureTextWidth(ctx, text, font) {
@@ -339,13 +377,15 @@ async function drawHand(ctx, hand, options) {
         showResultBadge = true,
         hasMultipleHands = false,
         isCurrent = false,
-        insured = false
+        insured = false,
+        subtitle = null
     } = options;
 
     let cursorY = topY;
 
     const titleFont = `700 ${CONFIG.sectionTitleSize}px "${CONFIG.fontFamily}"`;
-    const labelWidth = measureTextWidth(ctx, title, titleFont);
+    const hasTitle = Boolean(title);
+    const labelWidth = hasTitle ? measureTextWidth(ctx, title, titleFont) : 0;
 
     const badges = [];
     const badgeFontSize = Math.max(24, CONFIG.infoSize + 2);
@@ -372,40 +412,60 @@ async function drawHand(ctx, hand, options) {
 
     const badgeFont = `700 ${badgeFontSize}px "${CONFIG.fontFamily}"`;
     const badgeWidths = badges.map(badge => measureTextWidth(ctx, badge.text, badgeFont) + badgePaddingX * 2);
-    const totalBadgeWidth = badgeWidths.reduce((acc, width, index) => acc + width + (index > 0 ? badgeGap : 0), 0);
-    const titleBlockWidth = labelWidth + (badges.length > 0 ? labelBadgeGap + totalBadgeWidth : 0);
-    const startX = centerX - titleBlockWidth / 2;
+    const totalBadgeWidth = badges.length > 0 ? badgeWidths.reduce((acc, width, index) => acc + width + (index > 0 ? badgeGap : 0), 0) : 0;
+    const titleBlockWidth = hasTitle ? labelWidth + (badges.length > 0 ? labelBadgeGap + totalBadgeWidth : 0) : 0;
+    const startX = hasTitle ? centerX - titleBlockWidth / 2 : 0;
 
-    drawText(ctx, title, {
-        x: startX,
-        y: cursorY,
-        size: CONFIG.sectionTitleSize,
-        color: CONFIG.textPrimary,
-        align: "left",
-        baseline: "top",
-        bold: true
-    });
-
-    if (badges.length > 0) {
-        let badgeX = startX + labelWidth + labelBadgeGap;
-        const badgeHeight = badgeFontSize + badgePaddingY * 2;
-        const badgeTop = cursorY + Math.max(0, (CONFIG.sectionTitleSize - badgeHeight) / 2);
-        badges.forEach((badge, index) => {
-            const metrics = drawBadge(ctx, badge.text, {
-                x: badgeX,
-                y: badgeTop,
-                fill: badge.fill,
-                textColor: badge.textColor,
-                fontSize: badgeFontSize,
-                paddingX: badgePaddingX,
-                paddingY: badgePaddingY,
-                bold: true
-            });
-            badgeX += metrics.width + (index < badges.length - 1 ? badgeGap : 0);
+    if (hasTitle) {
+        drawText(ctx, title, {
+            x: startX,
+            y: cursorY,
+            size: CONFIG.sectionTitleSize,
+            color: CONFIG.textPrimary,
+            align: "left",
+            baseline: "top",
+            bold: true
         });
+
+        if (badges.length > 0) {
+            let badgeX = startX + labelWidth + labelBadgeGap;
+            const badgeHeight = badgeFontSize + badgePaddingY * 2;
+            const badgeTop = cursorY + Math.max(0, (CONFIG.sectionTitleSize - badgeHeight) / 2);
+            badges.forEach((badge, index) => {
+                const metrics = drawBadge(ctx, badge.text, {
+                    x: badgeX,
+                    y: badgeTop,
+                    fill: badge.fill,
+                    textColor: badge.textColor,
+                    fontSize: badgeFontSize,
+                    paddingX: badgePaddingX,
+                    paddingY: badgePaddingY,
+                    bold: true
+                });
+                badgeX += metrics.width + (index < badges.length - 1 ? badgeGap : 0);
+            });
+        }
+
+        cursorY += CONFIG.sectionTitleSize;
     }
 
-    cursorY += CONFIG.sectionTitleSize + CONFIG.layout.sectionTitleSpacing;
+    if (subtitle) {
+        cursorY += CONFIG.layout.subtitleSpacing;
+        drawText(ctx, subtitle, {
+            x: centerX,
+            y: cursorY,
+            size: CONFIG.subtitleSize,
+            color: CONFIG.textPrimary,
+            align: "center",
+            baseline: "top",
+            bold: true
+        });
+        cursorY += CONFIG.subtitleSize + CONFIG.layout.sectionTitleSpacing;
+    } else if (!hasTitle) {
+        cursorY += CONFIG.layout.sectionTitleSpacing;
+    } else {
+        cursorY += CONFIG.layout.sectionTitleSpacing;
+    }
 
     const cards = Array.isArray(hand.cards) ? hand.cards : [];
     const cardCount = Math.max(cards.length, 1);
@@ -462,9 +522,8 @@ async function drawHand(ctx, hand, options) {
     if (hand.bet !== undefined && hand.bet !== null) {
         infoParts.push(`Bet $${Number(hand.bet).toLocaleString()}`);
     }
-    if (Number.isFinite(hand.payout) && hand.payout !== 0) {
-        const sign = hand.payout >= 0 ? "+" : "-";
-        infoParts.push(`Payout ${sign}$${Math.abs(hand.payout).toLocaleString()}`);
+    if (Number.isFinite(hand.payout) && hand.payout > 0) {
+        infoParts.push(`Payout +$${Math.abs(hand.payout).toLocaleString()}`);
     }
     if (Number.isFinite(hand.xp) && hand.xp !== 0) {
         const sign = hand.xp >= 0 ? "+" : "-";
@@ -545,7 +604,6 @@ function createBlackjackTableState(gameState = {}, options = {}) {
                 blackjack: Boolean(hand.blackjack || hand.isBlackjack),
                 busted: Boolean(hand.busted || hand.isBusted),
                 label: hands.length > 1 ? `${label} (Hand ${handIndex + 1})` : label,
-                header: roundLabel ?? specificRoundLabel,
                 playerId: player?.id,
                 insured: insuredFlag,
                 isCurrent,
@@ -583,7 +641,8 @@ function normalizeRenderInput(params = {}) {
         maskDealerHoleCard: Boolean(params.metadata?.maskDealerHoleCard ?? params.maskDealerHoleCard),
         playerHands: Array.isArray(params.playerHands) ? params.playerHands : [],
         title: params.title ?? null,
-        result: params.result ?? null
+        result: params.result ?? null,
+        metadata: params.metadata ?? {}
     };
 
     return state;
@@ -612,22 +671,28 @@ async function renderCardTable(params) {
         ctx.scale(scale, scale);
     }
 
+    await ensureCardBackLoaded();
     drawBackground(ctx);
 
     let cursorY = CONFIG.layout.topMargin;
-
-    if (normalized.title) {
-        drawText(ctx, normalized.title, {
+    const globalRoundNumber = Number.isFinite(normalized.metadata?.round)
+        ? Math.max(1, Math.trunc(normalized.metadata.round))
+        : Number.isFinite(params?.round)
+            ? Math.max(1, Math.trunc(params.round))
+            : Number.isFinite(params?.metadata?.round)
+                ? Math.max(1, Math.trunc(params.metadata.round))
+                : null;
+    if (globalRoundNumber) {
+        drawText(ctx, `Round #${globalRoundNumber}` , {
             x: CONFIG.canvasWidth / 2,
             y: cursorY,
-            size: CONFIG.titleSize,
-            color: CONFIG.textPrimary,
+            size: CONFIG.subtitleSize,
+            color: CONFIG.textSecondary,
             align: "center",
             baseline: "top",
-            bold: true,
-            shadow: true
+            bold: true
         });
-        cursorY += CONFIG.titleSize + CONFIG.layout.titleSpacing;
+        cursorY += CONFIG.subtitleSize + CONFIG.layout.titleSpacing;
     }
 
     cursorY = await drawHand(ctx, {
@@ -663,9 +728,9 @@ async function renderCardTable(params) {
         const hand = players[i];
         const centerX = slotWidth * (i + 0.5);
 
-        const headerTitle = hand.header
-            ?? hand.label
-            ?? (slotCount > 1 ? `Hand ${i + 1}` : `Hand`);
+        const headerTitle = hand.label
+            ?? (slotCount > 1 ? `Player ${i + 1}` : "Player");
+        const subtitle = null;
 
         const isCurrent = Boolean(hand.isCurrent ?? hand.current ?? hand.active ?? hand.isActive);
         const insured = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
@@ -678,7 +743,8 @@ async function renderCardTable(params) {
             showResultBadge: true,
             hasMultipleHands,
             isCurrent,
-            insured
+            insured,
+            subtitle
         });
     }
 

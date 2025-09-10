@@ -78,5 +78,48 @@ module.exports = {
     },
     web: {
         redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.botApiLocal
+    },
+    blackjack: {
+        // Game settings with default values and allowed ranges
+        deckCount: {
+            default: 6, // Number of 52-card decks to use
+            allowedRange: { min: 1, max: 8 }
+        },
+        reshuffleThreshold: {
+            default: 52, // Reshuffle when fewer than this many cards remain (1 deck)
+            allowedRange: { min: 20, max: 104 } // 20 cards to 2 decks
+        },
+        maxPlayersDefault: {
+            default: 7, // Default maximum players when not specified
+            allowedRange: { min: 1, max: 7 }
+        },
+
+        // Timing settings (in milliseconds) with allowed ranges
+        lobbyTimeout: {
+            default: 5 * 60 * 1000, // 5 minutes - how long lobby stays open
+            allowedRange: { min: 60 * 1000, max: 15 * 60 * 1000 } // 1-15 minutes
+        },
+        betsTimeout: {
+            default: 45 * 1000, // 45 seconds - time to place bets
+            allowedRange: { min: 10 * 1000, max: 120 * 1000 } // 10-120 seconds
+        },
+        actionTimeout: {
+            default: 45 * 1000, // 45 seconds - time per player action (hit/stand/etc)
+            allowedRange: { min: 15 * 1000, max: 120 * 1000 } // 15-120 seconds
+        },
+        modalTimeout: {
+            default: 25 * 1000, // 25 seconds - time to submit modal forms
+            allowedRange: { min: 10 * 1000, max: 60 * 1000 } // 10-60 seconds
+        },
+        autobetShortTimeout: {
+            default: 3 * 1000, // 3 seconds - short timeout when all bets placed via autobet
+            allowedRange: { min: 1 * 1000, max: 10 * 1000 } // 1-10 seconds
+        },
+
+        // Display settings
+        timelineMaxEntries: {
+            default: 30, // Maximum number of timeline entries to keep
+            allowedRange: { min: 10, max: 100 }
+        }
     }
 }
