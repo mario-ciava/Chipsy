@@ -60,7 +60,7 @@ module.exports = createCommand({
         }
 
         // Build message - if viewing another user, don't show interactive components
-        const { embed, components } = buildProfileMessage(targetUser, { showSelectMenu: false, viewOnly: isViewingOther })
+        const { embed, components } = buildProfileMessage(targetUser, { showSelectMenu: false, viewOnly: isViewingOther, showUpgrades: false })
         const message = await respond({ embeds: [embed], components })
 
         // Set up component collector for buttons and select menu (only if viewing own profile)
@@ -72,12 +72,41 @@ module.exports = createCommand({
 
             let state = {
                 showSelectMenu: false,
-                selectedUpgrade: null
+                selectedUpgrade: null,
+                showUpgrades: false,
+                showSettingsMenu: false,
+                selectedSetting: null
             }
 
             collector.on("collect", async(componentInteraction) => {
                 try {
                     const customId = componentInteraction.customId
+
+                    // Handle toggling upgrade visibility
+                    if (customId === `profile_toggle_upgrades:${author.id}`) {
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
+                        state.showUpgrades = !state.showUpgrades
+
+                        // Re-render with updated state
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                            await componentInteraction.followUp({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                        })
+                        return
+                    }
 
                     // Handle Info button
                     if (customId === `profile_info:${author.id}`) {
@@ -107,38 +136,216 @@ module.exports = createCommand({
 
                         await componentInteraction.followUp({
                             embeds: [infoEmbed],
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         })
+                        return
+                    }
+
+                    // Handle Settings button - show settings menu
+                    if (customId === `profile_show_settings:${author.id}`) {
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
+                        state.showSettingsMenu = true
+                        state.showSelectMenu = false
+                        state.selectedSetting = null
+
+                        // Re-render with settings menu
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                            await componentInteraction.followUp({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                        })
+                        return
+                    }
+
+                    // Handle Cancel Setting button - hide settings menu
+                    if (customId === `profile_cancel_setting:${author.id}`) {
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
+                        state.showSettingsMenu = false
+                        state.selectedSetting = null
+
+                        // Re-render without settings menu
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                            await componentInteraction.followUp({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                        })
+                        return
+                    }
+
+                    // Handle Settings Select Menu
+                    if (customId === `profile_select_setting:${author.id}`) {
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
+                        state.selectedSetting = componentInteraction.values[0]
+                        return
+                    }
+
+                    // Handle Confirm Setting button
+                    if (customId === `profile_confirm_setting:${author.id}`) {
+                        if (!state.selectedSetting) {
+                            await componentInteraction.reply({
+                                content: "❌ Please select a setting from the menu first!",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            return
+                        }
+
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
+
+                        // Reload fresh data
+                        if (client && typeof client.SetData === "function") {
+                            await client.SetData(author)
+                        }
+
+                        const freshData = normalizeUserExperience(author.data || {})
+                        author.data = freshData
+
+                        // Apply setting change
+                        if (state.selectedSetting === "toggle_bankroll_privacy") {
+                            const newValue = freshData.bankroll_private === 1 ? 0 : 1
+                            freshData.bankroll_private = newValue
+
+                            // Save to database
+                            const dataHandler = client?.dataHandler
+                            if (dataHandler) {
+                                await dataHandler.updateUserData(author.id, dataHandler.resolveDBUser(author))
+                            }
+
+                            // Reset state and re-render
+                            state.showSettingsMenu = false
+                            state.selectedSetting = null
+
+                            const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                            const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                                await componentInteraction.followUp({
+                                    content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}!\n\n⚠️ Profile view expired. Use \`/profile\` to see updated settings.`,
+                                    flags: MessageFlags.Ephemeral
+                                }).catch(() => null)
+                                if (collector && !collector.ended) collector.stop("message_deleted")
+                                return null
+                            })
+
+                            // Only send success message if edit succeeded
+                            if (editSuccess) {
+                                await componentInteraction.followUp({
+                                    content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}! ${newValue === 1 ? "🔒 Others cannot see your money and gold." : "🔓 Others can see your money and gold."}`,
+                                    flags: MessageFlags.Ephemeral
+                                }).catch(() => null)
+                            }
+                        }
                         return
                     }
 
                     // Handle Upgrade button - show select menu
                     if (customId === `profile_show_upgrades:${author.id}`) {
-                        await componentInteraction.deferUpdate()
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
                         state.showSelectMenu = true
                         state.selectedUpgrade = null
 
                         // Re-render with select menu
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
-                        await message.edit({ embeds: [updatedEmbed], components: updatedComponents })
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                            await componentInteraction.followUp({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                        })
                         return
                     }
 
                     // Handle Cancel button - hide select menu
                     if (customId === `profile_cancel_upgrade:${author.id}`) {
-                        await componentInteraction.deferUpdate()
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            // Interaction failed - try to send error message
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
                         state.showSelectMenu = false
                         state.selectedUpgrade = null
 
                         // Re-render without select menu
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
-                        await message.edit({ embeds: [updatedEmbed], components: updatedComponents })
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                            // Message no longer exists, notify user
+                            await componentInteraction.followUp({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                        })
                         return
                     }
 
                     // Handle Select Menu
                     if (customId === `profile_select_upgrade:${author.id}`) {
-                        await componentInteraction.deferUpdate()
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            // Interaction failed - try to send error message
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
                         state.selectedUpgrade = componentInteraction.values[0]
                         return
                     }
@@ -148,12 +355,22 @@ module.exports = createCommand({
                         if (!state.selectedUpgrade) {
                             await componentInteraction.reply({
                                 content: "❌ Please select an upgrade from the menu first!",
-                                ephemeral: true
-                            })
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
                             return
                         }
 
-                        await componentInteraction.deferUpdate()
+                        try {
+                            await componentInteraction.deferUpdate()
+                        } catch {
+                            // Interaction failed - try to send error message
+                            await componentInteraction.reply({
+                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return
+                        }
 
                         // Reload fresh data
                         if (client && typeof client.SetData === "function") {
@@ -167,8 +384,8 @@ module.exports = createCommand({
                         if (!upgrade) {
                             await componentInteraction.followUp({
                                 content: "❌ Invalid upgrade selection!",
-                                ephemeral: true
-                            })
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
                             return
                         }
 
@@ -178,8 +395,8 @@ module.exports = createCommand({
                         if (currentLevel >= maxLevel) {
                             await componentInteraction.followUp({
                                 content: `❌ ${upgrade.emoji} **${upgrade.name}** is already at maximum level!`,
-                                ephemeral: true
-                            })
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
                             return
                         }
 
@@ -188,8 +405,8 @@ module.exports = createCommand({
                         if (freshData.money < cost) {
                             await componentInteraction.followUp({
                                 content: `❌ You need **${setSeparator(cost)}$** to buy this upgrade!\n💰 Your balance: **${setSeparator(freshData.money)}$**`,
-                                ephemeral: true
-                            })
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
                             return
                         }
 
@@ -208,12 +425,23 @@ module.exports = createCommand({
                         state.selectedUpgrade = null
 
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
-                        await message.edit({ embeds: [updatedEmbed], components: updatedComponents })
-
-                        await componentInteraction.followUp({
-                            content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**`,
-                            ephemeral: true
+                        const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                            // Message no longer exists, notify user with upgrade confirmation
+                            await componentInteraction.followUp({
+                                content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**\n\n⚠️ Profile view expired. Use \`/profile\` to see updated stats.`,
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                            if (collector && !collector.ended) collector.stop("message_deleted")
+                            return null
                         })
+
+                        // Only send success message if edit succeeded
+                        if (editSuccess) {
+                            await componentInteraction.followUp({
+                                content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**`,
+                                flags: MessageFlags.Ephemeral
+                            }).catch(() => null)
+                        }
                     }
 
                 } catch (error) {
@@ -228,12 +456,12 @@ module.exports = createCommand({
                     if (!componentInteraction.replied && !componentInteraction.deferred) {
                         await componentInteraction.reply({
                             content: "❌ An error occurred. Please try again.",
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         }).catch(() => null)
                     } else {
                         await componentInteraction.followUp({
                             content: "❌ An error occurred. Please try again.",
-                            ephemeral: true
+                            flags: MessageFlags.Ephemeral
                         }).catch(() => null)
                     }
                 }
@@ -251,7 +479,7 @@ module.exports = createCommand({
                     return newRow
                 })
 
-                message.edit({ components: disabledComponents }).catch(() => null)
+                interaction.editReply({ components: disabledComponents }).catch(() => null)
             })
         }
     }
@@ -259,6 +487,8 @@ module.exports = createCommand({
 
 // Helper function to build profile message
 function buildProfileMessage(author, state = {}) {
+    const viewOnly = state.viewOnly === true
+    // Don't show interactive components if viewing another player's profile
     const data = normalizeUserExperience(author.data || {})
     const avatarURL = author.displayAvatarURL({ extension: "png" })
 
@@ -266,6 +496,10 @@ function buildProfileMessage(author, state = {}) {
     const nextReward = data.next_reward ? new Date(data.next_reward) : null
     const rewardAvailable = !nextReward || now >= nextReward.getTime()
     const timeUntilReward = rewardAvailable ? "Available now! Use `/reward`" : formatTimeUntil(nextReward)
+
+    const winLossRatio = data.hands_played > 0 ? (data.hands_won / data.hands_played) * 100 : 0
+    const winLossRatioString = `${winLossRatio.toFixed(1)}%`
+    const joinDate = new Date(data.join_date).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' })
 
     const upgradeFields = []
 
@@ -300,49 +534,59 @@ function buildProfileMessage(author, state = {}) {
         })
     })
 
+    // Determine privacy for balance field (needs to be before embed creation)
+    const balancePrivate = data.bankroll_private === 1 && viewOnly
+
+    const className = playerClass.getUserClass(data.money)
+
     const embed = new EmbedBuilder()
         .setColor(Colors.Gold)
-        .setTitle(`${author.username}'s Chipsy Profile`)
+        .setTitle(`${author.username}'s Chipsy Profile | 🔰 ${className}`)
         .addFields(
             {
-                name: "Balance 💰",
-                value: `Money: **${setSeparator(data.money)}$**\nGold: **${setSeparator(data.gold)}**`,
+                name: "Money 💰",
+                value: balancePrivate ? "**Private**" : `**${setSeparator(data.money)}$**`,
                 inline: true
             },
+            {
+                name: "Gold 🪙",
+                value: balancePrivate ? "**Private**" : `**${setSeparator(data.gold)}**`,
+                inline: true
+            },
+            { name: '\u200B', value: '\u200B', inline: false },
             {
                 name: "Experience ⭐",
                 value: `Level: **${setSeparator(data.level)}**\nExp: **${setSeparator(data.current_exp)}/${setSeparator(data.required_exp)}**`,
                 inline: true
             },
             {
-                name: "Class 🔰",
-                value: playerClass.getUserClass(data.money),
+                name: "Statistics 📊",
+                value: `W/L Ratio: **${winLossRatioString}**\nHands played: **${setSeparator(data.hands_played)}**\nHands won: **${setSeparator(data.hands_won)}**\nBiggest bet: **${setSeparator(data.biggest_bet)}$**\nBiggest won: **${setSeparator(data.biggest_won)}$**`,
+                inline: true
+            },
+            { name: '\u200B', value: '\u200B', inline: false },
+            {
+                name: "Player Since 📅",
+                value: `**${joinDate}**`,
                 inline: true
             },
             {
-                name: "Records 🔝",
-                value: `Biggest bet: **${setSeparator(data.biggest_bet)}$**\nBiggest won: **${setSeparator(data.biggest_won)}$**`,
+                name: "Next Gift ⏰",
+                value: `${timeUntilReward}`,
                 inline: true
-            },
-            {
-                name: "Statistics 🃏",
-                value: `Hands played: **${setSeparator(data.hands_played)}**\nHands won: **${setSeparator(data.hands_won)}**`,
-                inline: true
-            },
-            {
-                name: "Next Reward ⏰",
-                value: `${rewardAvailable ? "✅" : "⏳"} ${timeUntilReward}`,
-                inline: true
-            },
-            ...upgradeFields
+            }
         )
-        .setThumbnail(avatarURL)
+
+    if (state.showUpgrades) {
+        embed.addFields(...upgradeFields)
+    }
+
+    embed.setThumbnail(avatarURL)
         .setFooter({ text: `Last played: ${formatRelativeTime(data.last_played)}` })
 
     const components = []
 
     // Don't show interactive components if viewing another player's profile
-    const viewOnly = state.viewOnly === true
 
     // Check if there are any upgrades available
     const hasAvailableUpgrades = getAllUpgradeIds().some(upgradeId => {
@@ -402,8 +646,47 @@ function buildProfileMessage(author, state = {}) {
 
         components.push(actionRow)
 
+    } else if (!viewOnly && state.showSettingsMenu) {
+        // Show settings menu with privacy options
+        const settingsOptions = [
+            {
+                label: data.bankroll_private === 1 ? "Make bankroll public" : "Make bankroll private",
+                description: data.bankroll_private === 1 ? "Others will see your money and gold" : "Hide your money and gold from others",
+                value: "toggle_bankroll_privacy",
+                emoji: data.bankroll_private === 1 ? "🔓" : "🔒"
+            }
+        ]
+
+        const settingsMenu = new StringSelectMenuBuilder()
+            .setCustomId(`profile_select_setting:${author.id}`)
+            .setPlaceholder("Select a setting to change...")
+            .addOptions(settingsOptions)
+
+        components.push(new ActionRowBuilder().addComponents(settingsMenu))
+
+        // Confirm/Cancel buttons row
+        const actionRow = new ActionRowBuilder()
+
+        actionRow.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`profile_confirm_setting:${author.id}`)
+                .setLabel("Confirm Change")
+                .setStyle(ButtonStyle.Success)
+                .setEmoji("✅")
+        )
+
+        actionRow.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`profile_cancel_setting:${author.id}`)
+                .setLabel("Cancel")
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("❌")
+        )
+
+        components.push(actionRow)
+
     } else if (!viewOnly) {
-        // Initial state - just show Upgrade and Info buttons (only if not view-only)
+        // Initial state - just show Upgrade, Settings and Info buttons (only if not view-only)
         const buttonRow = new ActionRowBuilder()
 
         if (hasAvailableUpgrades) {
@@ -413,6 +696,24 @@ function buildProfileMessage(author, state = {}) {
                     .setLabel("Upgrade")
                     .setStyle(ButtonStyle.Primary)
                     .setEmoji("💰")
+            )
+        }
+
+        buttonRow.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`profile_show_settings:${author.id}`)
+                .setLabel("Settings")
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji("⚙️")
+        )
+
+        if (hasAvailableUpgrades) {
+            buttonRow.addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`profile_toggle_upgrades:${author.id}`)
+                    .setLabel(state.showUpgrades ? "Show less" : "Show more")
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji(state.showUpgrades ? "🔼" : "🔽")
             )
         }
 

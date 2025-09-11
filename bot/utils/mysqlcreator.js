@@ -22,12 +22,44 @@ module.exports = async(pool) => {
                     \`withholding_upgrade\` INT UNSIGNED NOT NULL DEFAULT '0',
                     \`reward_amount_upgrade\` INT UNSIGNED NOT NULL DEFAULT '0',
                     \`reward_time_upgrade\` INT UNSIGNED NOT NULL DEFAULT '0',
+                    \`bankroll_private\` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0',
                     \`next_reward\` TIMESTAMP DEFAULT NULL,
                     \`last_played\` TIMESTAMP DEFAULT NULL,
+                    \`join_date\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (\`id\`)
                 )`
             )
             info("Users table created", { scope: "mysql" })
+        } else {
+            // Add bankroll_private column if it doesn't exist (migration for existing tables)
+            try {
+                const [columns] = await connection.query(
+                    "SHOW COLUMNS FROM `users` LIKE 'bankroll_private'"
+                )
+                if (!columns || columns.length === 0) {
+                    await connection.query(
+                        "ALTER TABLE `users` ADD COLUMN `bankroll_private` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0' AFTER `reward_time_upgrade`"
+                    )
+                    info("Added bankroll_private column to users table", { scope: "mysql" })
+                }
+            } catch (error) {
+                info("bankroll_private column already exists or failed to add", { scope: "mysql" })
+            }
+
+            // Add join_date column if it doesn't exist (migration for existing tables)
+            try {
+                const [columns] = await connection.query(
+                    "SHOW COLUMNS FROM `users` LIKE 'join_date'"
+                )
+                if (!columns || columns.length === 0) {
+                    await connection.query(
+                        "ALTER TABLE `users` ADD COLUMN `join_date` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER `last_played`"
+                    )
+                    info("Added join_date column to users table", { scope: "mysql" })
+                }
+            } catch (error) {
+                info("join_date column already exists or failed to add", { scope: "mysql" })
+            }
         }
 
         const [logsTables] = await connection.query("SHOW TABLES LIKE ?", ["logs"])

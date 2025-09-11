@@ -77,8 +77,10 @@ const createDataHandler = (pool) => {
             withholding_upgrade: user.data.withholding_upgrade,
             reward_amount_upgrade: user.data.reward_amount_upgrade,
             reward_time_upgrade: user.data.reward_time_upgrade,
+            bankroll_private: user.data.bankroll_private || 0,
             next_reward: user.data.next_reward,
-            last_played: user.data.last_played || new Date()
+            last_played: user.data.last_played || new Date(),
+            join_date: user.data.join_date || new Date()
         }
     }
 
