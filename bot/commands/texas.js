@@ -84,7 +84,7 @@ const runTexas = async(interaction, client) => {
             minBet: safeMinBet,
             maxPlayers: normalizedMaxPlayers,
             maxBuyIn
-        })
+        });
         registerGame(client, game)
         channel.game = game
 
@@ -230,7 +230,11 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 return submission.reply({ content: `❌ ${buyInResult.reason}`, ephemeral: true })
             }
 
-            await game.AddPlayer(submission.user, { buyIn: buyInResult.amount })
+            const added = await game.AddPlayer(submission.user, { buyIn: buyInResult.amount })
+            if (!added) {
+                await submission.reply({ content: "❌ Unable to join this table. Please try again.", ephemeral: true })
+                return
+            }
             await submission.reply({ content: `✅ You joined with **${setSeparator(buyInResult.amount)}$**.`, ephemeral: true })
             lobbySession.scheduleRefresh()
         })
@@ -239,14 +243,18 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
             if (lobbySession.isClosed) return i.reply({ content: "❌ This table is no longer available.", ephemeral: true })
             if (!game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are not at this table.", ephemeral: true })
             
-            await game.RemovePlayer(i.user)
-            await i.reply({ content: "✅ You have left the table.", ephemeral: true })
-            lobbySession.scheduleRefresh()
+            const removed = await game.RemovePlayer(i.user)
+            if (removed) {
+                await i.reply({ content: "✅ You have left the table.", ephemeral: true })
+                lobbySession.scheduleRefresh()
+            } else {
+                await i.reply({ content: "❌ Failed to leave the table. Please try again.", ephemeral: true })
+            }
         })
 
         lobbySession.registerComponentHandler("tx:start", async (i) => {
             if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can start the game.", ephemeral: true })
-            if (game.players.length < 2) return i.reply({ content: "⚠️ You need at least two players to start.", ephemeral: true })
+            if (game.players.length < game.getMinimumPlayers()) return i.reply({ content: `⚠️ You need at least ${game.getMinimumPlayers()} players to start.`, ephemeral: true })
             
             await i.deferUpdate()
             startGame({ initiatedBy: i.user.tag })

@@ -1,6 +1,7 @@
-const features = require("../games/features")
+const constants = require("../../config/constants");
+const features = require("../games/features");
 
-const BASE_REQUIRED_EXP = 100
+const BASE_REQUIRED_EXP = constants.experience.baseRequiredExp;
 
 const SAFE_INTEGER_MAX = BigInt(Number.MAX_SAFE_INTEGER)
 
@@ -90,15 +91,8 @@ const normalizeUserExperience = (userData = {}) => {
     }
 
     const unsignedDefaults = {
-        money: 5000,
-        gold: 1,
-        hands_played: 0,
-        hands_won: 0,
-        biggest_won: 0,
-        biggest_bet: 0,
-        withholding_upgrade: 0,
-        reward_amount_upgrade: 0,
-        reward_time_upgrade: 0
+        money: constants.database.defaultMoney,
+        ...constants.database.defaultUserStats
     }
 
     for (const [key, defaultValue] of Object.entries(unsignedDefaults)) {

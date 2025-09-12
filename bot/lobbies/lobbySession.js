@@ -1,5 +1,6 @@
 const { EventEmitter } = require("node:events")
 const { MessageFlags, DiscordAPIError } = require("discord.js")
+const config = require("../config")
 
 class LobbySession extends EventEmitter {
     constructor({
@@ -7,7 +8,7 @@ class LobbySession extends EventEmitter {
         render,
         logger,
         collectorOptions = {},
-        debounceDelay = 350,
+        debounceDelay = config.lobby.debounceDelay.default,
         suppressNotifications = true,
         allowedMentions = { parse: [] }
     }) {
@@ -23,7 +24,7 @@ class LobbySession extends EventEmitter {
         this.render = render
         this.logger = logger
         this.collectorOptions = {
-            time: 5 * 60 * 1000,
+            time: config.lobby.collectorTimeout.default,
             ...collectorOptions
         }
         this.debounceDelay = debounceDelay
@@ -173,7 +174,7 @@ class LobbySession extends EventEmitter {
         return game
     }
 
-    async presentModal(interaction, modal, { filter, time = 60_000, autoAcknowledge = true } = {}) {
+    async presentModal(interaction, modal, { filter, time = config.lobby.modalTimeout.default, autoAcknowledge = true } = {}) {
         if (!interaction || typeof interaction.showModal !== "function") {
             throw new TypeError("presentModal requires a valid interaction with showModal support")
         }

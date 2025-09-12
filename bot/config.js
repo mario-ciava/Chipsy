@@ -93,6 +93,10 @@ module.exports = {
             default: 7, // Default maximum players when not specified
             allowedRange: { min: 1, max: 7 }
         },
+        minPlayers: {
+            default: 2,
+            allowedRange: { min: 2, max: 7 }
+        },
 
         // Timing settings (in milliseconds) with allowed ranges
         lobbyTimeout: {
@@ -120,6 +124,73 @@ module.exports = {
         timelineMaxEntries: {
             default: 30, // Maximum number of timeline entries to keep
             allowedRange: { min: 10, max: 100 }
+        }
+    },
+    texas: {
+        // Timing settings (in milliseconds)
+        actionTimeout: {
+            default: 45 * 1000, // 45 seconds - time per player action
+            allowedRange: { min: 15 * 1000, max: 120 * 1000 }
+        },
+        collectorTimeout: {
+            default: 5 * 60 * 1000, // 5 minutes - how long action collector stays open
+            allowedRange: { min: 60 * 1000, max: 15 * 60 * 1000 }
+        },
+        modalTimeout: {
+            default: 60 * 1000, // 60 seconds - time to submit modal forms
+            allowedRange: { min: 10 * 1000, max: 120 * 1000 }
+        },
+        nextHandDelay: {
+            default: 8 * 1000, // 8 seconds - delay before starting next hand
+            allowedRange: { min: 3 * 1000, max: 20 * 1000 }
+        },
+        // Game rules
+        minPlayers: {
+            default: 2,
+            allowedRange: { min: 2, max: 9 }
+        },
+        maxPlayers: {
+            default: 9,
+            allowedRange: { min: 2, max: 9 }
+        },
+
+        // Bet and buy-in settings
+        minBet: {
+            default: 100,
+            allowedRange: { min: 10, max: 1000 }
+        },
+        maxBuyIn: {
+            default: 10000,
+            allowedRange: { min: 100, max: 100000 }
+        }
+    },
+    lobby: {
+        debounceDelay: {
+            default: 350, // ms - debounce for UI refreshes
+            allowedRange: { min: 100, max: 1000 }
+        },
+        collectorTimeout: {
+            default: 5 * 60 * 1000, // 5 minutes
+            allowedRange: { min: 60 * 1000, max: 15 * 60 * 1000 }
+        },
+        modalTimeout: {
+            default: 60 * 1000, // 60 seconds
+            allowedRange: { min: 15 * 1000, max: 120 * 1000 }
+        }
+    },
+    delays: {
+        // Standardized sleep delays (in milliseconds)
+        short: {
+            default: 2000,
+            allowedRange: { min: 500, max: 5000 }
+        },
+        medium: {
+            default: 3500,
+            allowedRange: { min: 1000, max: 10000 }
+        },
+        long: {
+            default: 5000,
+            allowedRange: { min: 2000, max: 15000 }
         }
     }
 }

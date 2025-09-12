@@ -112,7 +112,7 @@ const runBlackjack = async(interaction, client) => {
             minBet: safeMinBet,
             maxPlayers: normalizedMaxPlayers,
             maxBuyIn
-        })
+        });
         registerGame(client, channel.game)
         game = channel.game
 

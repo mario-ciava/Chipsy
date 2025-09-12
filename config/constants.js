@@ -77,6 +77,18 @@ module.exports = {
 
         // Starting money per nuovi utenti
         defaultMoney: 5000,
+
+        // Default stats for new users
+        defaultUserStats: {
+            gold: 1,
+            hands_played: 0,
+            hands_won: 0,
+            biggest_won: 0,
+            biggest_bet: 0,
+            withholding_upgrade: 0,
+            reward_amount_upgrade: 0,
+            reward_time_upgrade: 0
+        }
     },
 
     /**
@@ -190,4 +202,12 @@ module.exports = {
         // Intervallo polling healthcheck MySQL durante startup
         healthcheckInterval: 1000, // 1 secondo
     },
+
+    /**
+     * EXPERIENCE - Experience and level up configuration
+     */
+    experience: {
+        baseRequiredExp: 100
+    },
+
 }

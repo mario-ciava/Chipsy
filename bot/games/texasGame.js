@@ -8,8 +8,9 @@ const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const { renderCardTable, createBlackjackTableState } = require("../rendering/cardTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
+const config = require("../config")
 
-const ACTION_TIMEOUT_MS = 45000
+const ACTION_TIMEOUT_MS = config.texas.actionTimeout.default
 
 module.exports = class TexasGame extends Game {
     constructor(info) {
@@ -27,21 +28,21 @@ module.exports = class TexasGame extends Game {
     }
 
     createPlayerSession(user, stackAmount) {
-        if (!user) return null
+        if (!user) return null;
         const safeDisplayAvatar =
             typeof user.displayAvatarURL === "function"
                 ? (options) => user.displayAvatarURL(options)
-                : () => null
+                : () => null;
         const safeToString =
             typeof user.toString === "function"
                 ? () => user.toString()
-                : () => (user.id ? `<@${user.id}>` : "Player")
+                : () => (user.id ? `<@${user.id}>` : "Player");
         const tag =
             typeof user.tag === "string"
                 ? user.tag
                 : typeof user.username === "string"
                 ? `${user.username}#${user.discriminator || "0000"}`
-                : "Texas Hold'em player"
+                : "Texas Hold'em player";
 
         return {
             id: user.id,
@@ -57,18 +58,18 @@ module.exports = class TexasGame extends Game {
             newEntry: true,
             toString: safeToString,
             displayAvatarURL: safeDisplayAvatar,
-            user
-        }
+            user,
+            status: { folded: false, movedone: false, won: { grossValue: 0, netValue: 0, expEarned: 0 } },
+            bets: { current: 0, total: 0 },
+        };
     }
 
     async AddPlayer(user, options = {}) {
-        if (!user || !user.id) return
+        if (!user || !user.id) return false
         const maxSeats = Number.isFinite(this.maxPlayers) && this.maxPlayers > 0 ? this.maxPlayers : Infinity
-        if (this.players.length >= maxSeats) {
-            await this.SendMessage("maxPlayers", user)
-            return
-        }
-        if (this.GetPlayer(user.id)) return
+        if (this.players.length >= maxSeats) return false
+        if (this.GetPlayer(user.id)) return false
+
         const requestedBuyIn =
             options.buyIn ?? options.requestedBuyIn ?? (typeof user.stack === "number" ? user.stack : undefined)
         const buyInResult = bankrollManager.normalizeBuyIn({
@@ -77,44 +78,41 @@ module.exports = class TexasGame extends Game {
             maxBuyIn: this.maxBuyIn,
             bankroll: bankrollManager.getBankroll(user)
         })
-        if (!buyInResult.ok) {
-            await this.SendMessage("noMoneyBet", user)
-            return
-        }
-        const player = this.createPlayerSession(user, buyInResult.amount)
-        if (!player) return
+        if (!buyInResult.ok) return false
 
-        // Subtract buy-in from user's bankroll (not from stack, as that's table-only)
+        const player = this.createPlayerSession(user, buyInResult.amount)
+        if (!player) return false
+
         const currentBankroll = bankrollManager.getBankroll(user)
-        if (currentBankroll < buyInResult.amount) {
-            await this.SendMessage("noMoneyBet", user)
-            return
-        }
+        if (currentBankroll < buyInResult.amount) return false
+
         user.data.money = currentBankroll - buyInResult.amount
 
-        // Save buy-in deduction to database immediately
         await this.dataHandler.updateUserData(user.id, this.dataHandler.resolveDBUser(user))
 
         this.players.push(player)
-        // playerAdded message removed - lobby will handle the update
+        return true
     }
 
     async RemovePlayer(player, options = {}) {
-        const { skipStop = false, stopOptions = {} } = options
-        const playerId = typeof player === "object" ? player?.id : player
-        if (!playerId) return false
-        const existing = this.GetPlayer(playerId)
-        if (!existing) return false
+        const { skipStop = false, stopOptions = {} } = options;
+        const playerId = typeof player === "object" ? player?.id : player;
+        if (!playerId) return false;
+        const existing = this.GetPlayer(playerId);
+        if (!existing) return false;
+
+        existing.status = existing.status || {};
+        existing.status.removed = true;
 
         // Return stack to bankroll before removing player
         if (existing.stack > 0) {
-            bankrollManager.syncStackToBankroll(existing)
-            await this.dataHandler.updateUserData(existing.id, this.dataHandler.resolveDBUser(existing))
+            bankrollManager.syncStackToBankroll(existing);
+            await this.dataHandler.updateUserData(existing.id, this.dataHandler.resolveDBUser(existing));
         }
 
-        this.players = this.players.filter((p) => p.id !== playerId)
+        this.players = this.players.filter((p) => p.id !== playerId);
 
-        if (!skipStop && this.players.length < 2 && this.playing) {
+        if (!skipStop && this.players.length < this.getMinimumPlayers() && this.playing) {
             this.Stop({ reason: "notEnoughPlayers", ...stopOptions })
         }
         return true
@@ -213,6 +211,17 @@ module.exports = class TexasGame extends Game {
             .setDescription(`It's ${player}'s turn to act.`)
             .setFooter({ text: `Pot: ${setSeparator(this.bets.pots.reduce((a, b) => a + b.amount, 0) + this.bets.total)}$ | ${ACTION_TIMEOUT_MS / 1000}s left` })
 
+        if (this.players.length > 0) {
+            const infoRow = new Discord.ActionRowBuilder().addComponents(
+                new Discord.ButtonBuilder()
+                    .setCustomId("tx_hand:view")
+                    .setLabel("View Cards")
+                    .setStyle(Discord.ButtonStyle.Secondary)
+                    .setEmoji("🂠")
+            )
+            components.push(infoRow)
+        }
+
         const payload = { embeds: [embed], components, files: [], attachments: [] }
         if (snapshot) {
             embed.setImage(`attachment://${snapshot.filename}`)
@@ -226,70 +235,175 @@ module.exports = class TexasGame extends Game {
         }
     }
 
-    async NextHand() {
-        if (!this.playing) return
+    async showPlayerHand(player, interaction) {
+        const cards = Array.isArray(player.cards) && player.cards.length > 0
+            ? player.cards.join(" ")
+            : "Cards are not available yet."
 
-        this.players.forEach(p => this.AssignRewards(p))
-        this.players = this.players.filter(p => p.stack >= this.minBet)
-        if (this.players.length < 2) return this.Stop({ reason: "notEnoughPlayers" })
+        const embed = new Discord.EmbedBuilder()
+            .setColor(Discord.Colors.DarkBlue)
+            .setTitle("Your hole cards")
+            .setDescription(cards)
+            .setFooter({ text: `Stack: ${setSeparator(player.stack)}$` })
 
-        await this.Reset()
-        await this.Shuffle(this.cards)
-        this.players = this.Rotate(this.players, 1)
+        await this.respondEphemeral(interaction, { embeds: [embed] })
+    }
 
-        this.inGamePlayers = [...this.players]
-        this.inGamePlayers.forEach(p => {
-            p.status = { folded: false, movedone: false, won: { grossValue: 0, netValue: 0, expEarned: 0 } }
-            p.bets = { current: 0, total: 0 }
-            p.cards = this.PickRandom(this.cards, 2)
-            p.user.send({ embeds: [new Discord.EmbedBuilder().setTitle("Your cards").setDescription(p.cards.join(' '))] }).catch(() => logger.warn(`Could not send cards to ${p.tag}`))
-        })
+    async respondEphemeral(interaction, payload = {}) {
+        if (!interaction || typeof interaction.reply !== "function") return null
+        const response = {
+            flags: Discord.MessageFlags.Ephemeral,
+            ...payload
+        }
+
+        try {
+            if (interaction.deferred || interaction.replied) {
+                return await interaction.followUp(response)
+            }
+            return await interaction.reply(response)
+        } catch (error) {
+            logger.debug("Failed to send Texas ephemeral response", {
+                scope: "texasGame",
+                error: error.message
+            })
+            return null
+        }
+    }
+
+
+    async StartGame() {
+        await this.Reset();
+        this.Shuffle(this.cards);
+        this.players = await this.Rotate(this.players, 1);
+        this.inGamePlayers = [...this.players];
+
+        for (const p of this.inGamePlayers) {
+            p.status = { folded: false, movedone: false, won: { grossValue: 0, netValue: 0, expEarned: 0 } };
+            p.bets = { current: 0, total: 0 };
+            p.cards = await this.PickRandom(this.cards, 2);
+        };
 
         // Blinds
         const sbPlayer = this.inGamePlayers[0]
         const bbPlayer = this.inGamePlayers[1]
-        this.Action("bet", sbPlayer, this.minBet / 2, true)
-        this.Action("bet", bbPlayer, this.minBet, true)
+        const tableMinBet = this.getTableMinBet()
+        const smallBlind = Math.max(1, Math.floor(tableMinBet / 2))
+        await this.Action("bet", sbPlayer, smallBlind, true)
+        await this.Action("bet", bbPlayer, tableMinBet, true)
 
-        this.hands++
-        await this.SendMessage("nextHand")
-        await sleep(8000)
+        this.hands++;
+        await this.SendMessage("nextHand");
+        await sleep(config.texas.nextHandDelay.default);
 
-        if (!this.actionCollector) this.CreateOptions()
-        this.NextPlayer(this.inGamePlayers[2] || this.inGamePlayers[0])
+        if (!this.actionCollector) this.CreateOptions();
+        this.NextPlayer(this.inGamePlayers[2] || this.inGamePlayers[0]);
+    }
+
+    async NextHand() {
+        if (!this.playing) return;
+
+        await Promise.all(this.players.map(player => this.AssignRewards(player)))
+        const tableMinBet = this.getTableMinBet()
+        this.players = this.players.filter(p => p.stack >= tableMinBet)
+        if (this.players.length < this.getMinimumPlayers()) {
+            return this.Stop({ reason: "notEnoughPlayers" })
+        }
+
+        await this.StartGame()
+    }
+
+    resetBettingRound() {
+        for (const player of this.players) {
+            if (player?.bets) {
+                player.bets.current = 0
+            }
+        }
+        this.bets.currentMax = 0
     }
 
     async NextPhase(phase) {
-        // Pot logic here
-
         const phases = ["flop", "turn", "river", "showdown"]
         if (!phases.includes(phase)) return
 
         if (phase === "showdown") {
-            this.inGamePlayers.forEach(p => p.hand = Hand.solve(this.tableCards.concat(p.cards)))
-            const winners = Hand.winners(this.inGamePlayers.map(p => p.hand))
-            const winnerPlayers = this.inGamePlayers.filter(p => winners.includes(p.hand))
-            this.bets.pots.push({ amount: this.bets.total, winners: winnerPlayers })
+            const contenders = this.inGamePlayers.filter(p => !p.status.folded)
+            if (contenders.length === 0) {
+                await this.SendMessage("handEnded")
+                return this.NextHand()
+            }
+
+            contenders.forEach(p => {
+                p.hand = Hand.solve(this.tableCards.concat(p.cards))
+            })
+
+            const winners = Hand.winners(contenders.map(p => p.hand))
+            const winnerPlayers = contenders.filter(p => winners.includes(p.hand))
+            const totalPot = this.bets.total
+            const baseShare = winnerPlayers.length > 0 ? Math.floor(totalPot / winnerPlayers.length) : 0
+            let remainder = totalPot - baseShare * winnerPlayers.length
+
+            winnerPlayers.forEach((player) => {
+                const payout = baseShare + (remainder-- > 0 ? 1 : 0)
+                if (!player.status.won) {
+                    player.status.won = { grossValue: 0, netValue: 0, expEarned: 0 }
+                }
+                player.status.won.grossValue += payout
+            })
+
+            this.bets.pots = [{
+                amount: totalPot,
+                winners: winnerPlayers
+            }]
+
             await this.SendMessage("handEnded")
             return this.NextHand()
         }
 
-        if (phase === "flop") this.tableCards = this.PickRandom(this.cards, 3)
-        else this.tableCards.push(this.PickRandom(this.cards, 1)[0])
+        if (phase === "flop") {
+            this.tableCards = await this.PickRandom(this.cards, 3)
+        } else {
+            const [card] = await this.PickRandom(this.cards, 1)
+            if (card) this.tableCards.push(card)
+        }
 
         this.inGamePlayers.forEach(p => p.status.movedone = false)
-        this.bets.currentMax = 0
+        this.resetBettingRound()
 
         const snapshot = await this.captureTableRender({ title: phase.charAt(0).toUpperCase() + phase.slice(1) })
-        const embed = new Discord.EmbedBuilder().setColor(Discord.Colors.Blue).setTitle(phase.toUpperCase()).setImage(`attachment://${snapshot.filename}`)
-        await this.channel.send({ embeds: [embed], files: [snapshot.attachment] })
+        if (snapshot) {
+            const embed = new Discord.EmbedBuilder()
+                .setColor(Discord.Colors.Blue)
+                .setTitle(phase.toUpperCase())
+                .setImage(`attachment://${snapshot.filename}`)
+            await this.channel.send({ embeds: [embed], files: [snapshot.attachment] })
+        }
 
-        this.NextPlayer(this.inGamePlayers.find(p => !p.status.folded))
+        const nextPlayer = this.inGamePlayers.find(p => !p.status.folded)
+        if (nextPlayer) {
+            this.NextPlayer(nextPlayer)
+        }
     }
 
     CreateOptions() {
-        this.actionCollector = this.channel.createMessageComponentCollector({ filter: i => i.customId.startsWith("tx_action:") && this.GetPlayer(i.user.id), time: 300000 })
+        this.actionCollector = this.channel.createMessageComponentCollector({
+            filter: (i) => {
+                if (!i?.customId) return false
+                if (!i.customId.startsWith("tx_action:") && i.customId !== "tx_hand:view") return false
+                return Boolean(this.GetPlayer(i.user.id))
+            },
+            time: config.texas.collectorTimeout.default
+        })
         this.actionCollector.on("collect", async i => {
+            if (i.customId === "tx_hand:view") {
+                const seated = this.GetPlayer(i.user.id)
+                if (!seated) {
+                    await this.respondEphemeral(i, { content: "⚠️ You are not seated at this table." })
+                    return
+                }
+                await this.showPlayerHand(seated, i)
+                return
+            }
+
             const [, action, playerId] = i.customId.split(':')
             const player = this.GetPlayer(playerId)
             if (!player || player.id !== this.inGamePlayers.find(p => !p.status.movedone)?.id) {
@@ -302,67 +416,127 @@ module.exports = class TexasGame extends Game {
                 const amountInput = new Discord.TextInputBuilder().setCustomId("amount").setLabel("Amount").setStyle(Discord.TextInputStyle.Short).setRequired(true)
                 modal.addComponents(new Discord.ActionRowBuilder().addComponents(amountInput))
                 await i.showModal(modal)
-                const submission = await i.awaitModalSubmit({ time: 60000 }).catch(() => null)
+                const submission = await i.awaitModalSubmit({ time: config.texas.modalTimeout.default }).catch(() => null)
                 if (!submission) return
                 amount = features.inputConverter(submission.fields.getTextInputValue("amount"))
                 await submission.deferUpdate()
             }
 
-            this.Action(action, player, amount)
+            await this.Action(action, player, amount)
             if(!i.deferred) await i.deferUpdate()
         })
     }
 
     async Action(type, player, params, isBlind = false) {
+        if (!player) return
         if (!isBlind && !this.GetAvailableOptions(player).includes(type)) return
         clearTimeout(this.timer)
 
+        const tableMinBet = this.getTableMinBet()
+
         switch (type) {
-            case "fold": player.status.folded = true; break
-            case "check": break;
-            case "call":
-                const callAmount = this.bets.currentMax - player.bets.current
-                player.stack -= callAmount; player.bets.current += callAmount; player.bets.total += callAmount; this.bets.total += callAmount
-                break
+            case "fold":
+                player.status.folded = true
+            break
+            case "check":
+                // Nothing to do
+            break
+            case "call": {
+                const callAmount = Math.max(0, this.bets.currentMax - player.bets.current)
+                if (callAmount <= 0) break
+                if (player.stack <= callAmount) {
+                    const allInAmount = player.stack
+                    player.bets.current += allInAmount
+                    player.bets.total += allInAmount
+                    this.bets.total += allInAmount
+                    player.stack = 0
+                    if (player.bets.current > this.bets.currentMax) this.bets.currentMax = player.bets.current
+                    this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
+                } else {
+                    player.stack -= callAmount
+                    player.bets.current += callAmount
+                    player.bets.total += callAmount
+                    this.bets.total += callAmount
+                }
+            }
+            break
             case "bet":
-            case "raise":
-                const betAmount = params || this.minBet
-                if (player.stack < betAmount) return // Or handle as all-in
-                player.stack -= betAmount; player.bets.current += betAmount; player.bets.total += betAmount; this.bets.total += betAmount
-                if (player.bets.current > this.bets.currentMax) this.bets.currentMax = player.bets.current
-                this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
-                break
-            case "allin":
+            case "raise": {
+                const requested = Number.isFinite(params) && params > 0 ? Math.floor(params) : tableMinBet
+                const betAmount = isBlind ? requested : Math.max(requested, tableMinBet)
+                if (player.stack <= betAmount) {
+                    const allInAmount = player.stack
+                    player.bets.current += allInAmount
+                    player.bets.total += allInAmount
+                    this.bets.total += allInAmount
+                    player.stack = 0
+                } else {
+                    player.stack -= betAmount
+                    player.bets.current += betAmount
+                    player.bets.total += betAmount
+                    this.bets.total += betAmount
+                }
+                if (player.bets.current > this.bets.currentMax) {
+                    this.bets.currentMax = player.bets.current
+                    this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
+                }
+            }
+            break
+            case "allin": {
                 const allInAmount = player.stack
-                player.bets.current += allInAmount; player.bets.total += allInAmount; this.bets.total += allInAmount; player.stack = 0
-                if (player.bets.current > this.bets.currentMax) this.bets.currentMax = player.bets.current
-                this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
-                break
+                if (allInAmount <= 0) break
+                player.bets.current += allInAmount
+                player.bets.total += allInAmount
+                this.bets.total += allInAmount
+                player.stack = 0
+                if (player.bets.current > this.bets.currentMax) {
+                    this.bets.currentMax = player.bets.current
+                    this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
+                }
+            }
+            break
+            default:
+                return
         }
+
         player.status.movedone = true
         this.UpdateInGame()
 
-        if (this.inGamePlayers.length < 2) {
+        if (this.inGamePlayers.length < this.getMinimumPlayers()) {
             const winner = this.inGamePlayers[0]
-            winner.status.won.grossValue = this.bets.total
-            this.AssignRewards(winner)
+            if (winner) {
+                if (!winner.status.won) {
+                    winner.status.won = { grossValue: 0, netValue: 0, expEarned: 0 }
+                }
+                winner.status.won.grossValue += this.bets.total
+                this.bets.pots = [{
+                    amount: this.bets.total,
+                    winners: [winner]
+                }]
+            }
             await this.SendMessage("handEnded")
             return this.NextHand()
         }
 
         const next = this.inGamePlayers.find(p => !p.status.movedone)
         if (next) {
-            this.NextPlayer(next)
+            await this.NextPlayer(next)
         } else {
-            const phase = this.tableCards.length === 0 ? "flop" : this.tableCards.length === 3 ? "turn" : this.tableCards.length === 4 ? "river" : "showdown"
-            this.NextPhase(phase)
+            const phase = this.tableCards.length === 0
+                ? "flop"
+                : this.tableCards.length === 3
+                ? "turn"
+                : this.tableCards.length === 4
+                ? "river"
+                : "showdown"
+            await this.NextPhase(phase)
         }
     }
 
     async NextPlayer(player) {
         if (!this.playing || !player) return
         this.UpdateInGame()
-        if (this.inGamePlayers.length < 2) return this.NextHand()
+        if (this.inGamePlayers.length < this.getMinimumPlayers()) return this.NextHand()
 
         await this.updateGameMessage(player)
 
@@ -376,7 +550,7 @@ module.exports = class TexasGame extends Game {
         const options = ["fold"]
         if (player.bets.current === this.bets.currentMax) options.push("check")
         else if (player.stack > this.bets.currentMax - player.bets.current) options.push("call")
-        if (player.stack > this.minBet) options.push("bet")
+        if (player.stack > this.getTableMinBet()) options.push("bet")
         if (player.stack > this.bets.currentMax - player.bets.current) options.push("raise")
         options.push("allin")
         return options
@@ -386,42 +560,68 @@ module.exports = class TexasGame extends Game {
         this.inGamePlayers = this.players.filter(p => !p.status.folded && !p.status.removed)
     }
 
-    AssignRewards(player) {
-        if (!player.status) return
-        if (player.status.won.grossValue > 0) {
+    async AssignRewards(player) {
+        if (!player || !player.status) return
+        if (player.status.won && player.status.won.grossValue > 0) {
             const netValue = this.GetNetValue(player.status.won.grossValue, player)
             player.stack += netValue
             player.data.money += netValue - player.bets.total
             player.data.hands_won++
+            player.status.won.grossValue = 0
         }
         player.data.hands_played++
-        this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
+        await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
     }
 
-    GetNetValue(gross, player) {
-        return gross // Simplified for now
+    GetNetValue(gross) {
+        return gross
     }
 
     async Reset() {
         this.cards = [...cards]
         this.tableCards = []
-        this.bets = { minRaise: this.minBet, currentMax: 0, total: 0, pots: [] }
+        this.bets = { minRaise: this.getTableMinBet(), currentMax: 0, total: 0, pots: [] }
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
     }
 
-    Stop(options = {}) {
-        if (this.actionCollector) this.actionCollector.stop()
-        if (this.timer) clearTimeout(this.timer)
-        this.playing = false
-        this.channel.game = null
-        if (this.client.activeGames) this.client.activeGames.delete(this)
-        if (options.notify) this.SendMessage("minPlayersDelete")
+    async Stop(options = {}) {
+        if (this.actionCollector) this.actionCollector.stop();
+        if (this.timer) clearTimeout(this.timer);
+        this.playing = false;
+        this.channel.game = null;
+        if (this.client.activeGames) this.client.activeGames.delete(this);
+
+        if (options.reason === "notEnoughPlayers" || options.reason === "canceled") {
+            await this.refundPlayers();
+        }
+
+        if (options.notify) {
+            this.SendMessage("minPlayersDelete");
+        }
+    }
+
+    async refundPlayers() {
+        for (const player of this.players) {
+            if (player.stack > 0) {
+                bankrollManager.syncStackToBankroll(player);
+                await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player));
+            }
+        }
+    }
+
+    getMinimumPlayers() {
+        const configured = config?.texas?.minPlayers?.default
+        return Number.isFinite(configured) && configured > 1 ? configured : 2
+    }
+
+    getTableMinBet() {
+        return Number.isFinite(this.minBet) && this.minBet > 0 ? this.minBet : config.texas.minBet.default
     }
 
     async Run() {
-        if (this.players.length < 2) return this.Stop({ notify: true })
+        if (this.players.length < this.getMinimumPlayers()) return this.Stop({ notify: true })
         this.playing = true
-        this.NextHand()
+        await this.NextHand()
     }
 }

@@ -78,10 +78,10 @@ module.exports = class Game {
 
         Object.assign(player.data, normalizeUserExperience(player.data))
         player.data.current_exp += earned
-        await new Promise((resolve, reject) => {
+        await new Promise(async (resolve, reject) => {
             while (player.data.current_exp >= player.data.required_exp) {
                 player.data.level++
-                this.NextLevelMessage(player)
+                await this.NextLevelMessage(player)
                 player.data.current_exp -= player.data.required_exp
                 player.data.required_exp = calculateRequiredExp(player.data.level)
                 player.data.money += features.getLevelReward(player.data.level)

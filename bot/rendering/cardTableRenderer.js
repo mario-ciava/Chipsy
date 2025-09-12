@@ -39,14 +39,11 @@ const CONFIG = Object.freeze({
     cardsPath: path.join(PROJECT_ROOT, "assets/cards"),
     cardBackImage: path.join(PROJECT_ROOT, "assets/cards/back.png"),
 
-    fontFamily: "SF Pro Display",
-    fontPaths: [
-        process.env.RENDER_FONT_PATH,
-        path.join(PROJECT_ROOT, "assets/fonts/SF-Pro-Display-Regular.otf")
-    ],
+    fontFamily: "sans-serif",
+    fontPaths: [],
 
     titleSize: 48,
-    sectionTitleSize: 36,
+    sectionTitleSize: 40,
     subtitleSize: 24,
     valueSize: 32,
     infoSize: 26,
@@ -85,19 +82,7 @@ const CONFIG = Object.freeze({
 });
 
 // Register custom fonts if they exist on disk.
-for (const fontPath of CONFIG.fontPaths) {
-    if (!fontPath) continue;
-    try {
-        registerFont(fontPath, { family: CONFIG.fontFamily });
-        break;
-    } catch (error) {
-        logger.debug("Failed to register render font", {
-            scope: "cardTableRenderer",
-            fontPath,
-            error: error.message
-        });
-    }
-}
+
 
 // ============================================================================
 // CARD ASSET CACHE
@@ -193,7 +178,7 @@ function getBackgroundNoiseCanvas(size = 64) {
     }
     nctx.putImageData(imageData, 0, 0);
     backgroundNoiseCanvas = noiseCanvas;
-    return backgroundNoiseCanvas;
+    return noiseCanvas;
 }
 
 // ============================================================================
@@ -378,14 +363,17 @@ async function drawHand(ctx, hand, options) {
         hasMultipleHands = false,
         isCurrent = false,
         insured = false,
-        subtitle = null
+        subtitle = null,
+        slotWidth = CONFIG.canvasWidth
     } = options;
 
     let cursorY = topY;
 
+    const finalTitle = isCurrent ? `${title} (waiting..)` : title;
+
     const titleFont = `700 ${CONFIG.sectionTitleSize}px "${CONFIG.fontFamily}"`;
-    const hasTitle = Boolean(title);
-    const labelWidth = hasTitle ? measureTextWidth(ctx, title, titleFont) : 0;
+    const hasTitle = Boolean(finalTitle);
+    const labelWidth = hasTitle ? measureTextWidth(ctx, finalTitle, titleFont) : 0;
 
     const badges = [];
     const badgeFontSize = Math.max(24, CONFIG.infoSize + 2);
@@ -403,11 +391,13 @@ async function drawHand(ctx, hand, options) {
     };
 
     if (showResultBadge) {
+        if (hand.busted) {
+            pushBadge("LOSE", CONFIG.loseColor, "#FFFFFF");
+        }
         if (result === "win") pushBadge("WIN", CONFIG.winColor, "#0B2B18");
         if (result === "lose") pushBadge("LOSE", CONFIG.loseColor, "#FFFFFF");
         if (result === "push") pushBadge("PUSH", CONFIG.pushColor, "#2C2200");
         if (hand.blackjack) pushBadge("BLACKJACK", CONFIG.winColor, "#0B2B18");
-        if (hand.busted) pushBadge("BUST", CONFIG.loseColor, "#FFFFFF");
     }
 
     const badgeFont = `700 ${badgeFontSize}px "${CONFIG.fontFamily}"`;
@@ -417,7 +407,7 @@ async function drawHand(ctx, hand, options) {
     const startX = hasTitle ? centerX - titleBlockWidth / 2 : 0;
 
     if (hasTitle) {
-        drawText(ctx, title, {
+        drawText(ctx, finalTitle, {
             x: startX,
             y: cursorY,
             size: CONFIG.sectionTitleSize,
@@ -468,28 +458,43 @@ async function drawHand(ctx, hand, options) {
     }
 
     const cards = Array.isArray(hand.cards) ? hand.cards : [];
-    const cardCount = Math.max(cards.length, 1);
-    const cardsTotalWidth = cardCount * CONFIG.cardWidth + (cardCount - 1) * CONFIG.cardSpacing;
-    const cardsStartX = centerX - cardsTotalWidth / 2;
+    const cardCount = cards.length;
     const cardsY = cursorY;
 
-    await Promise.all(cards.map(card => loadCardImage(card)));
+    if (cardCount === 0) {
+        const x = centerX - CONFIG.cardWidth / 2;
+        drawCardBack(ctx, x, cardsY);
+    } else {
+        const maxCardsWidth = slotWidth - 40;
+        let cardSpacing = CONFIG.cardWidth + CONFIG.cardSpacing;
 
-    for (let i = 0; i < cardCount; i++) {
-        const cardName = cards[i];
-        const x = cardsStartX + i * (CONFIG.cardWidth + CONFIG.cardSpacing);
-        const y = cardsY;
+        const totalWidth = (cardCount - 1) * cardSpacing + CONFIG.cardWidth;
 
-        if (maskSecondCard && i === 1) {
-            drawCardBack(ctx, x, y);
-            continue;
+        if (totalWidth > maxCardsWidth) {
+            cardSpacing = (maxCardsWidth - CONFIG.cardWidth) / (cardCount - 1);
         }
 
-        const image = cardName ? cardCache.get(normalizeCardName(cardName)) : null;
-        if (image) {
-            drawCardImage(ctx, image, x, y);
-        } else {
-            drawCardBack(ctx, x, y);
+        const finalWidth = (cardCount - 1) * cardSpacing + CONFIG.cardWidth;
+        const cardsStartX = centerX - finalWidth / 2;
+
+        await Promise.all(cards.map(card => loadCardImage(card)));
+
+        for (let i = 0; i < cardCount; i++) {
+            const cardName = cards[i];
+            const x = cardsStartX + i * cardSpacing;
+            const y = cardsY;
+
+            if (maskSecondCard && i === 1) {
+                drawCardBack(ctx, x, y);
+                continue;
+            }
+
+            const image = cardName ? cardCache.get(normalizeCardName(cardName)) : null;
+            if (image) {
+                drawCardImage(ctx, image, x, y);
+            } else {
+                drawCardBack(ctx, x, y);
+            }
         }
     }
 
@@ -497,9 +502,9 @@ async function drawHand(ctx, hand, options) {
     const valueY = cursorY;
     cursorY += CONFIG.valueSize + CONFIG.layout.valueSpacing;
 
-    const valueText = Number.isFinite(hand.value)
-        ? `Value: ${hand.value}`
-        : "Value: ??";
+    const valueText = maskSecondCard
+        ? "Value: ??"
+        : (Number.isFinite(hand.value) ? `Value: ${hand.value}` : "Value: ??");
 
     let valueColor = CONFIG.textSecondary;
     if (result === "win") valueColor = CONFIG.winColor;
@@ -532,9 +537,6 @@ async function drawHand(ctx, hand, options) {
     if (insured) {
         infoParts.push("Insured");
     }
-    if (hasMultipleHands && isCurrent) {
-        infoParts.push("Current");
-    }
 
     if (infoParts.length > 0) {
         const infoY = cursorY;
@@ -558,6 +560,37 @@ async function drawHand(ctx, hand, options) {
 // ============================================================================
 // NORMALIZATION
 // ============================================================================
+function calculateHandValue(cards = []) {
+    if (!Array.isArray(cards) || cards.length === 0) {
+        return { value: 0, busted: false, blackjack: false };
+    }
+
+    let aces = 0;
+    let value = 0;
+
+    for (const card of cards) {
+        const cardValue = card[0];
+        if (cardValue === 'A') {
+            aces++;
+            value += 11;
+        } else if (['K', 'Q', 'J', 'T'].includes(cardValue)) {
+            value += 10;
+        } else {
+            value += parseInt(cardValue, 10);
+        }
+    }
+
+    while (value > 21 && aces > 0) {
+        value -= 10;
+        aces--;
+    }
+
+    const busted = value > 21;
+    const blackjack = cards.length === 2 && value === 21;
+
+    return { value, busted, blackjack };
+}
+
 function resolvePlayerLabel(player, index = 0) {
     return (
         player?.displayName
@@ -575,11 +608,12 @@ function createBlackjackTableState(gameState = {}, options = {}) {
 
     const focusPlayerId = options.focusPlayerId;
 
+    const dealerHandInfo = calculateHandValue(dealer.cards);
     const normalizedDealer = {
         cards: Array.isArray(dealer.cards) ? dealer.cards : [],
-        value: dealer.value ?? dealer.total ?? dealer.score ?? null,
-        blackjack: Boolean(dealer.blackjack || dealer.hasBlackjack),
-        busted: Boolean(dealer.busted || dealer.isBusted)
+        value: dealerHandInfo.value,
+        blackjack: dealerHandInfo.blackjack,
+        busted: dealerHandInfo.busted
     };
 
     const playerHands = [];
@@ -590,19 +624,22 @@ function createBlackjackTableState(gameState = {}, options = {}) {
         const label = resolvePlayerLabel(player, playerIndex);
         hands.forEach((hand, handIndex) => {
             if (!hand) return;
+
+            const { value, busted, blackjack } = calculateHandValue(hand.cards);
             const insuredFlag = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
-            const isCurrent = Boolean(hand.isCurrent ?? hand.current ?? hand.active ?? hand.isActive ?? hand.playing);
+            const isCurrent = hand.isCurrent;
             const handRoundValue = hand.round ?? hand.roundNumber ?? null;
             const specificRoundLabel = hand.roundLabel ?? hand.roundTitle ?? (Number.isFinite(handRoundValue) ? `Round #${Math.max(1, Math.trunc(handRoundValue))}` : null);
+            
             playerHands.push({
                 cards: Array.isArray(hand.cards) ? hand.cards : [],
-                value: hand.value ?? hand.total ?? hand.score ?? null,
+                value: value,
                 bet: hand.bet ?? hand.wager ?? hand.stake ?? null,
                 payout: hand.payout ?? hand.net ?? null,
                 xp: hand.xp ?? hand.xpEarned ?? null,
                 result: hand.result ?? hand.outcome ?? null,
-                blackjack: Boolean(hand.blackjack || hand.isBlackjack),
-                busted: Boolean(hand.busted || hand.isBusted),
+                blackjack: blackjack,
+                busted: busted,
                 label: hands.length > 1 ? `${label} (Hand ${handIndex + 1})` : label,
                 playerId: player?.id,
                 insured: insuredFlag,
@@ -686,13 +723,13 @@ async function renderCardTable(params) {
         drawText(ctx, `Round #${globalRoundNumber}` , {
             x: CONFIG.canvasWidth / 2,
             y: cursorY,
-            size: CONFIG.subtitleSize,
+            size: CONFIG.titleSize,
             color: CONFIG.textSecondary,
             align: "center",
             baseline: "top",
             bold: true
         });
-        cursorY += CONFIG.subtitleSize + CONFIG.layout.titleSpacing;
+        cursorY += CONFIG.titleSize + CONFIG.layout.titleSpacing;
     }
 
     cursorY = await drawHand(ctx, {
@@ -732,7 +769,7 @@ async function renderCardTable(params) {
             ?? (slotCount > 1 ? `Player ${i + 1}` : "Player");
         const subtitle = null;
 
-        const isCurrent = Boolean(hand.isCurrent ?? hand.current ?? hand.active ?? hand.isActive);
+        const isCurrent = hand.isCurrent;
         const insured = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
         const hasMultipleHands = (hand.handsForPlayer ?? slotCount) > 1;
 
@@ -744,7 +781,8 @@ async function renderCardTable(params) {
             hasMultipleHands,
             isCurrent,
             insured,
-            subtitle
+            subtitle,
+            slotWidth
         });
     }
 
