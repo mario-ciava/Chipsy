@@ -113,6 +113,46 @@ async function registerGlobalCommands(client, commandPayloads) {
     }
 }
 
+async function cleanupLegacyGuildCommands(client, validCommandNames) {
+    const desired = new Set(validCommandNames);
+
+    for (const guild of client.guilds.cache.values()) {
+        try {
+            const guildCommands = await guild.commands.fetch();
+            const stale = guildCommands.filter(cmd => !desired.has(cmd.name));
+
+            if (stale.size < 1) continue;
+
+            logger.info(`Removing ${stale.size} legacy guild command(s) from ${guild.name}`, {
+                scope: "events",
+                event: "ready",
+                guildId: guild.id,
+                icon: "🧹",
+                legacy: stale.map(cmd => cmd.name)
+            });
+
+            for (const command of stale.values()) {
+                await guild.commands.delete(command.id).catch(error => {
+                    logger.error("Failed to delete legacy guild command", {
+                        scope: "events",
+                        event: "ready",
+                        guildId: guild.id,
+                        command: command.name,
+                        error: error.message
+                    });
+                });
+            }
+        } catch (error) {
+            logger.error("Unable to fetch guild commands for cleanup", {
+                scope: "events",
+                event: "ready",
+                guildId: guild.id,
+                error: error.message
+            });
+        }
+    }
+}
+
 module.exports = async(client) => {
     const userTag = client?.user?.tag ?? "unknown user";
     logger.info(`Successfully logged-in as ${userTag}`, {
@@ -181,6 +221,8 @@ module.exports = async(client) => {
 
             await registerGlobalCommands(client, slashCommands);
         }
+
+        await cleanupLegacyGuildCommands(client, slashCommands.map(cmd => cmd.name));
 
     } catch (err) {
         logger.error("Failed to complete ready event setup", {

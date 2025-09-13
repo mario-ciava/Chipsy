@@ -22,6 +22,7 @@ const PROJECT_ROOT = path.join(__dirname, "../..");
 // ============================================================================
 const DEBUG_PNG_PATH = path.join(PROJECT_ROOT, "render-debug.png");
 const DEBUG_SVG_PATH = path.join(PROJECT_ROOT, "render-debug.svg");
+const ENABLE_RENDER_DEBUG = process.env.CARD_RENDER_DEBUG === "1";
 
 let cardBackPromise = null;
 
@@ -72,6 +73,10 @@ const CONFIG = Object.freeze({
         dealerSectionSpacing: 24,
         dividerOffset: 28,
         playersTopSpacing: 40,
+        playerRowGap: 50,
+        maxParticipantsPerRow: 2,
+        basePlayerRows: 1,
+        rowHeightIncrement: 320,
         sectionTitleSpacing: 18,
         subtitleSpacing: 6,
         cardsSpacing: 22,
@@ -184,61 +189,61 @@ function getBackgroundNoiseCanvas(size = 64) {
 // ============================================================================
 // DRAW HELPERS
 // ============================================================================
-function drawBackground(ctx) {
-    const { canvasWidth: width, canvasHeight: height } = CONFIG;
+function drawBackground(ctx, canvasHeight) {
+    const width = CONFIG.canvasWidth;
+    const height = canvasHeight;
 
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, CONFIG.backgroundTop);
-    gradient.addColorStop(1, CONFIG.backgroundBottom);
+    // Base radial gradient with bright center
+    const radial = ctx.createRadialGradient(width / 2, height / 2, width * 0.22, width / 2, height / 2, width)
+    radial.addColorStop(0, "#179252")
+    radial.addColorStop(0.55, CONFIG.backgroundTop)
+    radial.addColorStop(1, "#12432C")
+    ctx.fillStyle = radial
+    ctx.fillRect(0, 0, width, height)
 
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+    // Vertical glow band
+    const bandHeight = height * 0.2
+    const bandY = height * 0.24
+    const bandGradient = ctx.createRadialGradient(width / 2, bandY + bandHeight / 2, width * 0.1, width / 2, bandY + bandHeight / 2, width * 0.65)
+    bandGradient.addColorStop(0, "rgba(255,255,255,0.05)")
+    bandGradient.addColorStop(1, "rgba(255,255,255,0)")
+    ctx.save()
+    ctx.globalAlpha = 0.35
+    ctx.fillStyle = bandGradient
+    ctx.fillRect(0, bandY, width, bandHeight)
+    ctx.restore()
 
-    // Subtle light band at center
-    const bandHeight = height * 0.18;
-    const bandY = height * 0.22;
-    const bandGradient = ctx.createLinearGradient(0, bandY, 0, bandY + bandHeight);
-    bandGradient.addColorStop(0, "rgba(255,255,255,0)");
-    bandGradient.addColorStop(0.5, "rgba(255,255,255,0.12)");
-    bandGradient.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.save();
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = bandGradient;
-    ctx.fillRect(0, bandY, width, bandHeight);
-    ctx.restore();
+    const edgeGlow = ctx.createRadialGradient(width / 2, height / 2, width * 0.45, width / 2, height / 2, width * 1.2)
+    edgeGlow.addColorStop(0, "rgba(255,255,255,0)")
+    edgeGlow.addColorStop(1, "rgba(255,255,255,0.04)")
+    ctx.save()
+    ctx.globalCompositeOperation = "lighter"
+    ctx.fillStyle = edgeGlow
+    ctx.fillRect(0, 0, width, height)
+    ctx.restore()
 
-    const bottomGlow = ctx.createLinearGradient(0, height * 0.65, 0, height);
-    bottomGlow.addColorStop(0, "rgba(0,0,0,0)");
-    bottomGlow.addColorStop(1, "rgba(0,0,0,0.55)");
-    ctx.save();
-    ctx.fillStyle = bottomGlow;
-    ctx.fillRect(0, 0, width, height);
-    ctx.restore();
-
-    const edgeGlow = ctx.createRadialGradient(width / 2, height * 0.55, width * 0.1, width / 2, height * 0.55, width * 0.7);
-    edgeGlow.addColorStop(0, "rgba(255,255,255,0.2)");
-    edgeGlow.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.save();
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = edgeGlow;
-    ctx.fillRect(0, 0, width, height);
-    ctx.restore();
+    const bottomGlow = ctx.createLinearGradient(0, height * 0.62, 0, height)
+    bottomGlow.addColorStop(0, "rgba(0,0,0,0)")
+    bottomGlow.addColorStop(1, "rgba(0,0,0,0.32)")
+    ctx.save()
+    ctx.fillStyle = bottomGlow
+    ctx.fillRect(0, 0, width, height)
+    ctx.restore()
 
     const noiseCanvas = getBackgroundNoiseCanvas();
     const pattern = ctx.createPattern(noiseCanvas, "repeat");
     if (pattern) {
         ctx.save();
-        ctx.globalAlpha = 0.045;
+        ctx.globalAlpha = 0.07;
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, width, height);
         ctx.restore();
     }
 
-    const vignette = ctx.createRadialGradient(width / 2, height / 2, width * 0.35, width / 2, height / 2, width * 0.78);
+    const vignette = ctx.createRadialGradient(width / 2, height / 2, width * 0.55, width / 2, height / 2, width * 1.05);
     vignette.addColorStop(0, "rgba(0,0,0,0)");
-    vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+    vignette.addColorStop(1, "rgba(0,0,0,0.45)");
     ctx.save();
-    ctx.globalAlpha = 0.32;
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
@@ -369,11 +374,8 @@ async function drawHand(ctx, hand, options) {
 
     let cursorY = topY;
 
-    const finalTitle = isCurrent ? `${title} (waiting..)` : title;
-
-    const titleFont = `700 ${CONFIG.sectionTitleSize}px "${CONFIG.fontFamily}"`;
-    const hasTitle = Boolean(finalTitle);
-    const labelWidth = hasTitle ? measureTextWidth(ctx, finalTitle, titleFont) : 0;
+    const reachedTwentyOne = Number(hand?.value) === 21 || hand?.blackjack === true;
+    const baseTitle = title;
 
     const badges = [];
     const badgeFontSize = Math.max(24, CONFIG.infoSize + 2);
@@ -400,6 +402,25 @@ async function drawHand(ctx, hand, options) {
         if (hand.blackjack) pushBadge("BLACKJACK", CONFIG.winColor, "#0B2B18");
     }
 
+    const hasBadges = badges.length > 0;
+    const showCurrentTag = Boolean(baseTitle) && isCurrent && !reachedTwentyOne && !hasBadges;
+    const finalTitle = showCurrentTag ? `${baseTitle} (current)` : baseTitle;
+
+    const hasTitle = Boolean(finalTitle);
+    let labelWidth = 0;
+    const titleFont = `700 ${CONFIG.sectionTitleSize}px "${CONFIG.fontFamily}"`;
+    const titleMaxWidth = slotWidth - 40;
+    let normalizedTitle = finalTitle;
+    if (hasTitle) {
+        labelWidth = measureTextWidth(ctx, normalizedTitle, titleFont);
+        if (labelWidth > titleMaxWidth) {
+            const cutRatio = titleMaxWidth / labelWidth;
+            const approxLength = Math.max(6, Math.floor(normalizedTitle.length * cutRatio) - 3);
+            normalizedTitle = `${normalizedTitle.slice(0, approxLength)}...`;
+            labelWidth = measureTextWidth(ctx, normalizedTitle, titleFont);
+        }
+    }
+
     const badgeFont = `700 ${badgeFontSize}px "${CONFIG.fontFamily}"`;
     const badgeWidths = badges.map(badge => measureTextWidth(ctx, badge.text, badgeFont) + badgePaddingX * 2);
     const totalBadgeWidth = badges.length > 0 ? badgeWidths.reduce((acc, width, index) => acc + width + (index > 0 ? badgeGap : 0), 0) : 0;
@@ -407,7 +428,7 @@ async function drawHand(ctx, hand, options) {
     const startX = hasTitle ? centerX - titleBlockWidth / 2 : 0;
 
     if (hasTitle) {
-        drawText(ctx, finalTitle, {
+        drawText(ctx, normalizedTitle, {
             x: startX,
             y: cursorY,
             size: CONFIG.sectionTitleSize,
@@ -477,8 +498,6 @@ async function drawHand(ctx, hand, options) {
         const finalWidth = (cardCount - 1) * cardSpacing + CONFIG.cardWidth;
         const cardsStartX = centerX - finalWidth / 2;
 
-        await Promise.all(cards.map(card => loadCardImage(card)));
-
         for (let i = 0; i < cardCount; i++) {
             const cardName = cards[i];
             const x = cardsStartX + i * cardSpacing;
@@ -507,6 +526,7 @@ async function drawHand(ctx, hand, options) {
         : (Number.isFinite(hand.value) ? `Value: ${hand.value}` : "Value: ??");
 
     let valueColor = CONFIG.textSecondary;
+    let dealerBadge = null;
     if (result === "win") valueColor = CONFIG.winColor;
     if (result === "lose") valueColor = CONFIG.loseColor;
     if (result === "push") valueColor = CONFIG.pushColor;
@@ -613,7 +633,8 @@ function createBlackjackTableState(gameState = {}, options = {}) {
         cards: Array.isArray(dealer.cards) ? dealer.cards : [],
         value: dealerHandInfo.value,
         blackjack: dealerHandInfo.blackjack,
-        busted: dealerHandInfo.busted
+        busted: dealerHandInfo.busted,
+        result: null
     };
 
     const playerHands = [];
@@ -648,6 +669,23 @@ function createBlackjackTableState(gameState = {}, options = {}) {
             });
         });
     });
+
+    const playerResults = playerHands
+        .map(hand => (hand.result || "").toLowerCase())
+        .filter(Boolean);
+    if (playerResults.length > 0) {
+        if (playerResults.some(res => res === "win")) {
+            normalizedDealer.result = "lose";
+        } else if (playerResults.some(res => res === "push")) {
+            normalizedDealer.result = "push";
+        } else {
+            normalizedDealer.result = "win";
+        }
+    } else if (normalizedDealer.blackjack) {
+        normalizedDealer.result = "win";
+    } else if (normalizedDealer.busted) {
+        normalizedDealer.result = "lose";
+    }
 
     const defaultName = playerHands[0]?.label ?? resolvePlayerLabel(players[0], 0);
 
@@ -698,9 +736,41 @@ async function renderCardTable(params) {
 
     const wantsSVG = requestedFormat === "svg";
     const scale = wantsSVG ? 1 : (Number.isFinite(CONFIG.outputScale) && CONFIG.outputScale > 0 ? CONFIG.outputScale : 1);
+
+    const rawPlayers = normalized.playerHands.length > 0
+        ? normalized.playerHands
+        : [{
+            cards: [],
+            value: null,
+            label: "Player",
+            result: normalized.result
+        }];
+    const totalPlayers = rawPlayers.length;
+
+    const participantKeys = rawPlayers.map((hand, index) => {
+        if (hand.playerId) return `id:${hand.playerId}`;
+        if (hand.ownerId) return `owner:${hand.ownerId}`;
+        if (hand.userId) return `user:${hand.userId}`;
+        if (hand.originalPlayerId) return `orig:${hand.originalPlayerId}`;
+        if (typeof hand.label === "string") {
+            return `label:${hand.label.replace(/\s*\(Hand\s+\d+\)\s*$/i, "").trim()}`;
+        }
+        return `entry:${index}`;
+    });
+    const uniqueParticipantCount = Math.max(1, new Set(participantKeys).size);
+    const maxSlotsPerRow = Math.max(1, CONFIG.layout.maxParticipantsPerRow || 2);
+    const totalRowsParticipants = Math.ceil(uniqueParticipantCount / maxSlotsPerRow);
+    const totalRowsHands = Math.ceil(totalPlayers / maxSlotsPerRow);
+    const totalRows = Math.max(1, totalRowsParticipants, totalRowsHands);
+    const basePlayerRows = Math.max(1, CONFIG.layout.basePlayerRows || 1);
+    const rowHeightIncrement = Math.max(150, CONFIG.layout.rowHeightIncrement || 320);
+    const additionalRows = Math.max(0, totalRows - basePlayerRows);
+    const canvasWidth = CONFIG.canvasWidth;
+    const canvasHeight = CONFIG.canvasHeight + additionalRows * rowHeightIncrement;
+
     const canvas = createCanvas(
-        wantsSVG ? CONFIG.canvasWidth : Math.round(CONFIG.canvasWidth * scale),
-        wantsSVG ? CONFIG.canvasHeight : Math.round(CONFIG.canvasHeight * scale),
+        wantsSVG ? canvasWidth : Math.round(canvasWidth * scale),
+        wantsSVG ? canvasHeight : Math.round(canvasHeight * scale),
         wantsSVG ? "svg" : undefined
     );
     const ctx = canvas.getContext("2d");
@@ -709,7 +779,17 @@ async function renderCardTable(params) {
     }
 
     await ensureCardBackLoaded();
-    drawBackground(ctx);
+
+    const cardsToPreload = new Set();
+    normalized.dealerCards?.forEach(card => { if (card) cardsToPreload.add(card); });
+    normalized.playerHands.forEach(hand => {
+        (hand.cards || []).forEach(card => { if (card) cardsToPreload.add(card); });
+    });
+    if (cardsToPreload.size > 0) {
+        await preloadCards(Array.from(cardsToPreload));
+    }
+
+    drawBackground(ctx, canvasHeight);
 
     let cursorY = CONFIG.layout.topMargin;
     const globalRoundNumber = Number.isFinite(normalized.metadata?.round)
@@ -720,6 +800,14 @@ async function renderCardTable(params) {
                 ? Math.max(1, Math.trunc(params.metadata.round))
                 : null;
     if (globalRoundNumber) {
+        const bandPadding = 18;
+        const bandHeight = CONFIG.titleSize + bandPadding;
+        const bandY = cursorY - bandPadding / 2;
+        ctx.save();
+        ctx.fillStyle = "rgba(48,48,48,0.95)";
+        ctx.fillRect(0, bandY, CONFIG.canvasWidth, bandHeight);
+        ctx.restore();
+
         drawText(ctx, `Round #${globalRoundNumber}` , {
             x: CONFIG.canvasWidth / 2,
             y: cursorY,
@@ -729,66 +817,94 @@ async function renderCardTable(params) {
             baseline: "top",
             bold: true
         });
-        cursorY += CONFIG.titleSize + CONFIG.layout.titleSpacing;
+        cursorY += CONFIG.titleSize + CONFIG.layout.titleSpacing + 12;
     }
+
+    const dealerResult = (() => {
+        if (normalized.maskDealerHoleCard) return null
+        const playerResults = normalized.playerHands.map(hand => (hand.result || "").toLowerCase()).filter(Boolean)
+        if (playerResults.length === 0) {
+            return normalized.dealerBlackjack ? "win" : normalized.dealerBusted ? "lose" : null
+        }
+        if (playerResults.some(res => res === "win")) return "lose"
+        if (playerResults.some(res => res === "push")) return "push"
+        if (playerResults.every(res => res === "lose")) return "win"
+        return null
+    })()
 
     cursorY = await drawHand(ctx, {
         cards: normalized.dealerCards,
         value: normalized.dealerValue,
-        result: normalized.dealerBusted ? "lose" : normalized.dealerBlackjack ? "win" : null
+        result: normalized.dealerBusted ? "lose" : normalized.dealerBlackjack ? "win" : dealerResult,
+        blackjack: normalized.dealerBlackjack,
+        busted: normalized.dealerBusted
     }, {
         title: "Dealer",
         centerX: CONFIG.canvasWidth / 2,
         topY: cursorY,
         maskSecondCard: normalized.maskDealerHoleCard,
-        showResultBadge: false
+        showResultBadge: !normalized.maskDealerHoleCard && Boolean(dealerResult),
+        isDealer: true
     });
 
     const dividerY = cursorY + CONFIG.layout.dealerSectionSpacing;
     drawDivider(ctx, dividerY);
     cursorY = dividerY + CONFIG.layout.dividerOffset;
 
-    const players = normalized.playerHands.length > 0
-        ? normalized.playerHands
-        : [{
-            cards: [],
-            value: null,
-            label: "Player",
-            result: normalized.result
-        }];
+    const players = rawPlayers;
 
     const playerRowTop = cursorY + CONFIG.layout.playersTopSpacing;
-    const slotCount = players.length;
-    const slotWidth = CONFIG.canvasWidth / (slotCount || 1);
+    // totalPlayers already defined above
+    let playerIndex = 0;
+    let rowsRemaining = totalRows;
+    let rowTop = playerRowTop;
 
-    for (let i = 0; i < slotCount; i++) {
-        const hand = players[i];
-        const centerX = slotWidth * (i + 0.5);
+    while (playerIndex < totalPlayers && rowsRemaining > 0) {
+        const playersRemaining = totalPlayers - playerIndex;
+        const idealSlots = Math.max(1, Math.ceil(playersRemaining / rowsRemaining));
+        const slotsThisRow = Math.min(maxSlotsPerRow, idealSlots);
+        const slotWidth = CONFIG.canvasWidth / slotsThisRow;
 
-        const headerTitle = hand.label
-            ?? (slotCount > 1 ? `Player ${i + 1}` : "Player");
-        const subtitle = null;
+        let rowBottom = rowTop;
+        for (let slotIndex = 0; slotIndex < slotsThisRow && playerIndex < totalPlayers; slotIndex++) {
+            const hand = players[playerIndex];
+            const centerX = slotWidth * (slotIndex + 0.5);
 
-        const isCurrent = hand.isCurrent;
-        const insured = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
-        const hasMultipleHands = (hand.handsForPlayer ?? slotCount) > 1;
+            const headerTitle = hand.label
+                ?? (totalPlayers > 1 ? `Player ${playerIndex + 1}` : "Player");
+            const subtitle = null;
 
-        await drawHand(ctx, hand, {
-            title: headerTitle,
-            centerX,
-            topY: playerRowTop,
-            showResultBadge: true,
-            hasMultipleHands,
-            isCurrent,
-            insured,
-            subtitle,
-            slotWidth
-        });
+            const isCurrent = hand.isCurrent;
+            const insured = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
+            const hasMultipleHands = (hand.handsForPlayer ?? totalPlayers) > 1;
+
+            const handBottom = await drawHand(ctx, hand, {
+                title: headerTitle,
+                centerX,
+                topY: rowTop,
+                showResultBadge: true,
+                hasMultipleHands,
+                isCurrent,
+                insured,
+                subtitle,
+                slotWidth
+            });
+
+            rowBottom = Math.max(rowBottom, handBottom);
+            playerIndex += 1;
+        }
+
+        rowsRemaining -= 1;
+        rowTop = playerIndex < totalPlayers
+            ? rowBottom + (CONFIG.layout.playerRowGap || 50)
+            : rowBottom;
     }
+
+    cursorY = rowTop;
 
     const buffer = canvas.toBuffer(wantsSVG ? "image/svg+xml" : "image/png");
 
-    if (wantsSVG) {
+    if (wantsSVG && ENABLE_RENDER_DEBUG) {
         try {
             await fs.writeFile(DEBUG_SVG_PATH, buffer);
         } catch (error) {
@@ -801,20 +917,26 @@ async function renderCardTable(params) {
         return buffer;
     }
 
-    try {
-        await fs.writeFile(DEBUG_PNG_PATH, buffer);
-    } catch (error) {
-        logger.debug("Failed to store render debug PNG", {
-            scope: "cardTableRenderer",
-            path: DEBUG_PNG_PATH,
-            error: error.message
-        });
+    if (wantsSVG) {
+        return buffer;
+    }
+
+    if (ENABLE_RENDER_DEBUG) {
+        try {
+            await fs.writeFile(DEBUG_PNG_PATH, buffer);
+        } catch (error) {
+            logger.debug("Failed to store render debug PNG", {
+                scope: "cardTableRenderer",
+                path: DEBUG_PNG_PATH,
+                error: error.message
+            });
+        }
     }
 
     if (sharp && Number.isFinite(CONFIG.embedTargetWidth) && CONFIG.embedTargetWidth > 0) {
         try {
             const targetWidth = CONFIG.embedTargetWidth;
-            const aspectRatio = CONFIG.canvasHeight / CONFIG.canvasWidth;
+            const aspectRatio = canvasHeight / CONFIG.canvasWidth;
             const targetHeight = Math.round(targetWidth * aspectRatio);
             const resized = await sharp(buffer)
                 .resize({

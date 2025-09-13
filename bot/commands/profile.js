@@ -545,12 +545,12 @@ function buildProfileMessage(author, state = {}) {
         .addFields(
             {
                 name: "Money 💰",
-                value: balancePrivate ? "**Private**" : `**${setSeparator(data.money)}$**`,
+                value: balancePrivate ? "Private" : `${setSeparator(data.money)}$`,
                 inline: true
             },
             {
                 name: "Gold 🪙",
-                value: balancePrivate ? "**Private**" : `**${setSeparator(data.gold)}**`,
+                value: balancePrivate ? "Private" : `${setSeparator(data.gold)}`,
                 inline: true
             },
             { name: '\u200B', value: '\u200B', inline: false },
@@ -567,7 +567,7 @@ function buildProfileMessage(author, state = {}) {
             { name: '\u200B', value: '\u200B', inline: false },
             {
                 name: "Player Since 📅",
-                value: `**${joinDate}**`,
+                value: `${joinDate}`,
                 inline: true
             },
             {

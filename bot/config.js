@@ -173,6 +173,10 @@ module.exports = {
             default: 5 * 60 * 1000, // 5 minutes
             allowedRange: { min: 60 * 1000, max: 15 * 60 * 1000 }
         },
+        autoStartDelay: {
+            default: 60 * 1000, // 1 minute before auto-start once players joined
+            allowedRange: { min: 10 * 1000, max: 10 * 60 * 1000 }
+        },
         modalTimeout: {
             default: 60 * 1000, // 60 seconds
             allowedRange: { min: 15 * 1000, max: 120 * 1000 }

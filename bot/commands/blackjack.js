@@ -15,6 +15,7 @@ const testerProvisionConfig = {
     bankrollEnvKey: "BLACKJACK_TEST_BANKROLL",
     defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL
 }
+const AUTO_START_DELAY_MS = config.lobby.autoStartDelay.default
 /**
  * Run blackjack game - uses Discord.js native interaction API.
  * Clean, simple, no abstractions.
@@ -273,6 +274,30 @@ const runBlackjack = async(interaction, client) => {
 
         const refreshLobbyView = () => lobbySession.scheduleRefresh()
 
+        const queueAutoStart = () => {
+            const ctx = resolveGameContext()
+            if (!ctx || lobbySession.isClosed) return
+            if (!ctx.players.length) {
+                lobbySession.clearAutoTrigger()
+                return
+            }
+            lobbySession.clearAutoTrigger()
+            lobbySession.startAutoTrigger(AUTO_START_DELAY_MS, async() => {
+                const liveCtx = resolveGameContext()
+                if (!liveCtx || lobbySession.isClosed) return
+                if (!liveCtx.players.length) {
+                    lobbySession.updateState({
+                        status: "canceled",
+                        footerText: "Game canceled — no players joined in time."
+                    })
+                    await lobbySession.close({ status: "canceled", reason: "timeout" })
+                    await game.Stop({ reason: "allPlayersLeft", notify: false }).catch(() => null)
+                    return
+                }
+                await startGame({ initiatedBy: "timer" })
+            })
+        }
+
         const startGame = async({ initiatedBy } = {}) => {
             if (lobbySession.isClosed) return
             lobbySession.clearAutoTrigger()
@@ -421,6 +446,7 @@ const runBlackjack = async(interaction, client) => {
             }
 
             await ctx.AddPlayer(submission.user, { buyIn: buyInResult.amount })
+            queueAutoStart()
 
             // Acknowledge submission silently
             await submission.deferUpdate().catch(() => null)
@@ -449,6 +475,9 @@ const runBlackjack = async(interaction, client) => {
             }
 
             await ctx.RemovePlayer(interactionComponent.user)
+            if (!ctx.players.length) {
+                lobbySession.clearAutoTrigger()
+            }
             refreshLobbyView()
 
             await interactionComponent.followUp({
@@ -552,21 +581,6 @@ const runBlackjack = async(interaction, client) => {
                 channelId: channel.id,
                 error: collectorError.message
             })
-        })
-
-        lobbySession.startAutoTrigger(30_000, async() => {
-            const ctx = resolveGameContext()
-            if (!ctx || lobbySession.isClosed) return
-            if (!ctx.players.length) {
-                lobbySession.updateState({
-                    status: "canceled",
-                    footerText: "Game canceled — no players joined in time."
-                })
-                await lobbySession.close({ status: "canceled", reason: "timeout" })
-                await game.Stop({ reason: "allPlayersLeft", notify: false }).catch(() => null)
-                return
-            }
-            await startGame({ initiatedBy: "timer" })
         })
 
     } catch (error) {
