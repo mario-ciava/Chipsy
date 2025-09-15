@@ -8,9 +8,7 @@ const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const { renderCardTable, createBlackjackTableState } = require("../rendering/cardTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
-const config = require("../config")
-
-const ACTION_TIMEOUT_MS = config.texas.actionTimeout.default
+const config = require("../../config")
 
 module.exports = class TexasGame extends Game {
     constructor(info) {
@@ -209,7 +207,9 @@ module.exports = class TexasGame extends Game {
             .setColor(Discord.Colors.Blue)
             .setTitle(`Texas Hold'em - Round #${this.hands}`)
             .setDescription(`It's ${player}'s turn to act.`)
-            .setFooter({ text: `Pot: ${setSeparator(this.bets.pots.reduce((a, b) => a + b.amount, 0) + this.bets.total)}$ | ${ACTION_TIMEOUT_MS / 1000}s left` })
+            .setFooter({
+                text: `Pot: ${setSeparator(this.bets.pots.reduce((a, b) => a + b.amount, 0) + this.bets.total)}$ | ${config.texas.actionTimeout.default / 1000}s left`
+            })
 
         if (this.players.length > 0) {
             const infoRow = new Discord.ActionRowBuilder().addComponents(
@@ -543,7 +543,7 @@ module.exports = class TexasGame extends Game {
         this.timer = setTimeout(() => {
             if (this.GetAvailableOptions(player).includes("check")) this.Action("check", player)
             else this.Action("fold", player)
-        }, ACTION_TIMEOUT_MS)
+        }, config.texas.actionTimeout.default)
     }
 
     async GetAvailableOptions(player) {

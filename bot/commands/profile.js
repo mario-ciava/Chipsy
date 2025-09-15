@@ -3,7 +3,13 @@ const playerClass = require("../games/classes.js")
 const setSeparator = require("../utils/setSeparator")
 const { normalizeUserExperience } = require("../utils/experience")
 const { formatRelativeTime, formatTimeUntil, progressBar } = require("../utils/helpers")
-const { UPGRADES, calculateUpgradeCost, calculateUpgradeValue, getAllUpgradeIds } = require("../../config/upgrades")
+const { upgrades } = require("../../config")
+const {
+    definitions: UPGRADES,
+    calculateCost: calculateUpgradeCost,
+    calculateValue: calculateUpgradeValue,
+    getAllIds: getAllUpgradeIds
+} = upgrades
 const createCommand = require("../utils/createCommand")
 const logger = require("../utils/logger")
 

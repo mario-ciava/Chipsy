@@ -1,7 +1,7 @@
 const createServer = require("./express")
 const { client, webSocket, bootstrap } = require("../bot")
 const logger = require("../bot/utils/logger")
-const constants = require("../config/constants")
+const { constants } = require("../config")
 
 // ============================================================================
 // GRACEFUL SHUTDOWN: Mantiene riferimenti agli oggetti da chiudere

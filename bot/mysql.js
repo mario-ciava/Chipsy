@@ -1,7 +1,7 @@
 const mysql = require("mysql2/promise")
 const logger = require("./utils/logger")
 const ensureSchema = require("./utils/mysqlcreator")
-const constants = require("../config/constants")
+const { constants } = require("../config")
 const { sleep } = require("./utils/helpers")
 
 /**

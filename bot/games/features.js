@@ -1,113 +1,148 @@
-const setSeparator = require("../utils/setSeparator")
+const setSeparator = require("../utils/setSeparator");
+const config = require("../../config");
 
-exports.list = {
-    "with-holding": {
-        originalValue: 0.0003,
-        featureValue: 0.00002,
-        startingCost: 250000,
-        increase: 1000,
-        max: 10,
-        apply: (startingValue, level, featureVal) => {
-            let result = startingValue
-            result -= featureVal * level
-            result = parseFloat(result.toFixed(5))
-            return result
+const DEFAULT_LEVEL_REWARD = Object.freeze({
+    base: 5000,
+    multiplier: 16,
+    adjustmentDivisor: 100
+});
+
+const UPGRADE_STRATEGIES = {
+    "linear-subtract": (descriptor, baseValue, level, increment) => {
+        const delta = Number.isFinite(increment) ? increment : descriptor.increment;
+        let result = baseValue - delta * level;
+        if (Number.isFinite(descriptor.precision)) {
+            result = parseFloat(result.toFixed(descriptor.precision));
         }
+        if (Number.isFinite(descriptor.minValue)) {
+            result = Math.max(descriptor.minValue, result);
+        }
+        return result;
     },
-    "reward-amount": {
-        originalValue: 25000,
-        featureValue: 1.5,
-        startingCost: 250000,
-        increase: 1500,
-        max: 10,
-        apply: (startingValue, level, featureVal) => {
-            let result = startingValue
-            for (let i=0; i<level; i++)
-                result = parseInt(result * featureVal)
-            return result
+    exponential: (descriptor, baseValue, level) => {
+        const multiplier = descriptor.multiplier ?? 1;
+        let result = baseValue;
+        for (let i = 0; i < level; i++) {
+            result = parseInt(result * multiplier, 10);
         }
-    },
-    "reward-time": {
-        originalValue: 24,
-        featureValue: 0.5,
-        startingCost: 150000,
-        increase: 1250,
-        max: 5,
-        apply: (startingValue, level, featureVal) => {
-            let result = startingValue
-            result -= featureVal * level
-            return result
-        }
+        return result;
     }
+};
+
+function createDefinition(key, descriptor = {}) {
+    const strategy = UPGRADE_STRATEGIES[descriptor.strategy] || UPGRADE_STRATEGIES["linear-subtract"];
+    const startingCost = descriptor.startingCost ?? 0;
+    const increase = descriptor.costGrowth ?? 0;
+    const maxLevel = descriptor.maxLevel ?? 0;
+    const originalValue = descriptor.baseValue ?? 0;
+    const featureValue = descriptor.increment ?? descriptor.multiplier ?? descriptor.featureValue ?? 0;
+
+    return Object.freeze({
+        key,
+        startingCost,
+        increase,
+        max: maxLevel,
+        originalValue,
+        featureValue,
+        descriptor,
+        apply: (baseValue, level, overrideIncrement) =>
+            strategy(descriptor, baseValue, level, overrideIncrement ?? featureValue)
+    });
 }
 
-exports.getCosts = (feature, withoutSeparator, ex) => {
-    if (!exports.list.hasOwnProperty(feature)) return null
-    let selected = exports.list[feature],
-        costs = [selected.startingCost]
-        
-    for (let i=0; i<10; i++)
-        costs.push(costs[i] + parseInt(Math.sqrt(costs[i]) * selected.increase))
+const FEATURE_DEFINITIONS = Object.freeze(
+    Object.entries(config.progression?.upgrades || {}).reduce((acc, [key, value]) => {
+        acc[key] = createDefinition(key, value);
+        return acc;
+    }, {})
+);
 
-    if (!withoutSeparator) {
-        for (let i=0; i<costs.length; i++)
-        costs[i] = setSeparator(costs[i])
+function getDefinition(featureKey) {
+    return FEATURE_DEFINITIONS[featureKey];
+}
+
+function getCosts(featureKey, withoutSeparator = false) {
+    const definition = getDefinition(featureKey);
+    if (!definition) return null;
+
+    const maxLevels = Math.max(Number(definition.max) || 10, 10);
+    const costs = [definition.startingCost];
+
+    for (let i = 0; i < maxLevels; i++) {
+        const previous = costs[costs.length - 1];
+        const next = previous + Math.round(Math.sqrt(previous) * definition.increase);
+        costs.push(next);
     }
-    return costs
+
+    if (withoutSeparator) {
+        return costs;
+    }
+    return costs.map(value => setSeparator(value));
 }
 
-exports.get = (feature) => {
-    return exports.list[feature]
+function get(featureKey) {
+    return getDefinition(featureKey);
 }
 
-exports.getLevelReward = (level) => {
-    var rewards = [5000]
-    for (let i=0; i<level; i++)
-        rewards.push(rewards[i] + parseInt(Math.sqrt(rewards[i] + (rewards[i] / 100)) * 16))
-    return rewards[rewards.length - 1] 
+function getLevelReward(level) {
+    const rewardConfig = config.progression?.levelReward ?? DEFAULT_LEVEL_REWARD;
+    let reward = rewardConfig.base ?? DEFAULT_LEVEL_REWARD.base;
+    const normalizedLevel = Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0;
+    const divisor = rewardConfig.adjustmentDivisor || DEFAULT_LEVEL_REWARD.adjustmentDivisor;
+    const multiplier = rewardConfig.multiplier || DEFAULT_LEVEL_REWARD.multiplier;
+
+    for (let i = 0; i < normalizedLevel; i++) {
+        reward += parseInt(Math.sqrt(reward + reward / divisor) * multiplier, 10);
+    }
+    return reward;
 }
 
-exports.applyUpgrades = (feature, level, startingValue, featureVal) => {
-    if (!exports.list.hasOwnProperty(feature)) return startingValue
+function applyUpgrades(featureKey, level, startingValue, featureVal) {
+    const definition = getDefinition(featureKey);
+    if (!definition) return startingValue;
 
-    const definition = exports.list[feature]
-    const normalizedLevel = Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0
-    const maxLevel = Number.isFinite(definition.max) ? definition.max : normalizedLevel
-    const safeLevel = Math.min(normalizedLevel, maxLevel)
+    const normalizedLevel = Number.isFinite(level) ? Math.max(0, Math.floor(level)) : 0;
+    const maxLevel = Number.isFinite(definition.max) ? definition.max : normalizedLevel;
+    const safeLevel = Math.min(normalizedLevel, maxLevel);
 
-    const baseValue = Number.isFinite(startingValue) ? startingValue : definition.originalValue
-    const increment = Number.isFinite(featureVal) ? featureVal : definition.featureValue
+    const baseValue = Number.isFinite(startingValue) ? startingValue : definition.originalValue;
+    const increment = Number.isFinite(featureVal) ? featureVal : definition.featureValue;
 
-    let result = definition.apply(baseValue, safeLevel, increment)
-
+    let result = definition.apply(baseValue, safeLevel, increment);
     if (!Number.isFinite(result)) {
-        result = baseValue
+        result = baseValue;
     }
-
-    if (feature === "reward-time") {
-        result = Math.max(1, result)
+    if (featureKey === "reward-time") {
+        const minValue = definition.descriptor?.minValue;
+        result = Number.isFinite(minValue) ? Math.max(minValue, result) : Math.max(1, result);
     }
-
-    return result
+    return result;
 }
 
-exports.inputConverter = (input) => {
-    if (!input) return undefined
-    input = input.split("")
-    let output = 0,
-        unit = input[input.length - 1],
-        number = parseFloat(input.join(""))
-    switch(unit) {
-        case "k":
-            output = number * 1000
-        break
-        case "m":
-            output = number * 1000000
-        break
-        case "b":
-            output = number * 1000000000
-        break
+function inputConverter(rawInput) {
+    if (rawInput === undefined || rawInput === null) {
+        return undefined;
     }
-    output = parseInt(output)
-    return (output != 0 ? output : parseInt(number))
+    const input = String(rawInput).trim();
+    if (!input) return undefined;
+
+    const unit = input.slice(-1).toLowerCase();
+    const hasUnit = ["k", "m", "b"].includes(unit);
+    const numericPortion = hasUnit ? input.slice(0, -1) : input;
+    const parsed = parseFloat(numericPortion);
+    if (!Number.isFinite(parsed)) return undefined;
+
+    const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 };
+    const multiplier = hasUnit ? multipliers[unit] : 1;
+    const value = Math.floor(parsed * multiplier);
+    return value !== 0 ? value : Math.floor(parsed);
 }
+
+module.exports = {
+    list: FEATURE_DEFINITIONS,
+    getCosts,
+    get,
+    getLevelReward,
+    applyUpgrades,
+    inputConverter
+};

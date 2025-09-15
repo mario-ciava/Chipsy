@@ -1,5 +1,5 @@
 const EventEmitter = require("events")
-const config = require("./config")
+const config = require("../config")
 const { createClient } = require("./utils/createClient")
 const loadEvents = require("./utils/eventloader")
 const loadCommands = require("./utils/commandloader")

@@ -1,54 +1,12 @@
-module.exports = [
-    "2S",
-    "3S",
-    "4S",
-    "5S",
-    "6S",
-    "7S",
-    "8S",
-    "9S",
-    "TS",
-    "JS",
-    "QS",
-    "KS",
-    "AS",
-    "2C",
-    "3C",
-    "4C",
-    "5C",
-    "6C",
-    "7C",
-    "8C",
-    "9C",
-    "TC",
-    "JC",
-    "QC",
-    "KC",
-    "AC",
-    "2H",
-    "3H",
-    "4H",
-    "5H",
-    "6H",
-    "7H",
-    "8H",
-    "9H",
-    "TH",
-    "JH",
-    "QH",
-    "KH",
-    "AH",
-    "2D",
-    "3D",
-    "4D",
-    "5D",
-    "6D",
-    "7D",
-    "8D",
-    "9D",
-    "TD",
-    "JD",
-    "QD",
-    "KD",
-    "AD"
-]
+const config = require("../../config");
+
+const SUITS = Object.freeze([...config.cards.suits]);
+const RANKS = Object.freeze([...config.cards.ranks]);
+
+const STANDARD_DECK = Object.freeze(
+    SUITS.flatMap((suit) => RANKS.map((rank) => `${rank}${suit}`))
+);
+
+module.exports = STANDARD_DECK;
+module.exports.SUITS = SUITS;
+module.exports.RANKS = RANKS;

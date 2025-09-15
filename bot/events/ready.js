@@ -1,5 +1,5 @@
 const logger = require("../utils/logger");
-const config = require("../config");
+const config = require("../../config");
 const { diffCommands, logDiff } = require("../utils/commandDiffer");
 
 /**
@@ -113,10 +113,27 @@ async function registerGlobalCommands(client, commandPayloads) {
     }
 }
 
-async function cleanupLegacyGuildCommands(client, validCommandNames) {
+async function cleanupLegacyGuildCommands(client, validCommandNames, { guildIds = [] } = {}) {
+    if (!guildIds.length) {
+        logger.debug("Skipping legacy guild command cleanup - no target guilds provided", {
+            scope: "events",
+            event: "ready"
+        });
+        return;
+    }
+
     const desired = new Set(validCommandNames);
 
-    for (const guild of client.guilds.cache.values()) {
+    for (const guildId of guildIds) {
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) {
+            logger.warn(`Skipping cleanup for unknown guild ${guildId}`, {
+                scope: "events",
+                event: "ready"
+            });
+            continue;
+        }
+
         try {
             const guildCommands = await guild.commands.fetch();
             const stale = guildCommands.filter(cmd => !desired.has(cmd.name));
@@ -153,6 +170,31 @@ async function cleanupLegacyGuildCommands(client, validCommandNames) {
     }
 }
 
+async function synchronizeBotIdentity(client) {
+    const desiredUsername = config.bot.displayName || "Chipsy";
+
+    if (!client?.user || client.user.username === desiredUsername) {
+        return;
+    }
+
+    try {
+        await client.user.setUsername(desiredUsername);
+        logger.debug(`Updated bot username to ${desiredUsername}`, {
+            scope: "events",
+            event: "ready",
+            icon: "📝"
+        });
+    } catch (error) {
+        logger.warn("Failed to update bot username", {
+            scope: "events",
+            event: "ready",
+            message: error?.message ?? String(error),
+            code: error?.code,
+            status: error?.status
+        });
+    }
+}
+
 module.exports = async(client) => {
     const userTag = client?.user?.tag ?? "unknown user";
     logger.info(`Successfully logged-in as ${userTag}`, {
@@ -162,20 +204,12 @@ module.exports = async(client) => {
         guilds: client?.guilds?.cache?.size ?? 0
     });
 
-    try {
-        // Update bot username if needed
-        const desiredUsername = process.env.BOT_DISPLAY_NAME || "Chipsy";
-        if (client?.user && client.user.username !== desiredUsername) {
-            await client.user.setUsername(desiredUsername);
-            logger.debug(`Updated bot username to ${desiredUsername}`, {
-                scope: "events",
-                event: "ready",
-                icon: "📝"
-            });
-        }
+    await synchronizeBotIdentity(client);
 
+    let slashCommands = [];
+    try {
         // Get all command payloads
-        const slashCommands = client.commandRouter.getSlashCommandPayloads();
+        slashCommands = client.commandRouter.getSlashCommandPayloads();
 
         logger.debug(`Preparing to register ${slashCommands.length} commands`, {
             scope: "events",
@@ -222,14 +256,27 @@ module.exports = async(client) => {
             await registerGlobalCommands(client, slashCommands);
         }
 
-        await cleanupLegacyGuildCommands(client, slashCommands.map(cmd => cmd.name));
-
     } catch (err) {
         logger.error("Failed to complete ready event setup", {
             scope: "events",
             event: "ready",
             message: err?.message ?? String(err),
             stack: err?.stack
+        });
+    }
+
+    const cleanupTargets = config.discord.testGuildId ? [config.discord.testGuildId] : [];
+
+    if (slashCommands.length && cleanupTargets.length) {
+        setImmediate(() => {
+            cleanupLegacyGuildCommands(client, slashCommands.map(cmd => cmd.name), { guildIds: cleanupTargets })
+                .catch(error => {
+                    logger.error("Legacy guild command cleanup failed", {
+                        scope: "events",
+                        event: "ready",
+                        error: error?.message ?? String(error)
+                    });
+                });
         });
     }
 };

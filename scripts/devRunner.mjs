@@ -17,7 +17,7 @@ import fs from "fs";
 
 // Per importare moduli CommonJS da ES module
 const require = createRequire(import.meta.url);
-const constants = require("../config/constants.js");
+const { constants } = require("../config");
 
 // Carica le variabili d'ambiente dal file .env
 dotenv.config();

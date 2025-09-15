@@ -7,7 +7,7 @@ const fetch = require("node-fetch")
 const crypto = require("crypto")
 const path = require("path")
 const fs = require("fs")
-const constants = require("../config/constants")
+const { constants } = require("../config")
 const createSessionStore = require("../bot/utils/createSessionStore")
 
 const createAuthRouter = require("./routes/auth")

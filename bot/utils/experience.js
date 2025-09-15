@@ -1,4 +1,4 @@
-const constants = require("../../config/constants");
+const { constants } = require("../../config");
 const features = require("../games/features");
 
 const BASE_REQUIRED_EXP = constants.experience.baseRequiredExp;

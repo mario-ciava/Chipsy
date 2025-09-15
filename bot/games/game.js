@@ -18,7 +18,6 @@ module.exports = class Game {
         }
         this.playing = false
         this.players = []
-        this.queue = []
         this.tableCards = []
         this.inGamePlayers = null
         this.timer = null
@@ -26,21 +25,6 @@ module.exports = class Game {
         this.hands = 0
         this.timeRun = 0
         this.cards = [...cards]
-    }
-
-    async CardReplacer(cards) {
-        if (!cards) return []
-        var output = []
-        for (let card of cards) {
-            card = await card
-                .replace(/T/g, "10")
-                .replace(/S/g, "♠️")
-                .replace(/C/g, "♣️")
-                .replace(/H/g, "♥️")
-                .replace(/D/g, "♦️")
-            output.push(card)
-        }
-        return output
     }
 
     async Rotate(item, n) {
@@ -108,9 +92,4 @@ module.exports = class Game {
         })
     }
 
-    GetQueuePlayer(id) {
-        return this.queue.find((player) => {
-            return player.id == id
-        })
-    }
 }

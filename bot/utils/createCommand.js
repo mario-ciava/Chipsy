@@ -11,7 +11,8 @@ const createCommand = ({
     dmPermission = false,
     defaultMemberPermissions,
     nsfw,
-    execute
+    execute,
+    autocomplete
 }) => {
     if (!name) throw new Error("Command requires a name")
     if (!description) throw new Error(`Command '${name}' requires a description`)
@@ -29,7 +30,7 @@ const createCommand = ({
         nsfw
     }
 
-    return { config, execute }
+    return { config, execute, autocomplete }
 }
 
 module.exports = createCommand

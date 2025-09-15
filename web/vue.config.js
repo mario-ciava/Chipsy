@@ -1,6 +1,6 @@
 const { defineConfig } = require('@vue/cli-service')
 
-// NOTA: Queste porte devono corrispondere a config/constants.js
+// NOTA: Queste porte devono corrispondere a config/index.js
 // - vueDev: 8080
 // - botApi: 8082
 const VUE_DEV_PORT = 8080

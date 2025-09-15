@@ -1,5 +1,5 @@
 const express = require("express")
-const constants = require("../../config/constants")
+const { constants } = require("../../config")
 
 const createAuthRouter = (dependencies) => {
     const {

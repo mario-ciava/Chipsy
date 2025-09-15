@@ -1,6 +1,6 @@
 const path = require("path");
 const fs = require("fs/promises");
-const { createCanvas, loadImage, registerFont } = require("canvas");
+const { createCanvas, loadImage } = require("canvas");
 
 let sharp;
 try {
@@ -41,7 +41,6 @@ const CONFIG = Object.freeze({
     cardBackImage: path.join(PROJECT_ROOT, "assets/cards/back.png"),
 
     fontFamily: "sans-serif",
-    fontPaths: [],
 
     titleSize: 48,
     sectionTitleSize: 40,
@@ -86,13 +85,11 @@ const CONFIG = Object.freeze({
     }
 });
 
-// Register custom fonts if they exist on disk.
-
-
 // ============================================================================
 // CARD ASSET CACHE
 // ============================================================================
 const cardCache = new Map();
+const backgroundLayerCache = new Map();
 
 function normalizeCardName(card) {
     if (!card || typeof card !== "string") {
@@ -189,64 +186,77 @@ function getBackgroundNoiseCanvas(size = 64) {
 // ============================================================================
 // DRAW HELPERS
 // ============================================================================
-function drawBackground(ctx, canvasHeight) {
+function createBackgroundLayer(height) {
+    const layer = createCanvas(CONFIG.canvasWidth, height);
+    const layerCtx = layer.getContext("2d");
     const width = CONFIG.canvasWidth;
-    const height = canvasHeight;
 
-    // Base radial gradient with bright center
-    const radial = ctx.createRadialGradient(width / 2, height / 2, width * 0.22, width / 2, height / 2, width)
-    radial.addColorStop(0, "#179252")
-    radial.addColorStop(0.55, CONFIG.backgroundTop)
-    radial.addColorStop(1, "#12432C")
-    ctx.fillStyle = radial
-    ctx.fillRect(0, 0, width, height)
+    const radial = layerCtx.createRadialGradient(width / 2, height / 2, width * 0.22, width / 2, height / 2, width);
+    radial.addColorStop(0, "#179252");
+    radial.addColorStop(0.55, CONFIG.backgroundTop);
+    radial.addColorStop(1, "#12432C");
+    layerCtx.fillStyle = radial;
+    layerCtx.fillRect(0, 0, width, height);
 
-    // Vertical glow band
-    const bandHeight = height * 0.2
-    const bandY = height * 0.24
-    const bandGradient = ctx.createRadialGradient(width / 2, bandY + bandHeight / 2, width * 0.1, width / 2, bandY + bandHeight / 2, width * 0.65)
-    bandGradient.addColorStop(0, "rgba(255,255,255,0.05)")
-    bandGradient.addColorStop(1, "rgba(255,255,255,0)")
-    ctx.save()
-    ctx.globalAlpha = 0.35
-    ctx.fillStyle = bandGradient
-    ctx.fillRect(0, bandY, width, bandHeight)
-    ctx.restore()
+    const bandHeight = height * 0.2;
+    const bandY = height * 0.24;
+    const bandGradient = layerCtx.createRadialGradient(width / 2, bandY + bandHeight / 2, width * 0.1, width / 2, bandY + bandHeight / 2, width * 0.65);
+    bandGradient.addColorStop(0, "rgba(255,255,255,0.05)");
+    bandGradient.addColorStop(1, "rgba(255,255,255,0)");
+    layerCtx.save();
+    layerCtx.globalAlpha = 0.35;
+    layerCtx.fillStyle = bandGradient;
+    layerCtx.fillRect(0, bandY, width, bandHeight);
+    layerCtx.restore();
 
-    const edgeGlow = ctx.createRadialGradient(width / 2, height / 2, width * 0.45, width / 2, height / 2, width * 1.2)
-    edgeGlow.addColorStop(0, "rgba(255,255,255,0)")
-    edgeGlow.addColorStop(1, "rgba(255,255,255,0.04)")
-    ctx.save()
-    ctx.globalCompositeOperation = "lighter"
-    ctx.fillStyle = edgeGlow
-    ctx.fillRect(0, 0, width, height)
-    ctx.restore()
+    const edgeGlow = layerCtx.createRadialGradient(width / 2, height / 2, width * 0.45, width / 2, height / 2, width * 1.2);
+    edgeGlow.addColorStop(0, "rgba(255,255,255,0)");
+    edgeGlow.addColorStop(1, "rgba(255,255,255,0.04)");
+    layerCtx.save();
+    layerCtx.globalCompositeOperation = "lighter";
+    layerCtx.fillStyle = edgeGlow;
+    layerCtx.fillRect(0, 0, width, height);
+    layerCtx.restore();
 
-    const bottomGlow = ctx.createLinearGradient(0, height * 0.62, 0, height)
-    bottomGlow.addColorStop(0, "rgba(0,0,0,0)")
-    bottomGlow.addColorStop(1, "rgba(0,0,0,0.32)")
-    ctx.save()
-    ctx.fillStyle = bottomGlow
-    ctx.fillRect(0, 0, width, height)
-    ctx.restore()
+    const bottomGlow = layerCtx.createLinearGradient(0, height * 0.62, 0, height);
+    bottomGlow.addColorStop(0, "rgba(0,0,0,0)");
+    bottomGlow.addColorStop(1, "rgba(0,0,0,0.32)");
+    layerCtx.save();
+    layerCtx.fillStyle = bottomGlow;
+    layerCtx.fillRect(0, 0, width, height);
+    layerCtx.restore();
 
     const noiseCanvas = getBackgroundNoiseCanvas();
-    const pattern = ctx.createPattern(noiseCanvas, "repeat");
+    const pattern = layerCtx.createPattern(noiseCanvas, "repeat");
     if (pattern) {
-        ctx.save();
-        ctx.globalAlpha = 0.07;
-        ctx.fillStyle = pattern;
-        ctx.fillRect(0, 0, width, height);
-        ctx.restore();
+        layerCtx.save();
+        layerCtx.globalAlpha = 0.07;
+        layerCtx.fillStyle = pattern;
+        layerCtx.fillRect(0, 0, width, height);
+        layerCtx.restore();
     }
 
-    const vignette = ctx.createRadialGradient(width / 2, height / 2, width * 0.55, width / 2, height / 2, width * 1.05);
+    const vignette = layerCtx.createRadialGradient(width / 2, height / 2, width * 0.55, width / 2, height / 2, width * 1.05);
     vignette.addColorStop(0, "rgba(0,0,0,0)");
     vignette.addColorStop(1, "rgba(0,0,0,0.45)");
-    ctx.save();
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, width, height);
-    ctx.restore();
+    layerCtx.save();
+    layerCtx.fillStyle = vignette;
+    layerCtx.fillRect(0, 0, width, height);
+    layerCtx.restore();
+
+    return layer;
+}
+
+function getBackgroundLayer(height) {
+    if (!backgroundLayerCache.has(height)) {
+        backgroundLayerCache.set(height, createBackgroundLayer(height));
+    }
+    return backgroundLayerCache.get(height);
+}
+
+function drawBackground(ctx, canvasHeight) {
+    const layer = getBackgroundLayer(canvasHeight);
+    ctx.drawImage(layer, 0, 0);
 }
 
 function drawDivider(ctx, y) {
@@ -626,8 +636,6 @@ function createBlackjackTableState(gameState = {}, options = {}) {
     const dealer = gameState.dealer ?? {};
     const players = Array.isArray(gameState.players) ? gameState.players : [];
 
-    const focusPlayerId = options.focusPlayerId;
-
     const dealerHandInfo = calculateHandValue(dealer.cards);
     const normalizedDealer = {
         cards: Array.isArray(dealer.cards) ? dealer.cards : [],
@@ -639,7 +647,6 @@ function createBlackjackTableState(gameState = {}, options = {}) {
 
     const playerHands = [];
     const roundNumber = options.round ?? gameState.round ?? null;
-    const roundLabel = Number.isFinite(roundNumber) ? `Round #${Math.max(1, Math.trunc(roundNumber))}` : null;
     players.forEach((player, playerIndex) => {
         const hands = Array.isArray(player?.hands) ? player.hands : [];
         const label = resolvePlayerLabel(player, playerIndex);
@@ -649,8 +656,6 @@ function createBlackjackTableState(gameState = {}, options = {}) {
             const { value, busted, blackjack } = calculateHandValue(hand.cards);
             const insuredFlag = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
             const isCurrent = hand.isCurrent;
-            const handRoundValue = hand.round ?? hand.roundNumber ?? null;
-            const specificRoundLabel = hand.roundLabel ?? hand.roundTitle ?? (Number.isFinite(handRoundValue) ? `Round #${Math.max(1, Math.trunc(handRoundValue))}` : null);
             
             playerHands.push({
                 cards: Array.isArray(hand.cards) ? hand.cards : [],
@@ -687,21 +692,15 @@ function createBlackjackTableState(gameState = {}, options = {}) {
         normalizedDealer.result = "lose";
     }
 
-    const defaultName = playerHands[0]?.label ?? resolvePlayerLabel(players[0], 0);
-
     return {
-        playerName: options.playerName ?? defaultName ?? "Player",
         dealerCards: normalizedDealer.cards,
         dealerValue: normalizedDealer.value,
         dealerBlackjack: normalizedDealer.blackjack,
         dealerBusted: normalizedDealer.busted,
         playerHands,
         result: options.result ?? null,
-        title: options.title ?? null,
-        appearance: options.appearance ?? {},
         metadata: {
             maskDealerHoleCard: Boolean(options.maskDealerHoleCard),
-            focusPlayerId,
             round: roundNumber
         }
     };
@@ -715,7 +714,6 @@ function normalizeRenderInput(params = {}) {
         dealerBlackjack: Boolean(params.dealerBlackjack),
         maskDealerHoleCard: Boolean(params.metadata?.maskDealerHoleCard ?? params.maskDealerHoleCard),
         playerHands: Array.isArray(params.playerHands) ? params.playerHands : [],
-        title: params.title ?? null,
         result: params.result ?? null,
         metadata: params.metadata ?? {}
     };

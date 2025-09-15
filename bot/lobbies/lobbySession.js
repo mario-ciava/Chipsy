@@ -1,6 +1,6 @@
 const { EventEmitter } = require("node:events")
 const { MessageFlags, DiscordAPIError } = require("discord.js")
-const config = require("../config")
+const config = require("../../config")
 
 class LobbySession extends EventEmitter {
     constructor({

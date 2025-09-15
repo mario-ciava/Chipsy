@@ -8,7 +8,7 @@ const createCommand = require("../utils/createCommand")
 const bankrollManager = require("../utils/bankrollManager")
 const { registerGame } = require("../utils/gameRegistry")
 const { createLobbySession } = require("../lobbies")
-const config = require("../config")
+const config = require("../../config")
 
 const testerProvisionConfig = {
     testerUserId: process.env.BLACKJACK_TEST_USER_ID,
@@ -169,9 +169,7 @@ const runBlackjack = async(interaction, client) => {
             const playerCountLabel = Number.isFinite(maxPlayersLimit)
                 ? `${players.length}/${maxPlayersLimit}`
                 : `${players.length}`
-            const playersFieldName = Number.isFinite(maxPlayersLimit)
-                ? `👥 Players [${playerCountLabel}]`
-                : `👥 Players [${playerCountLabel}]`
+            const playersFieldName = `👥 Players [${playerCountLabel}]`
 
             const embed = new Discord.EmbedBuilder()
                 .setColor(palette.color)

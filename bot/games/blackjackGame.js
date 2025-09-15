@@ -6,7 +6,7 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const logger = require("../utils/logger")
-const config = require("../config")
+const config = require("../../config")
 const {
     renderCardTable,
     createBlackjackTableState
@@ -33,6 +33,14 @@ const CARD_SUIT_MAP = {
     H: "♥",
     D: "♦",
     C: "♣"
+}
+
+const ACTION_BUTTONS = {
+    stand: { label: "Stand", style: Discord.ButtonStyle.Secondary, emoji: "🛑" },
+    hit: { label: "Hit", style: Discord.ButtonStyle.Primary, emoji: "🎯" },
+    double: { label: "Double", style: Discord.ButtonStyle.Success, emoji: "💰" },
+    split: { label: "Split", style: Discord.ButtonStyle.Success, emoji: "✂️" },
+    insurance: { label: "Insurance", style: Discord.ButtonStyle.Danger, emoji: "🛡️" }
 }
 
 function formatCardLabel(cardCode) {
@@ -73,10 +81,41 @@ function formatTimeout(ms) {
     return `${minutes}m ${remainingSeconds}s`
 }
 
-// Game timing constants - loaded from config
-const BETS_TIMEOUT_MS = config.blackjack.betsTimeout.default
-const ACTION_TIMEOUT_MS = config.blackjack.actionTimeout.default
-const MODAL_TIMEOUT_MS = config.blackjack.modalTimeout.default
+function buildActionButtons(playerId, options) {
+    if (!playerId || !Array.isArray(options) || options.length === 0) return null
+    const row = new Discord.ActionRowBuilder()
+    for (const option of options) {
+        const meta = ACTION_BUTTONS[option]
+        if (!meta) continue
+        row.addComponents(
+            new Discord.ButtonBuilder()
+                .setCustomId(`bj_action:${option}:${playerId}`)
+                .setLabel(meta.label)
+                .setStyle(meta.style)
+                .setEmoji(meta.emoji)
+        )
+    }
+    return row.components.length > 0 ? row : null
+}
+
+function partitionBettingPlayers(players = []) {
+    const summary = {
+        withBets: [],
+        waitingDetailed: [],
+        waitingStatus: []
+    }
+    players.filter((p) => !p.newEntry).forEach((p) => {
+        const hasBet = p.bets && p.bets.initial > 0
+        if (hasBet) {
+            summary.withBets.push(`${p} - ✅ ${setSeparator(p.bets.initial)}$`)
+        } else {
+            summary.waitingDetailed.push(`${p} - ⏳ Waiting... (Stack: ${setSeparator(p.stack)}$)`)
+            summary.waitingStatus.push(`${p} - ⏳ Waiting...`)
+        }
+    })
+    return summary
+}
+
 
 module.exports = class BlackJack extends Game {
     constructor(info) {
@@ -426,41 +465,20 @@ module.exports = class BlackJack extends Game {
                         info ? "*Standing automatically*" : null
                     ].filter(Boolean).join("\n\n"))
                     .setFooter({
-                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | ${Math.round(ACTION_TIMEOUT_MS / 1000)}s left`,
+                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | ${Math.round(config.blackjack.actionTimeout.default / 1000)}s left`,
                         iconURL: clientAvatar
                     })
 
                 const components = []
-                if (player.availableOptions && player.availableOptions.length > 0 && !info) {
-                    const row = new Discord.ActionRowBuilder()
-                    const optionButtons = {
-                        stand: { label: "Stand", style: Discord.ButtonStyle.Secondary, emoji: "🛑" },
-                        hit: { label: "Hit", style: Discord.ButtonStyle.Primary, emoji: "🎯" },
-                        double: { label: "Double", style: Discord.ButtonStyle.Success, emoji: "💰" },
-                        split: { label: "Split", style: Discord.ButtonStyle.Success, emoji: "✂️" },
-                        insurance: { label: "Insurance", style: Discord.ButtonStyle.Danger, emoji: "🛡️" }
-                    }
-                    for (const option of player.availableOptions) {
-                        if (optionButtons[option]) {
-                            const btn = optionButtons[option]
-                            row.addComponents(
-                                new Discord.ButtonBuilder()
-                                    .setCustomId(`bj_action:${option}:${player.id}`)
-                                    .setLabel(btn.label)
-                                    .setStyle(btn.style)
-                                    .setEmoji(btn.emoji)
-                            )
-                        }
-                    }
-                    components.push(row)
+                if (!info) {
+                    const actionRow = buildActionButtons(player.id, player.availableOptions)
+                    if (actionRow) components.push(actionRow)
                 }
 
                 const payload = {}
                 const snapshot = await this.captureTableRender({
-                    title: `${player.tag} • Round #${this.hands}`,
                     filename: `blackjack_round_${this.hands}_info_${player.id}_${Date.now()}.png`,
                     description: `Snapshot for ${player.tag} during round ${this.hands}`,
-                    focusPlayerId: player.id,
                     hideDealerHoleCard: true,
                     maskDealerValue: true,
                     forceResult: null
@@ -561,7 +579,7 @@ module.exports = class BlackJack extends Game {
                             })
                             .join("\n") || "-"}`
                     })
-                    .setFooter({ text: `You have got ${formatTimeout(BETS_TIMEOUT_MS)}${this.getDeckWarning()}` })
+                    .setFooter({ text: `You have got ${formatTimeout(config.blackjack.betsTimeout.default)}${this.getDeckWarning()}` })
 
                 const components = [
                     new Discord.ActionRowBuilder().addComponents(
@@ -603,13 +621,9 @@ module.exports = class BlackJack extends Game {
         const {
             dealer = this.dealer,
             players = this.inGamePlayers,
-            title = null,
-            focusPlayerId = null,
             result = null,
-            appearance,
             filename,
             description,
-            playerName,
             hideDealerHoleCard = false,
             maskDealerValue,
             forceResult
@@ -665,15 +679,6 @@ module.exports = class BlackJack extends Game {
             busted: concealDealerInfo ? false : Boolean(dealer.busted || dealer.isBusted)
         }
 
-        const resolvedPlayerName =
-            playerName
-            || preparedPlayers[0]?.displayName
-            || preparedPlayers[0]?.username
-            || preparedPlayers[0]?.tag
-            || this.host?.tag
-            || this.client?.user?.username
-            || "Player"
-
         try {
             const state = createBlackjackTableState({
                 dealer: dealerState,
@@ -681,13 +686,8 @@ module.exports = class BlackJack extends Game {
                 round: this.hands,
                 id: this.id
             }, {
-                title,
-                focusPlayerId,
                 result,
-                appearance: appearance ?? {},
                 round: this.hands,
-                tableId: this.id,
-                playerName: resolvedPlayerName,
                 maskDealerHoleCard: hideDealerHoleCard
             })
 
@@ -918,7 +918,7 @@ module.exports = class BlackJack extends Game {
         }
 
         // If all bets placed via autobet, use short timeout to allow disable
-        const betTimeout = allBetsPlaced ? config.blackjack.autobetShortTimeout.default : BETS_TIMEOUT_MS
+        const betTimeout = allBetsPlaced ? config.blackjack.autobetShortTimeout.default : config.blackjack.betsTimeout.default
 
         this.betsCollector = this.betsMessage.createMessageComponentCollector({
             filter: (interaction) => {
@@ -1020,7 +1020,7 @@ module.exports = class BlackJack extends Game {
                 const selectFilter = (i) => i.customId.startsWith("bj_autobet_rounds:") && i.user.id === interaction.user.id
                 const selectCollector = interaction.channel.createMessageComponentCollector({
                     filter: selectFilter,
-                    time: ACTION_TIMEOUT_MS,
+                    time: config.blackjack.actionTimeout.default,
                     max: 1
                 })
 
@@ -1055,7 +1055,7 @@ module.exports = class BlackJack extends Game {
                     let submission
                     try {
                         submission = await selectInteraction.awaitModalSubmit({
-                            time: MODAL_TIMEOUT_MS,
+                    time: config.blackjack.modalTimeout.default,
                             filter: (i) => i.customId === modalCustomId && i.user.id === selectInteraction.user.id
                         })
                     } catch (error) {
@@ -1182,7 +1182,7 @@ module.exports = class BlackJack extends Game {
                 let submission
                 try {
                     submission = await interaction.awaitModalSubmit({
-                        time: MODAL_TIMEOUT_MS,
+                        time: config.blackjack.modalTimeout.default,
                         filter: (i) => i.customId === modalCustomId && i.user.id === interaction.user.id
                     })
                 } catch (error) {
@@ -1315,7 +1315,7 @@ module.exports = class BlackJack extends Game {
         currentPlayer.availableOptions = await this.GetAvailableOptions(currentPlayer, currentPlayer.status.currentHand)
         this.timer = setTimeout(() => {
             this.Action("stand", currentPlayer, currentPlayer.status.currentHand)
-        }, ACTION_TIMEOUT_MS)
+        }, config.blackjack.actionTimeout.default)
 
         const currentHand = currentPlayer.hands[currentPlayer.status.currentHand]
         // Auto-stand on 21 or blackjack
@@ -1337,18 +1337,7 @@ module.exports = class BlackJack extends Game {
         if (!message || typeof message.edit !== "function") return
         const panelVersion = this.betsPanelVersion
 
-        // Separate players into those who have bet and those who haven't
-        const playersWithBets = []
-        const playersWaiting = []
-
-        this.players.filter((p) => !p.newEntry).forEach((p) => {
-            const hasBet = p.bets && p.bets.initial > 0
-            if (hasBet) {
-                playersWithBets.push(`${p} - ✅ ${setSeparator(p.bets.initial)}$`)
-            } else {
-                playersWaiting.push(`${p} - ⏳ Waiting... (Stack: ${setSeparator(p.stack)}$)`)
-            }
-        })
+        const { withBets: playersWithBets, waitingDetailed: playersWaiting } = partitionBettingPlayers(this.players)
 
         const descriptionLines = ["Click **Bet** to place your bet, or **Leave** to exit the game."]
 
@@ -1382,7 +1371,7 @@ module.exports = class BlackJack extends Game {
             })
         }
 
-        embed.setFooter({ text: `You have got ${formatTimeout(BETS_TIMEOUT_MS)}${this.getDeckWarning()}` })
+        embed.setFooter({ text: `You have got ${formatTimeout(config.blackjack.betsTimeout.default)}${this.getDeckWarning()}` })
 
         // Keep the same buttons from the original message
         const components = message.components
@@ -1434,20 +1423,12 @@ module.exports = class BlackJack extends Game {
             .setTitle(`Bets closed | Round #${this.hands}`)
             .setDescription(message)
 
-        // Only show bet status if game is not deleted (players are still active)
         if (!isGameDeleted) {
-            // Regenerate bet status to ensure we show current bet values, not cached embed
-            const betStatuses = this.players.filter((p) => !p.newEntry).map((p) => {
-                const hasBet = p.bets && p.bets.initial > 0
-                const betDisplay = hasBet
-                    ? `✅ ${setSeparator(p.bets.initial)}$`
-                    : "⏳ Waiting..."
-                return `${p} - ${betDisplay}`
-            })
-
+            const betSummary = partitionBettingPlayers(this.players)
+            const betStatusLines = betSummary.withBets.concat(betSummary.waitingStatus)
             embed.addFields({
                 name: "Bet Status",
-                value: betStatuses.join("\n") || "—"
+                value: betStatusLines.join("\n") || "—"
             })
         }
 
@@ -1492,66 +1473,6 @@ module.exports = class BlackJack extends Game {
             }
         }
         this.autobetSetupMessages = []
-    }
-
-    async UpdateDealerMessage(message, action, newCard = null) {
-        if (!message || typeof message.edit !== "function") return
-
-        this.dealerStatusMessage = message
-
-        let actionText = ""
-        let color = Discord.Colors.Blue
-
-        switch (action) {
-            case "hit":
-                actionText = "Dealer hits!"
-                color = Discord.Colors.Purple
-                break
-            case "stand":
-                actionText = "Dealer stands!"
-                color = Discord.Colors.Green
-                break
-            case "busted":
-                actionText = "Dealer busted!"
-                color = Discord.Colors.Red
-                break
-            default:
-                actionText = "Dealer's turn"
-        }
-
-        const embed = new Discord.EmbedBuilder()
-            .setColor(color)
-            .setTitle(actionText || "Table Timeline")
-
-        const snapshot = await this.captureTableRender({
-            title: `Dealer's Turn • Round #${this.hands}`,
-            filename: `blackjack_round_${this.hands}_dealer_update_${Date.now()}.png`,
-            description: `Dealer action snapshot for round ${this.hands}`,
-            forceResult: null,
-            hideDealerHoleCard: false,
-            maskDealerValue: false
-        })
-
-        const editPayload = { embeds: [embed], components: [] }
-        if (snapshot) {
-            embed.setImage(`attachment://${snapshot.filename}`)
-            editPayload.files = [snapshot.attachment]
-        } else {
-            embed.setImage(null)
-        }
-
-        const timelineDesc = this.buildDealerTimelineDescription()
-        embed.setDescription(timelineDesc ?? "—")
-
-        try {
-            await message.edit(editPayload)
-        } catch (error) {
-            logger.error("Failed to update dealer message", {
-                scope: "blackjackGame",
-                channelId: this.channel?.id,
-                error: error.message
-            })
-        }
     }
 
     async CreateOptions() {
@@ -1701,7 +1622,6 @@ module.exports = class BlackJack extends Game {
         await this.ComputeHandsValue(player)
 
         let shouldUpdateEmbed = false
-        let cardDrawn = null
         let actionEndsHand = false
         let postActionPauseMs = null
 
@@ -1732,7 +1652,6 @@ module.exports = class BlackJack extends Game {
                 if (player.status.actionLog) {
                     player.status.actionLog.push(`Hit${handLabel} → ${formatCardLabel(newCard[0])}`)
                 }
-                cardDrawn = newCard[0]
                 shouldUpdateEmbed = true
                 if (!player.hands[hand].busted) {
                     player.status.actionInProgress = false
@@ -1761,7 +1680,6 @@ module.exports = class BlackJack extends Game {
                 if (player.status.actionLog) {
                     player.status.actionLog.push(`Doubled${handLabel} → ${formatCardLabel(newCard[0])}`)
                 }
-                cardDrawn = newCard[0]
                 shouldUpdateEmbed = true
                 actionEndsHand = true
                 if (!player.hands[hand].busted) {
@@ -1907,28 +1825,9 @@ module.exports = class BlackJack extends Game {
                 .setDescription(timelineText)
 
             const components = []
-            if (player.availableOptions && player.availableOptions.length > 0 && !autoStanding) {
-                const row = new Discord.ActionRowBuilder()
-                const optionButtons = {
-                    stand: { label: "Stand", style: Discord.ButtonStyle.Secondary, emoji: "🛑" },
-                    hit: { label: "Hit", style: Discord.ButtonStyle.Primary, emoji: "🎯" },
-                    double: { label: "Double", style: Discord.ButtonStyle.Success, emoji: "💰" },
-                    split: { label: "Split", style: Discord.ButtonStyle.Success, emoji: "✂️" },
-                    insurance: { label: "Insurance", style: Discord.ButtonStyle.Danger, emoji: "🛡️" }
-                }
-                for (const option of player.availableOptions) {
-                    if (optionButtons[option]) {
-                        const btn = optionButtons[option]
-                        row.addComponents(
-                            new Discord.ButtonBuilder()
-                                .setCustomId(`bj_action:${option}:${player.id}`)
-                                .setLabel(btn.label)
-                                .setStyle(btn.style)
-                                .setEmoji(btn.emoji)
-                        )
-                    }
-                }
-                components.push(row)
+            if (!autoStanding) {
+                const actionRow = buildActionButtons(player.id, player.availableOptions)
+                if (actionRow) components.push(actionRow)
             }
 
             // Add disable autobet button if player has active autobet
@@ -1974,10 +1873,8 @@ module.exports = class BlackJack extends Game {
             }
 
             const snapshot = await this.captureTableRender({
-                title: `${player.tag} • Round #${this.hands}`,
                 filename: `blackjack_round_${this.hands}_progress_${Date.now()}.png`,
                 description: `Round progress snapshot for ${player.tag}`,
-                focusPlayerId: player.id,
                 hideDealerHoleCard: true,
                 maskDealerValue: true,
                 forceResult: null,
@@ -2027,7 +1924,6 @@ module.exports = class BlackJack extends Game {
 
             // Render image FIRST before editing
             const snapshot = await this.captureTableRender({
-                title: isFinal ? `Final Results • Round #${this.hands}` : `Dealer's Turn • Round #${this.hands}`,
                 filename: `blackjack_round_${this.hands}_dealer_${Date.now()}.png`,
                 description: `Dealer ${isFinal ? 'final' : 'turn'} snapshot for round ${this.hands}`,
                 hideDealerHoleCard: false,
@@ -2069,11 +1965,6 @@ module.exports = class BlackJack extends Game {
         }
     }
 
-    async updatePlayerInfoEmbed(player) {
-        // Deprecated - now using updateRoundProgressEmbed
-        await this.updateRoundProgressEmbed(player)
-    }
-
     async DealerAction() {
         await this.ComputeHandsValue(null, this.dealer)
         await this.UpdateInGame()
@@ -2107,7 +1998,7 @@ module.exports = class BlackJack extends Game {
 
                 // Update the progressive embed
                 await this.updateDealerProgressEmbed()
-                await sleep(config.delays.medium.default)
+                await sleep(config.delays.short.default)
             }
 
             // Final dealer status update
@@ -2118,7 +2009,7 @@ module.exports = class BlackJack extends Game {
                 this.appendDealerTimeline(`**Dealer** stands at ${this.dealer.value}.`)
             }
             await this.updateDealerProgressEmbed()
-            await sleep(config.delays.medium.default)
+            await sleep(config.delays.short.default)
 
             for (let player of this.inGamePlayers) {
                 player.status.won.expEarned += 10

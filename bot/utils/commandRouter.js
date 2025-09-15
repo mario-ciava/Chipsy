@@ -54,6 +54,10 @@ class CommandRouter {
      * Clean, simple, no abstractions.
      */
     async handleInteraction(interaction) {
+        if (typeof interaction.isAutocomplete === "function" && interaction.isAutocomplete()) {
+            return this.handleAutocomplete(interaction)
+        }
+
         if (!interaction.isChatInputCommand()) return
 
         const command = this.commands.get(interaction.commandName.toLowerCase())
@@ -132,6 +136,36 @@ class CommandRouter {
                 scope: "commandRouter",
                 error: error.message
             })
+        }
+    }
+
+    async handleAutocomplete(interaction) {
+        const command = this.commands.get(interaction.commandName.toLowerCase())
+        if (!command) {
+            await interaction.respond([]).catch(() => null)
+            return
+        }
+
+        if (typeof command.autocomplete !== "function") {
+            await interaction.respond([]).catch(() => null)
+            return
+        }
+
+        try {
+            const result = await command.autocomplete(interaction, this.client)
+            if (interaction.responded) return
+
+            const choices = Array.isArray(result) ? result : []
+            await interaction.respond(choices.slice(0, 25))
+        } catch (error) {
+            logger.warn("Autocomplete handler failed", {
+                scope: "commandRouter",
+                command: interaction.commandName,
+                error: error.message
+            })
+            if (!interaction.responded) {
+                await interaction.respond([]).catch(() => null)
+            }
         }
     }
 }

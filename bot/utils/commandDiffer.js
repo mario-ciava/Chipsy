@@ -1,5 +1,17 @@
 const logger = require("./logger");
 
+const pickProp = (source, ...candidates) => {
+    if (!source) return undefined;
+
+    for (const key of candidates) {
+        if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined) {
+            return source[key];
+        }
+    }
+
+    return undefined;
+};
+
 /**
  * Sort object keys recursively for deterministic JSON.stringify
  * @param {any} obj - Object to sort
@@ -61,16 +73,19 @@ function normalizeCommand(cmd) {
         name: cmd.name,
         description: cmd.description,
         type: cmd.type || 1, // CHAT_INPUT = 1
-        options: (cmd.options || []).map(opt => {
+        options: (pickProp(cmd, "options") || []).map(opt => {
             const option = {
                 name: opt.name,
                 description: opt.description,
-                type: opt.type,
-                required: opt.required || false,
-                autocomplete: opt.autocomplete || false
+                type: opt.type
             };
 
-            // Only include choices if present
+            const required = pickProp(opt, "required");
+            option.required = required !== undefined ? required : false;
+
+            const autocomplete = pickProp(opt, "autocomplete");
+            option.autocomplete = autocomplete !== undefined ? autocomplete : false;
+
             if (opt.choices && opt.choices.length > 0) {
                 option.choices = opt.choices.map(choice => ({
                     name: choice.name,
@@ -78,31 +93,46 @@ function normalizeCommand(cmd) {
                 }));
             }
 
-            // Include min/max for number/integer options if set
-            if (opt.min_value !== undefined) {
-                option.min_value = opt.min_value;
+            const minValue = pickProp(opt, "min_value", "minValue");
+            if (minValue !== undefined) {
+                option.min_value = minValue;
             }
-            if (opt.max_value !== undefined) {
-                option.max_value = opt.max_value;
+
+            const maxValue = pickProp(opt, "max_value", "maxValue");
+            if (maxValue !== undefined) {
+                option.max_value = maxValue;
+            }
+
+            const minLength = pickProp(opt, "min_length", "minLength");
+            if (minLength !== undefined) {
+                option.min_length = minLength;
+            }
+
+            const maxLength = pickProp(opt, "max_length", "maxLength");
+            if (maxLength !== undefined) {
+                option.max_length = maxLength;
+            }
+
+            const channelTypes = pickProp(opt, "channel_types", "channelTypes");
+            if (channelTypes !== undefined) {
+                option.channel_types = channelTypes;
             }
 
             return option;
         })
     };
 
-    // Only include permissions if explicitly set AND different from Discord defaults
-    if (cmd.default_member_permissions !== undefined && cmd.default_member_permissions !== null) {
-        normalized.default_member_permissions = cmd.default_member_permissions;
+    const defaultPermissions = pickProp(cmd, "default_member_permissions", "defaultMemberPermissions");
+    if (defaultPermissions !== undefined && defaultPermissions !== null) {
+        normalized.default_member_permissions = defaultPermissions;
     }
 
-    // Discord's default for dm_permission is true
-    // Only include it if it's explicitly false
-    const dmPermission = cmd.dm_permission ?? true;
-    if (dmPermission !== true) {
-        normalized.dm_permission = dmPermission;
+    const dmPermission = pickProp(cmd, "dm_permission", "dmPermission");
+    const effectiveDmPermission = dmPermission ?? true;
+    if (effectiveDmPermission !== true) {
+        normalized.dm_permission = effectiveDmPermission;
     }
 
-    // Clean up undefined values
     return removeUndefined(normalized);
 }
 
