@@ -8,14 +8,6 @@ const LEVEL_SEVERITY = {
     verbose: 4
 }
 
-const LEVEL_ICONS = {
-    error: "❌",
-    warn: "⚠️ ",
-    info: "ℹ️ ",
-    debug: "🐛",
-    verbose: "��"
-}
-
 const LEVEL_METHOD = {
     error: "error",
     warn: "warn",
@@ -28,7 +20,6 @@ const LABEL_WIDTH = 7
 
 const ANSI = {
     reset: "\x1b[0m",
-    bold: "\x1b[1m",
     dim: "\x1b[2m",
     colors: {
         error: "\x1b[31m",
@@ -54,9 +45,8 @@ const shouldUseColor = () => {
 
 const COLOR_ENABLED = shouldUseColor()
 
-let currentLevel = normalizeLevel(
-    process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug")
-)
+const DEFAULT_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug")
+let currentLevel = normalizeLevel(DEFAULT_LEVEL)
 
 const setLevel = (level) => {
     currentLevel = normalizeLevel(level)
@@ -73,11 +63,6 @@ const applyStyle = (value, level) => {
     if (!COLOR_ENABLED) return value
     const color = ANSI.colors[level] || ""
     return color ? `${color}${value}${ANSI.reset}` : value
-}
-
-const bold = (value) => {
-    if (!COLOR_ENABLED) return value
-    return `${ANSI.bold}${value}${ANSI.reset}`
 }
 
 const dim = (value) => {
@@ -119,22 +104,14 @@ const buildMetaSegments = (meta) => {
     if (!meta || typeof meta !== "object") return []
 
     const entries = []
-    const copy = { ...meta }
+    const { scope, icon: _icon, ...rest } = meta
 
-    // Reserve icon for formatting only
-    if (copy.icon !== undefined) {
-        delete copy.icon
+    const scopeValue = sanitizeMetaValue(scope)
+    if (scopeValue !== undefined) {
+        entries.push(["scope", scopeValue])
     }
 
-    if (copy.scope !== undefined) {
-        const scopeValue = sanitizeMetaValue(copy.scope)
-        if (scopeValue !== undefined) {
-            entries.push(["scope", scopeValue])
-        }
-        delete copy.scope
-    }
-
-    for (const [key, rawValue] of Object.entries(copy)) {
+    for (const [key, rawValue] of Object.entries(rest)) {
         const value = sanitizeMetaValue(rawValue)
         if (value === undefined) continue
         entries.push([key, value])
@@ -148,18 +125,20 @@ const buildMetaSegments = (meta) => {
 
 const formatConsoleMessage = ({ level, message, meta = {}, timestamp = new Date() }) => {
     const normalizedLevel = normalizeLevel(level)
-    const icon = meta && typeof meta === "object" && meta.icon ? meta.icon : LEVEL_ICONS[normalizedLevel] || "•"
     const timePart = dim(`[${formatTimestamp(timestamp)}]`)
-    const label = `${icon} ${normalizedLevel.toUpperCase().padEnd(LABEL_WIDTH)}`
-    const levelPart = applyStyle(label, normalizedLevel)
+    const levelLabel = normalizedLevel.toUpperCase().padEnd(LABEL_WIDTH)
+    const levelPart = applyStyle(levelLabel, normalizedLevel)
+    const scopeLabel = typeof meta === "object"
+        ? (meta.scope || meta.process || "")
+        : ""
+    const scopePart = scopeLabel ? `${scopeLabel.padEnd(14)} | ` : ""
     const messageText = typeof message === "string" ? message : inspect(message)
-    const messagePart = bold(messageText)
     const metaSegments = buildMetaSegments(meta)
 
-    let line = `${timePart} ${levelPart} ${messagePart}`
+    let line = `${timePart} ${levelPart} ${scopePart}${messageText}`
 
     if (metaSegments.length > 0) {
-        const separator = COLOR_ENABLED ? `${dim("│")}` : "│"
+        const separator = COLOR_ENABLED ? `${dim("│")}` : "|"
         line += ` ${separator} ${metaSegments.join(" ")}`
     }
 

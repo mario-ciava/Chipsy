@@ -1,7 +1,7 @@
 const mysql = require("mysql2/promise")
-const config = require("../bot/config")
+const config = require("../config")
 const logger = require("../bot/utils/logger")
-const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../bot/util/experience")
+const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
 
 const ensureDatabase = async(connection, database) => {
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\``)

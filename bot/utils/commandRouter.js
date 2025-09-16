@@ -1,5 +1,10 @@
 const { Collection, MessageFlags } = require("discord.js")
 const logger = require("./logger")
+const { stripDeferredEphemeralFlag } = require("./interactionResponse")
+
+const isAutocompleteInteraction = (interaction) => (
+    typeof interaction?.isAutocomplete === "function" && interaction.isAutocomplete()
+)
 
 /**
  * Simple, clean command router for slash commands only.
@@ -54,7 +59,7 @@ class CommandRouter {
      * Clean, simple, no abstractions.
      */
     async handleInteraction(interaction) {
-        if (typeof interaction.isAutocomplete === "function" && interaction.isAutocomplete()) {
+        if (isAutocompleteInteraction(interaction)) {
             return this.handleAutocomplete(interaction)
         }
 
@@ -83,21 +88,17 @@ class CommandRouter {
             })
         }
 
-        // Load user data
-        if (!interaction.user.data) {
-            const result = await this.client.SetData(interaction.user)
-            if (result.error) {
-                const content = result.error.type === "database"
-                    ? "❌ Database connection failed. Please try again later."
-                    : "❌ Failed to load your profile. Please contact support."
+        const userResult = await this.ensureUserData(interaction)
+        if (!userResult.ok) {
+            const content = userResult.error?.type === "database"
+                ? "❌ Database connection failed. Please try again later."
+                : "❌ Failed to load your profile. Please contact support."
 
-                await this.replyOrFollowUp(interaction, {
-                    content,
-                    flags: MessageFlags.Ephemeral
-                })
-                return
-            }
-            if (!result.data) return
+            await this.replyOrFollowUp(interaction, {
+                content,
+                flags: MessageFlags.Ephemeral
+            })
+            return
         }
 
         // Execute command
@@ -122,10 +123,10 @@ class CommandRouter {
     /**
      * Reply or follow-up depending on interaction state.
      */
-    async replyOrFollowUp(interaction, payload) {
+    async replyOrFollowUp(interaction, payload = {}) {
         try {
             if (interaction.deferred && !interaction.replied) {
-                return await interaction.editReply(payload)
+                return await interaction.editReply(stripDeferredEphemeralFlag(payload))
             } else if (!interaction.replied) {
                 return await interaction.reply(payload)
             } else {
@@ -151,6 +152,18 @@ class CommandRouter {
             return
         }
 
+        const userResult = await this.ensureUserData(interaction)
+        if (!userResult.ok) {
+            logger.warn("Skipping autocomplete - failed to warm up user data", {
+                scope: "commandRouter",
+                command: interaction.commandName,
+                error: userResult.error?.message,
+                type: userResult.error?.type
+            })
+            await interaction.respond([]).catch(() => null)
+            return
+        }
+
         try {
             const result = await command.autocomplete(interaction, this.client)
             if (interaction.responded) return
@@ -165,6 +178,28 @@ class CommandRouter {
             })
             if (!interaction.responded) {
                 await interaction.respond([]).catch(() => null)
+            }
+        }
+    }
+
+    async ensureUserData(interaction) {
+        if (!interaction?.user || interaction.user.data || typeof this.client?.SetData !== "function") {
+            return { ok: true, data: interaction?.user?.data }
+        }
+
+        try {
+            const result = await this.client.SetData(interaction.user)
+            if (result?.error || !result?.data) {
+                return { ok: false, error: result?.error || { type: "missing-data" } }
+            }
+            return { ok: true, data: result.data }
+        } catch (error) {
+            return {
+                ok: false,
+                error: {
+                    type: "unexpected",
+                    message: error?.message ?? String(error)
+                }
             }
         }
     }

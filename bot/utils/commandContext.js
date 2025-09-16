@@ -1,4 +1,8 @@
-const { EmbedBuilder, Colors, MessageFlags } = require("discord.js")
+const { EmbedBuilder, Colors } = require("discord.js")
+const {
+    normalizeInteractionPayload,
+    stripDeferredEphemeralFlag
+} = require("./interactionResponse")
 
 class CommandUserError extends Error {
     constructor(message, options = {}) {
@@ -10,31 +14,6 @@ class CommandUserError extends Error {
         this.payload = options.payload
         this.log = options.log ?? true
     }
-}
-
-const normalizeInteractionPayload = (payload = {}) => {
-    if (!payload || typeof payload !== "object") return payload
-
-    const next = { ...payload }
-
-    if (Object.prototype.hasOwnProperty.call(next, "ephemeral")) {
-        const ephemeral = next.ephemeral
-        delete next.ephemeral
-
-        if (ephemeral === true && next.flags === undefined) {
-            next.flags = MessageFlags.Ephemeral
-        }
-    }
-
-    if (Object.prototype.hasOwnProperty.call(next, "fetchReply")) {
-        const fetchReply = next.fetchReply
-        delete next.fetchReply
-        if (fetchReply === true && next.withResponse === undefined) {
-            next.withResponse = true
-        }
-    }
-
-    return next
 }
 
 /**
@@ -60,7 +39,7 @@ const buildCommandContext = ({ commandName, message, interaction, client, logger
         const normalizedPayload = normalizeInteractionPayload(payload)
 
         if (interaction.deferred && !interaction.replied) {
-            response = await interaction.editReply(normalizedPayload)
+            response = await interaction.editReply(stripDeferredEphemeralFlag(normalizedPayload))
         } else if (!interaction.replied) {
             response = await interaction.reply(normalizedPayload)
         } else {
@@ -95,8 +74,9 @@ const buildCommandContext = ({ commandName, message, interaction, client, logger
      * Edit the initial reply.
      */
     const editReply = async(payload = {}) => {
+        const normalizedPayload = normalizeInteractionPayload(payload)
         responded.value = true
-        return interaction.editReply(payload)
+        return interaction.editReply(stripDeferredEphemeralFlag(normalizedPayload))
     }
 
     const safeInvoke = async(fn, ...params) => {
@@ -127,17 +107,17 @@ const buildCommandContext = ({ commandName, message, interaction, client, logger
         const { ephemeral = true, embed, payload } = options
 
         if (payload) {
-            const constructedPayload = { ...payload }
-            if (ephemeral) {
-                constructedPayload.flags = MessageFlags.Ephemeral
+            const constructedPayload = {
+                ...payload,
+                ...(ephemeral ? { ephemeral: true } : null)
             }
             return safeInvoke(reply, constructedPayload)
         }
 
         const errorEmbed = embed ?? createErrorEmbed(text)
-        const responsePayload = { embeds: [errorEmbed] }
-        if (ephemeral) {
-            responsePayload.flags = MessageFlags.Ephemeral
+        const responsePayload = {
+            embeds: [errorEmbed],
+            ...(ephemeral ? { ephemeral: true } : null)
         }
         return safeInvoke(reply, responsePayload)
     }

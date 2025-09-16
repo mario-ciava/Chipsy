@@ -12,6 +12,8 @@ const {
     createBlackjackTableState
 } = require("../rendering/cardTableRenderer")
 
+const EMPTY_TIMELINE_TEXT = "No actions yet."
+
 const CARD_VALUE_MAP = {
     A: "A",
     K: "K",
@@ -246,7 +248,7 @@ module.exports = class BlackJack extends Game {
         if (!baseEmbed) return
         const embed = Discord.EmbedBuilder.from(baseEmbed)
         const timelineDesc = this.buildDealerTimelineDescription()
-        embed.setDescription(timelineDesc ?? "—")
+        embed.setDescription(timelineDesc ?? EMPTY_TIMELINE_TEXT)
         try {
             await this.dealerStatusMessage.edit({ embeds: [embed] })
         } catch (error) {
@@ -672,9 +674,7 @@ module.exports = class BlackJack extends Game {
         const dealerState = {
             ...dealer,
             cards: dealerCardsCopy,
-            value: concealDealerInfo
-                ? null
-                : (dealer.value ?? dealer.total ?? dealer.score ?? 0),
+            value: dealer.value ?? dealer.total ?? dealer.score ?? 0,
             blackjack: concealDealerInfo ? false : Boolean(dealer.blackjack || dealer.hasBlackjack || dealer.BJ),
             busted: concealDealerInfo ? false : Boolean(dealer.busted || dealer.isBusted)
         }
@@ -1817,7 +1817,7 @@ module.exports = class BlackJack extends Game {
 
             const actionLogEntries = Array.isArray(player.status?.actionLog) ? player.status.actionLog : []
             const actionLogText = actionLogEntries.length > 0 ? actionLogEntries.join("\n") : "—"
-            const timelineText = this.buildDealerTimelineDescription() ?? "—"
+            const timelineText = this.buildDealerTimelineDescription() ?? EMPTY_TIMELINE_TEXT
 
             const embed = new Discord.EmbedBuilder()
                 .setColor(Discord.Colors.Gold)
@@ -1920,7 +1920,7 @@ module.exports = class BlackJack extends Game {
             const embed = new Discord.EmbedBuilder()
                 .setColor(isFinal ? Discord.Colors.Blue : Discord.Colors.Purple)
                 .setTitle(isFinal ? "Round Results" : "Table Timeline")
-                .setDescription(timelineText ?? "—")
+                .setDescription(timelineText ?? EMPTY_TIMELINE_TEXT)
 
             // Render image FIRST before editing
             const snapshot = await this.captureTableRender({

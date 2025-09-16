@@ -1,5 +1,6 @@
 const { REST, Routes } = require("discord.js");
 const fs = require("fs");
+const logger = require("./bot/utils/logger");
 require("dotenv").config();
 
 // Carica tutti i comandi dalla cartella ./commands
@@ -19,15 +20,28 @@ const GUILD_ID = "605327908525047808";   // ID del server target
 
 (async () => {
   try {
-    console.log(`Aggiornamento di ${commands.length} comandi per la guild ${GUILD_ID}...`);
+    logger.info(`Aggiornamento di ${commands.length} comandi per la guild ${GUILD_ID}...`, {
+      scope: "deployCommands",
+      guildId: GUILD_ID,
+      count: commands.length
+    });
 
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands }
     );
 
-    console.log("✅ Comandi slash registrati con successo (GUILD).");
+    logger.info("Comandi slash registrati con successo (GUILD).", {
+      scope: "deployCommands",
+      icon: "✅",
+      guildId: GUILD_ID
+    });
   } catch (error) {
-    console.error("❌ Errore durante la registrazione dei comandi:", error);
+    logger.error("Errore durante la registrazione dei comandi slash", {
+      scope: "deployCommands",
+      guildId: GUILD_ID,
+      message: error?.message,
+      stack: error?.stack
+    });
   }
 })();

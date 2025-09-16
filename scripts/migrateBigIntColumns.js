@@ -1,5 +1,5 @@
 const mysql = require("mysql2/promise")
-const config = require("../bot/config")
+const config = require("../config")
 const logger = require("../bot/utils/logger")
 
 const ensureDatabase = async(connection, database) => {

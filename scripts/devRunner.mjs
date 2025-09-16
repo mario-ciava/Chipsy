@@ -12,15 +12,66 @@ import { spawn, execSync } from "child_process";
 import { createRequire } from "module";
 import dotenv from "dotenv";
 import readline from "readline";
-import chalk from "chalk";
 import fs from "fs";
 
 // Per importare moduli CommonJS da ES module
 const require = createRequire(import.meta.url);
 const { constants } = require("../config");
+const sharedLogger = require("../bot/utils/logger");
 
 // Carica le variabili d'ambiente dal file .env
 dotenv.config();
+
+const LOG_SCOPE = "devRunner";
+
+const logMessage = (level, message, meta = {}) => {
+  const fn = sharedLogger[level] || sharedLogger.info;
+  const payload = { ...meta };
+  if (!payload.scope) {
+    payload.scope = LOG_SCOPE;
+  }
+  fn(message, payload);
+};
+
+const logSys = (message, meta) => logMessage("info", message, meta);
+const logOk = (message, meta) => logMessage("info", message, meta);
+const logWarn = (message, meta) => logMessage("warn", message, meta);
+const logErr = (message, meta) => logMessage("error", message, meta);
+
+// Piccolo filtro per evitare spam di log duplicati in rapida successione
+const DEDUPE_WINDOW_MS = 1500;
+const DEDUPE_CACHE_LIMIT = 256;
+const recentLogCache = new Map();
+
+const normalizeDedupeMessage = (value) => {
+  if (!value) return "";
+  return value
+    .toLowerCase()
+    .replace(/(\.\.\.|…)/g, " ")
+    .replace(/[^\w\s:/#-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const shouldSkipDuplicateLog = (level, message) => {
+  const normalized = normalizeDedupeMessage(message);
+  if (!normalized) return false;
+  const key = `${level}:${normalized}`;
+  const now = Date.now();
+  const lastLoggedAt = recentLogCache.get(key);
+  if (lastLoggedAt && now - lastLoggedAt < DEDUPE_WINDOW_MS) {
+    return true;
+  }
+  recentLogCache.set(key, now);
+  if (recentLogCache.size > DEDUPE_CACHE_LIMIT) {
+    for (const [entryKey, timestamp] of recentLogCache) {
+      if (now - timestamp > DEDUPE_WINDOW_MS) {
+        recentLogCache.delete(entryKey);
+      }
+    }
+  }
+  return false;
+};
 
 function isRunningInDocker() {
   // Metodo A: verifica se esiste /.dockerenv (file presente in tutti i container Docker)
@@ -45,10 +96,10 @@ function isRunningInDocker() {
 // ============================================================================
 if (isRunningInDocker()) {
   process.env.MYSQL_HOST = "mysql";
-  console.log("[env] Detected Docker/VPS environment → MYSQL_HOST=mysql");
+  logSys("Detected Docker/VPS environment → MYSQL_HOST=mysql", { phase: "env" });
 } else {
   process.env.MYSQL_HOST = "localhost";
-  console.log("[env] Detected local environment → MYSQL_HOST=localhost");
+  logSys("Detected local environment → MYSQL_HOST=localhost", { phase: "env" });
 }
 
 // --- Funzioni di utilità ----------------------------------------------------
@@ -56,18 +107,104 @@ if (isRunningInDocker()) {
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
-function logSys(msg) {
-  console.log(chalk.cyan(`[system] ${msg}`));
-}
-function logOk(msg) {
-  console.log(chalk.green(`[ok] ${msg}`));
-}
-function logWarn(msg) {
-  console.log(chalk.yellow(`[warn] ${msg}`));
-}
-function logErr(msg) {
-  console.log(chalk.red(`[error] ${msg}`));
-}
+const normalizeLine = (input) => {
+  if (input === undefined || input === null) return "";
+  if (Buffer.isBuffer(input)) return input.toString("utf8").replace(/\s+$/, "");
+  return String(input).replace(/\s+$/, "");
+};
+
+const isStructuredLogLine = (text) => {
+  if (!text || typeof text !== "string") return false;
+  return /^\[\d{2}:\d{2}:\d{2}\]\s/.test(text) && text.includes("scope=");
+};
+
+const parseStructuredLine = (text) => {
+  const parts = text.split("│").map(part => part.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const header = parts.shift();
+
+  const headerMatch = header.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+([A-Z]+)\s+(.*)$/);
+  if (!headerMatch) return null;
+  const level = headerMatch[2].toLowerCase();
+  let messageSection = headerMatch[3].trim();
+  let extractedScope = null;
+  if (messageSection.includes("|")) {
+    const [maybeScope, ...rest] = messageSection.split("|");
+    if (maybeScope.trim()) {
+      extractedScope = maybeScope.trim();
+      messageSection = rest.join("|").trim();
+    }
+  }
+  const meta = {};
+  if (parts.length) {
+    const metaTokens = parts.join(" ").split(/\s+/).filter(Boolean);
+    metaTokens.forEach((token) => {
+      const [key, ...valueParts] = token.split("=");
+      if (!key || !valueParts.length) return;
+      const value = valueParts.join("=");
+      meta[key] = value;
+    });
+  }
+
+  if (extractedScope && !meta.scope) {
+    meta.scope = extractedScope;
+  }
+
+  return { level, message: messageSection, meta };
+};
+
+const logProcessLine = (level, processName, line, stream) => {
+  const text = normalizeLine(line);
+  if (!text) return;
+  if (isStructuredLogLine(text)) {
+    const parsed = parseStructuredLine(text);
+    if (parsed) {
+      if (shouldSkipDuplicateLog(parsed.level, parsed.message)) {
+        return;
+      }
+      const combinedMeta = {
+        ...parsed.meta,
+        scope: parsed.meta.scope || processName,
+        process: parsed.meta.process || processName,
+        stream
+      };
+      logMessage(parsed.level, parsed.message, combinedMeta);
+    } else {
+      process.stdout.write(`${text}\n`);
+    }
+    return;
+  }
+  if (shouldSkipDuplicateLog(level, text)) {
+    return;
+  }
+  logMessage(level, text, {
+    scope: "process",
+    process: processName,
+    stream
+  });
+};
+
+const attachStreamLogger = (stream, name, streamName) => {
+  if (!stream) return;
+  const rlStream = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity,
+    terminal: false
+  });
+  const level = streamName === "stderr" ? "warn" : "info";
+  rlStream.on("line", (line) => logProcessLine(level, name, line, streamName));
+  stream.on("error", (error) => {
+    logWarn(`Stream error from ${name} (${streamName}): ${error.message}`, {
+      process: name,
+      stream: streamName
+    });
+  });
+};
+
+const attachProcessLogging = (child, name) => {
+  attachStreamLogger(child.stdout, name, "stdout");
+  attachStreamLogger(child.stderr, name, "stderr");
+};
 
 // --- Gestione child process -------------------------------------------------
 
@@ -79,11 +216,10 @@ let isShuttingDown = false;
  * @param {string} cmd - Comando da eseguire
  * @param {string[]} args - Argomenti
  * @param {string} name - Nome del processo per logging
- * @param {string} color - Colore chalk per output
  * @param {boolean} autoRestart - Se true, riavvia automaticamente in caso di crash
  * @param {number} inheritRestartCount - Restart count ereditato (per preservare il contatore)
  */
-function spawnProc(cmd, args, name, color, autoRestart = true, inheritRestartCount = 0) {
+function spawnProc(cmd, args, name, autoRestart = true, inheritRestartCount = 0) {
   const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], shell: true });
 
   children.set(name, {
@@ -92,15 +228,10 @@ function spawnProc(cmd, args, name, color, autoRestart = true, inheritRestartCou
     shouldRestart: autoRestart,
     name,
     cmd,
-    args,
-    color
+    args
   });
 
-  const prefix = chalk[color](`[${name}]`);
-  const log = (data) => process.stdout.write(`${prefix} ${data}`);
-
-  child.stdout.on("data", log);
-  child.stderr.on("data", log);
+  attachProcessLogging(child, name);
 
   child.on("exit", (code, signal) => {
     const childInfo = children.get(name);
@@ -135,7 +266,7 @@ function spawnProc(cmd, args, name, color, autoRestart = true, inheritRestartCou
         if (!isShuttingDown) {
           logSys(`Riavvio ${name}...`);
           // Passa il restartCount corrente per preservare il contatore
-          spawnProc(childInfo.cmd, childInfo.args, childInfo.name, childInfo.color, true, childInfo.restartCount);
+          spawnProc(childInfo.cmd, childInfo.args, childInfo.name, true, childInfo.restartCount);
         }
       }, delay);
     } else {
@@ -149,6 +280,31 @@ function spawnProc(cmd, args, name, color, autoRestart = true, inheritRestartCou
 
   return child;
 }
+
+const runCommandOnce = (cmd, args, name, options = {}) => {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: options.shell ?? false,
+      env: { ...process.env, ...(options.env || {}) },
+      cwd: options.cwd || process.cwd()
+    });
+
+    attachProcessLogging(child, name);
+
+    child.on("exit", (code) => {
+      if (code === 0 || code === null) {
+        resolve();
+      } else {
+        reject(new Error(`${name} exited with code ${code ?? "null"}`));
+      }
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+  });
+};
 
 // --- Gestione chiusura graceful ---------------------------------------------
 
@@ -221,14 +377,17 @@ process.on("SIGTERM", handleExit);
 
 // Gestione errori non catturati (evita crash silenti)
 process.on("uncaughtException", (error) => {
-  logErr(`Eccezione non gestita: ${error.message}`);
-  console.error(error.stack);
+  logErr(`Eccezione non gestita: ${error.message}`, {
+    stack: error.stack
+  });
   handleExit();
 });
 
 process.on("unhandledRejection", (reason, promise) => {
-  logErr(`Promise rejection non gestita: ${reason}`);
-  console.error(promise);
+  const baseMessage = reason instanceof Error ? reason.message : String(reason);
+  logErr(`Promise rejection non gestita: ${baseMessage}`, {
+    stack: reason instanceof Error ? reason.stack : undefined
+  });
   handleExit();
 });
 
@@ -241,7 +400,7 @@ async function main() {
   // 1️⃣ Avvio MySQL tramite Docker
   try {
     logSys("Avvio Docker MySQL...");
-    execSync("docker compose up -d mysql", { stdio: "inherit" });
+    await runCommandOnce("docker", ["compose", "up", "-d", "mysql"], "docker:compose");
   } catch (e) {
     logErr("Impossibile avviare Docker Compose. Assicurati che Docker Desktop sia attivo.");
     process.exit(1);
@@ -273,23 +432,22 @@ async function main() {
 
   // 3️⃣ Avvio bot e pannello in parallelo
   logSys("Avvio bot e pannello web...");
-  spawnProc("npm", ["run dev:bot"], "bot", "magenta");
+  spawnProc("npm", ["run dev:bot"], "bot");
   await sleep(constants.development.panelStartDelay); // Piccolo offset per separare output nei log
-  spawnProc("npm", ["run dev:panel"], "panel", "blue");
+  spawnProc("npm", ["run dev:panel"], "panel");
 
   // 4️⃣ Informazioni riepilogative
   logOk("Tutti i servizi sono in esecuzione.");
-  console.log("");
-  console.log(chalk.bold(`➡️  Pannello Web: ${chalk.green("http://localhost:8080")}`));
-  console.log(chalk.bold(`➡️  Bot API: ${chalk.green("http://localhost:8082/api")}`));
-  console.log(chalk.bold(`➡️  MySQL: ${chalk.green("docker exec -it chipsy-mysql mysql -u root -p")}`));
-  console.log("");
+  logSys("Endpoints disponibili:", { stage: "summary" });
+  logSys("• Pannello Web: http://localhost:8080", { stage: "summary", target: "web" });
+  logSys("• Bot API: http://localhost:8082/api", { stage: "summary", target: "api" });
+  logSys("• MySQL CLI: docker exec -it chipsy-mysql mysql -u root -p", { stage: "summary", target: "mysql" });
 
   // 5️⃣ Mantieni il processo aperto per poterlo terminare con Ctrl+C
   rl.on("SIGINT", handleExit);
 }
 
 main().catch((err) => {
-  logErr(`Errore fatale: ${err.message}`);
+  logErr(`Errore fatale: ${err.message}`, { stack: err.stack });
   process.exit(1);
 });

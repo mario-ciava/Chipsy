@@ -1,17 +1,6 @@
 const path = require("path");
 const fs = require("fs/promises");
 const { createCanvas, loadImage } = require("canvas");
-
-let sharp;
-try {
-    sharp = require("sharp");
-} catch (error) {
-    sharp = null;
-    logger.debug("sharp not available - falling back to raw canvas output", {
-        scope: "cardTableRenderer",
-        error: error.message
-    });
-}
 const logger = require("../utils/logger");
 const { gameToImage, isValidGameCard } = require("../utils/cardConverter");
 
@@ -23,6 +12,7 @@ const PROJECT_ROOT = path.join(__dirname, "../..");
 const DEBUG_PNG_PATH = path.join(PROJECT_ROOT, "render-debug.png");
 const DEBUG_SVG_PATH = path.join(PROJECT_ROOT, "render-debug.svg");
 const ENABLE_RENDER_DEBUG = process.env.CARD_RENDER_DEBUG === "1";
+const DEFAULT_PNG_COMPRESSION = 8;
 
 let cardBackPromise = null;
 
@@ -84,6 +74,37 @@ const CONFIG = Object.freeze({
         sectionBottomPadding: 28
     }
 });
+
+const clampCompressionLevel = (value) => {
+    if (!Number.isFinite(value)) return DEFAULT_PNG_COMPRESSION;
+    return Math.min(9, Math.max(0, Math.round(value)));
+};
+
+const renderCanvasToPng = (canvas, compressionLevel = DEFAULT_PNG_COMPRESSION) => {
+    return canvas.toBuffer("image/png", { compressionLevel: clampCompressionLevel(compressionLevel) });
+};
+
+const downscaleCanvasToPng = (sourceCanvas, targetWidth, targetHeight, compressionLevel) => {
+    const scaledCanvas = createCanvas(Math.max(1, targetWidth), Math.max(1, targetHeight));
+    const scaledCtx = scaledCanvas.getContext("2d");
+    scaledCtx.imageSmoothingEnabled = true;
+    scaledCtx.imageSmoothingQuality = "high";
+    scaledCtx.patternQuality = "best";
+    scaledCtx.quality = "best";
+    scaledCtx.antialias = "subpixel";
+    scaledCtx.drawImage(
+        sourceCanvas,
+        0,
+        0,
+        sourceCanvas.width,
+        sourceCanvas.height,
+        0,
+        0,
+        scaledCanvas.width,
+        scaledCanvas.height
+    );
+    return renderCanvasToPng(scaledCanvas, compressionLevel);
+};
 
 // ============================================================================
 // CARD ASSET CACHE
@@ -531,9 +552,17 @@ async function drawHand(ctx, hand, options) {
     const valueY = cursorY;
     cursorY += CONFIG.valueSize + CONFIG.layout.valueSpacing;
 
-    const valueText = maskSecondCard
-        ? "Value: ??"
-        : (Number.isFinite(hand.value) ? `Value: ${hand.value}` : "Value: ??");
+    let displayedValue = Number.isFinite(hand.value) ? hand.value : null;
+    if (maskSecondCard && cards.length > 0) {
+        const visibleCards = cards.filter((_, index) => index !== 1);
+        if (visibleCards.length > 0) {
+            displayedValue = calculateHandValue(visibleCards).value;
+        } else {
+            displayedValue = null;
+        }
+    }
+
+    const valueText = Number.isFinite(displayedValue) ? `Value: ${displayedValue}` : "Value: ??";
 
     let valueColor = CONFIG.textSecondary;
     let dealerBadge = null;
@@ -830,12 +859,20 @@ async function renderCardTable(params) {
         return null
     })()
 
+    const displayDealerBlackjack = normalized.maskDealerHoleCard ? false : Boolean(normalized.dealerBlackjack)
+    const displayDealerBusted = normalized.maskDealerHoleCard ? false : Boolean(normalized.dealerBusted)
+    const displayDealerResult = displayDealerBusted
+        ? "lose"
+        : displayDealerBlackjack
+            ? "win"
+            : dealerResult
+
     cursorY = await drawHand(ctx, {
         cards: normalized.dealerCards,
         value: normalized.dealerValue,
-        result: normalized.dealerBusted ? "lose" : normalized.dealerBlackjack ? "win" : dealerResult,
-        blackjack: normalized.dealerBlackjack,
-        busted: normalized.dealerBusted
+        result: displayDealerResult,
+        blackjack: displayDealerBlackjack,
+        busted: displayDealerBusted
     }, {
         title: "Dealer",
         centerX: CONFIG.canvasWidth / 2,
@@ -900,11 +937,11 @@ async function renderCardTable(params) {
 
     cursorY = rowTop;
 
-    const buffer = canvas.toBuffer(wantsSVG ? "image/svg+xml" : "image/png");
+    const baseBuffer = canvas.toBuffer(wantsSVG ? "image/svg+xml" : "image/png");
 
     if (wantsSVG && ENABLE_RENDER_DEBUG) {
         try {
-            await fs.writeFile(DEBUG_SVG_PATH, buffer);
+            await fs.writeFile(DEBUG_SVG_PATH, baseBuffer);
         } catch (error) {
             logger.debug("Failed to store render debug SVG", {
                 scope: "cardTableRenderer",
@@ -912,16 +949,16 @@ async function renderCardTable(params) {
                 error: error.message
             });
         }
-        return buffer;
+        return baseBuffer;
     }
 
     if (wantsSVG) {
-        return buffer;
+        return baseBuffer;
     }
 
     if (ENABLE_RENDER_DEBUG) {
         try {
-            await fs.writeFile(DEBUG_PNG_PATH, buffer);
+            await fs.writeFile(DEBUG_PNG_PATH, baseBuffer);
         } catch (error) {
             logger.debug("Failed to store render debug PNG", {
                 scope: "cardTableRenderer",
@@ -931,26 +968,16 @@ async function renderCardTable(params) {
         }
     }
 
-    if (sharp && Number.isFinite(CONFIG.embedTargetWidth) && CONFIG.embedTargetWidth > 0) {
+    if (Number.isFinite(CONFIG.embedTargetWidth) && CONFIG.embedTargetWidth > 0) {
         try {
             const targetWidth = CONFIG.embedTargetWidth;
-            const aspectRatio = canvasHeight / CONFIG.canvasWidth;
-            const targetHeight = Math.round(targetWidth * aspectRatio);
-            const resized = await sharp(buffer)
-                .resize({
-                    width: targetWidth,
-                    height: targetHeight,
-                    fit: "inside",
-                    withoutEnlargement: true,
-                    kernel: sharp.kernel.lanczos3
-                })
-                .png({
-                    compressionLevel: CONFIG.embedCompressionLevel ?? 8,
-                    adaptiveFiltering: true,
-                    palette: true
-                })
-                .toBuffer();
-            return resized;
+            const sourceWidth = canvas.width;
+            const aspectRatio = canvas.height / canvas.width;
+            const targetHeight = Math.max(1, Math.round(targetWidth * aspectRatio));
+
+            if (targetWidth < sourceWidth) {
+                return downscaleCanvasToPng(canvas, targetWidth, targetHeight, CONFIG.embedCompressionLevel);
+            }
         } catch (error) {
             logger.debug("Failed to downscale render for embed", {
                 scope: "cardTableRenderer",
@@ -960,7 +987,7 @@ async function renderCardTable(params) {
         }
     }
 
-    return buffer;
+    return baseBuffer;
 }
 
 async function renderCardTableSVG(params) {

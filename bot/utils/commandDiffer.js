@@ -12,6 +12,26 @@ const pickProp = (source, ...candidates) => {
     return undefined;
 };
 
+const COMMAND_LOCALIZATION_FIELDS = [
+    ["name_localizations", "nameLocalizations"],
+    ["description_localizations", "descriptionLocalizations"]
+];
+
+const CHOICE_LOCALIZATION_FIELDS = [
+    ["name_localizations", "nameLocalizations"],
+    ["value_localizations", "valueLocalizations"]
+];
+
+const applyLocalizationFields = (source, target, fieldPairs) => {
+    for (const pair of fieldPairs) {
+        const [canonical, ...aliases] = pair;
+        const value = pickProp(source, canonical, ...aliases);
+        if (value !== undefined) {
+            target[canonical] = value;
+        }
+    }
+};
+
 /**
  * Sort object keys recursively for deterministic JSON.stringify
  * @param {any} obj - Object to sort
@@ -72,55 +92,13 @@ function normalizeCommand(cmd) {
     const normalized = {
         name: cmd.name,
         description: cmd.description,
-        type: cmd.type || 1, // CHAT_INPUT = 1
-        options: (pickProp(cmd, "options") || []).map(opt => {
-            const option = {
-                name: opt.name,
-                description: opt.description,
-                type: opt.type
-            };
-
-            const required = pickProp(opt, "required");
-            option.required = required !== undefined ? required : false;
-
-            const autocomplete = pickProp(opt, "autocomplete");
-            option.autocomplete = autocomplete !== undefined ? autocomplete : false;
-
-            if (opt.choices && opt.choices.length > 0) {
-                option.choices = opt.choices.map(choice => ({
-                    name: choice.name,
-                    value: choice.value
-                }));
-            }
-
-            const minValue = pickProp(opt, "min_value", "minValue");
-            if (minValue !== undefined) {
-                option.min_value = minValue;
-            }
-
-            const maxValue = pickProp(opt, "max_value", "maxValue");
-            if (maxValue !== undefined) {
-                option.max_value = maxValue;
-            }
-
-            const minLength = pickProp(opt, "min_length", "minLength");
-            if (minLength !== undefined) {
-                option.min_length = minLength;
-            }
-
-            const maxLength = pickProp(opt, "max_length", "maxLength");
-            if (maxLength !== undefined) {
-                option.max_length = maxLength;
-            }
-
-            const channelTypes = pickProp(opt, "channel_types", "channelTypes");
-            if (channelTypes !== undefined) {
-                option.channel_types = channelTypes;
-            }
-
-            return option;
-        })
+        type: cmd.type || 1 // CHAT_INPUT = 1
     };
+
+    applyLocalizationFields(cmd, normalized, COMMAND_LOCALIZATION_FIELDS);
+
+    const options = normalizeOptions(pickProp(cmd, "options") || []);
+    normalized.options = options;
 
     const defaultPermissions = pickProp(cmd, "default_member_permissions", "defaultMemberPermissions");
     if (defaultPermissions !== undefined && defaultPermissions !== null) {
@@ -134,6 +112,80 @@ function normalizeCommand(cmd) {
     }
 
     return removeUndefined(normalized);
+}
+
+function normalizeOptions(options) {
+    if (!Array.isArray(options) || options.length === 0) {
+        return [];
+    }
+
+    return options.map(opt => {
+        const option = {
+            name: opt.name,
+            description: opt.description,
+            type: opt.type
+        };
+
+        applyLocalizationFields(opt, option, COMMAND_LOCALIZATION_FIELDS);
+
+        const required = pickProp(opt, "required");
+        option.required = required !== undefined ? required : false;
+
+        const autocomplete = pickProp(opt, "autocomplete");
+        option.autocomplete = autocomplete !== undefined ? autocomplete : false;
+
+        const choices = normalizeChoices(pickProp(opt, "choices"));
+        if (choices) {
+            option.choices = choices;
+        }
+
+        const nestedOptions = normalizeOptions(pickProp(opt, "options") || []);
+        if (nestedOptions.length > 0) {
+            option.options = nestedOptions;
+        }
+
+        const minValue = pickProp(opt, "min_value", "minValue");
+        if (minValue !== undefined) {
+            option.min_value = minValue;
+        }
+
+        const maxValue = pickProp(opt, "max_value", "maxValue");
+        if (maxValue !== undefined) {
+            option.max_value = maxValue;
+        }
+
+        const minLength = pickProp(opt, "min_length", "minLength");
+        if (minLength !== undefined) {
+            option.min_length = minLength;
+        }
+
+        const maxLength = pickProp(opt, "max_length", "maxLength");
+        if (maxLength !== undefined) {
+            option.max_length = maxLength;
+        }
+
+        const channelTypes = pickProp(opt, "channel_types", "channelTypes");
+        if (channelTypes !== undefined) {
+            option.channel_types = channelTypes;
+        }
+
+        return option;
+    });
+}
+
+function normalizeChoices(choices) {
+    if (!Array.isArray(choices) || choices.length === 0) {
+        return undefined;
+    }
+
+    return choices.map(choice => {
+        const normalized = {
+            name: choice.name,
+            value: choice.value
+        };
+        applyLocalizationFields(choice, normalized, CHOICE_LOCALIZATION_FIELDS);
+        return normalized;
+    });
 }
 
 /**
