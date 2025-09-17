@@ -1,6 +1,7 @@
 const { EventEmitter } = require("node:events")
 const { MessageFlags, DiscordAPIError } = require("discord.js")
 const config = require("../../config")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 
 class LobbySession extends EventEmitter {
     constructor({
@@ -289,7 +290,13 @@ class LobbySession extends EventEmitter {
         this.collector.on("collect", async(interaction) => {
             const handler = this.#resolveHandler(interaction.customId)
             if (!handler) {
-                await interaction.deferUpdate().catch(() => null)
+                await interaction.deferUpdate().catch(
+                    logAndSuppress("Failed to defer lobby component interaction", {
+                        scope: "lobbySession",
+                        messageId: this.statusMessage?.id,
+                        customId: interaction?.customId
+                    })
+                )
                 return
             }
             try {

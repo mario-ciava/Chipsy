@@ -1,7 +1,7 @@
 const { EmbedBuilder, Colors } = require("discord.js")
 const { getActiveGames } = require("../../bot/utils/gameRegistry")
 const { analyzeQuery } = require("../../bot/utils/db/queryAnalyzer")
-const defaultLogger = require("../middleware/structuredLogger").logger
+const { logger: defaultLogger } = require("../middleware/structuredLogger")
 
 const createHttpError = (status, message) => {
     const error = new Error(message)
@@ -137,7 +137,15 @@ const createAdminService = ({
                                     .setColor(Colors.Orange || 0xf97316)
                                     .setDescription("⚠️ La partita è stata interrotta perché Chipsy è stato disattivato dagli amministratori.")
                             ]
-                        }).catch(() => null)
+                        }).catch((error) => {
+                            logger.warn("Failed to notify channel about forced game stop", {
+                                scope: "admin",
+                                channelId: game.channel?.id,
+                                game: game.constructor?.name,
+                                err: error?.message
+                            })
+                            return null
+                        })
                     }
                 }
             } catch (error) {

@@ -1,5 +1,6 @@
 const { Collection, MessageFlags } = require("discord.js")
 const logger = require("./logger")
+const { logAndSuppress } = require("./loggingHelpers")
 const { stripDeferredEphemeralFlag } = require("./interactionResponse")
 
 const isAutocompleteInteraction = (interaction) => (
@@ -143,12 +144,22 @@ class CommandRouter {
     async handleAutocomplete(interaction) {
         const command = this.commands.get(interaction.commandName.toLowerCase())
         if (!command) {
-            await interaction.respond([]).catch(() => null)
+            await interaction.respond([]).catch(
+                logAndSuppress("Failed to send empty autocomplete response - command missing", {
+                    scope: "commandRouter",
+                    command: interaction.commandName
+                })
+            )
             return
         }
 
         if (typeof command.autocomplete !== "function") {
-            await interaction.respond([]).catch(() => null)
+            await interaction.respond([]).catch(
+                logAndSuppress("Failed to send empty autocomplete response - handler missing", {
+                    scope: "commandRouter",
+                    command: interaction.commandName
+                })
+            )
             return
         }
 
@@ -160,7 +171,12 @@ class CommandRouter {
                 error: userResult.error?.message,
                 type: userResult.error?.type
             })
-            await interaction.respond([]).catch(() => null)
+            await interaction.respond([]).catch(
+                logAndSuppress("Failed to send autocomplete failure response", {
+                    scope: "commandRouter",
+                    command: interaction.commandName
+                })
+            )
             return
         }
 
@@ -177,7 +193,12 @@ class CommandRouter {
                 error: error.message
             })
             if (!interaction.responded) {
-                await interaction.respond([]).catch(() => null)
+                await interaction.respond([]).catch(
+                    logAndSuppress("Failed to send fallback autocomplete response", {
+                        scope: "commandRouter",
+                        command: interaction.commandName
+                    })
+                )
             }
         }
     }

@@ -1,4 +1,4 @@
-const Discord = require("discord.js")
+const { EmbedBuilder, Colors, ButtonBuilder, ActionRowBuilder, ButtonStyle, AttachmentBuilder, MessageFlags, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js")
 const features = require("./features.js")
 const { sleep } = require("../utils/helpers")
 const Game = require("./game.js")
@@ -6,6 +6,7 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const logger = require("../utils/logger")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 const config = require("../../config")
 const {
     renderCardTable,
@@ -38,11 +39,11 @@ const CARD_SUIT_MAP = {
 }
 
 const ACTION_BUTTONS = {
-    stand: { label: "Stand", style: Discord.ButtonStyle.Secondary, emoji: "🛑" },
-    hit: { label: "Hit", style: Discord.ButtonStyle.Primary, emoji: "🎯" },
-    double: { label: "Double", style: Discord.ButtonStyle.Success, emoji: "💰" },
-    split: { label: "Split", style: Discord.ButtonStyle.Success, emoji: "✂️" },
-    insurance: { label: "Insurance", style: Discord.ButtonStyle.Danger, emoji: "🛡️" }
+    stand: { label: "Stand", style: ButtonStyle.Secondary, emoji: "🛑" },
+    hit: { label: "Hit", style: ButtonStyle.Primary, emoji: "🎯" },
+    double: { label: "Double", style: ButtonStyle.Success, emoji: "💰" },
+    split: { label: "Split", style: ButtonStyle.Success, emoji: "✂️" },
+    insurance: { label: "Insurance", style: ButtonStyle.Danger, emoji: "🛡️" }
 }
 
 function formatCardLabel(cardCode) {
@@ -58,18 +59,34 @@ function formatPlayerName(player) {
     return `**${tag}**`;
 }
 
-// Helper function to send error message that auto-deletes after 5 seconds
+const buildInteractionLog = (interaction, message, extraMeta = {}) =>
+    logAndSuppress(message, {
+        scope: "blackjackGame",
+        interactionId: interaction?.id,
+        channelId: interaction?.channel?.id || interaction?.channelId,
+        userId: interaction?.user?.id,
+        ...extraMeta
+    })
+
 async function sendEphemeralError(interaction, content) {
-    const reply = await interaction.followUp({ content, flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+    const reply = await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(
+        buildInteractionLog(interaction, "Failed to send blackjack ephemeral error", {
+            action: "sendEphemeralError"
+        })
+    )
     if (reply) {
         setTimeout(() => {
-            interaction.deleteReply(reply.id).catch(() => null)
+            interaction.deleteReply(reply.id).catch(
+                buildInteractionLog(interaction, "Failed to delete blackjack ephemeral reply", {
+                    action: "sendEphemeralError",
+                    replyId: reply.id
+                })
+            )
         }, config.delays.medium.default)
     }
     return reply
 }
 
-// Helper function to format milliseconds to human-readable time
 function formatTimeout(ms) {
     const seconds = Math.floor(ms / 1000)
     if (seconds < 60) {
@@ -85,12 +102,12 @@ function formatTimeout(ms) {
 
 function buildActionButtons(playerId, options) {
     if (!playerId || !Array.isArray(options) || options.length === 0) return null
-    const row = new Discord.ActionRowBuilder()
+    const row = new ActionRowBuilder()
     for (const option of options) {
         const meta = ACTION_BUTTONS[option]
         if (!meta) continue
         row.addComponents(
-            new Discord.ButtonBuilder()
+            new ButtonBuilder()
                 .setCustomId(`bj_action:${option}:${playerId}`)
                 .setLabel(meta.label)
                 .setStyle(meta.style)
@@ -122,17 +139,16 @@ function partitionBettingPlayers(players = []) {
 module.exports = class BlackJack extends Game {
     constructor(info) {
         super(info)
-        // Initialize deck with configured number of decks
         const deckCount = config.blackjack.deckCount.default
         this.cards = Array(deckCount).fill(cards).flat()
         this.betsCollector = null
         this.dealer = null
         this.dealerStatusMessage = null
         this.dealerTimeline = []
-        this.roundProgressMessage = null  // Single progressive embed for entire round
-        this.autobetSetupMessages = []  // Track autobet setup messages to delete on close
-        this.lastRemovalReason = null  // Track why players were removed
-        this.isBettingPhaseOpen = false // Tracks whether bets panel should still update
+        this.roundProgressMessage = null
+        this.autobetSetupMessages = []
+        this.lastRemovalReason = null
+        this.isBettingPhaseOpen = false
         this.betsPanelVersion = 0
         this.playersLeftDuringBets = []
     }
@@ -150,11 +166,9 @@ module.exports = class BlackJack extends Game {
         if (this.dealerTimeline.length > maxEntries) {
             this.dealerTimeline.shift()
         }
-        // Timeline rendering is handled when the progressive embed is next updated.
     }
 
     getDeckWarning() {
-        // Show warning when deck is running low
         if (this.cards.length < config.blackjack.reshuffleThreshold.default) {
             return " ⚠️ Deck will be reshuffled next round"
         }
@@ -237,7 +251,6 @@ module.exports = class BlackJack extends Game {
             const message = typeof entry === "string" ? entry : entry?.message ?? ""
             return `\`${stamp}\` ${message}`.trim()
         })
-        // Limit to last 15 entries to fit in description
         const recent = formatted.slice(-15)
         return recent.join("\n")
     }
@@ -246,7 +259,7 @@ module.exports = class BlackJack extends Game {
         if (!this.dealerStatusMessage || typeof this.dealerStatusMessage.edit !== "function") return
         const baseEmbed = this.dealerStatusMessage.embeds?.[0]
         if (!baseEmbed) return
-        const embed = Discord.EmbedBuilder.from(baseEmbed)
+        const embed = EmbedBuilder.from(baseEmbed)
         const timelineDesc = this.buildDealerTimelineDescription()
         embed.setDescription(timelineDesc ?? EMPTY_TIMELINE_TEXT)
         try {
@@ -327,14 +340,14 @@ module.exports = class BlackJack extends Game {
         }
         switch(type) {
             case "deckRestored": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Aqua)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Aqua)
                     .setFooter({ text: "Game deck has been shuffled and restored", iconURL: clientAvatar })
                 await sendEmbed(embed)
             break }
             case "maxPlayers": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
                     .setFooter({
                         text: `${player.tag}, access denied: maximum number of players reached for this game`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -347,8 +360,8 @@ module.exports = class BlackJack extends Game {
                 if (reason === "noBetsPlaced") {
                     message = "Game deleted: no bets were placed"
                 }
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
                     .setFooter({ text: message })
                 await sendEmbed(embed)
             break }
@@ -358,8 +371,8 @@ module.exports = class BlackJack extends Game {
                 const handLabel = typeof info?.handIndex === "number" && player?.hands?.length > 1
                     ? ` (Hand #${info.handIndex + 1})`
                     : ""
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(type === "hit" ? Discord.Colors.Purple : Discord.Colors.LuminousVividPink)
+                const embed = new EmbedBuilder()
+                    .setColor(type === "hit" ? Colors.Purple : Colors.LuminousVividPink)
                     .setFooter({
                         text: `${player.tag} ${type === "hit" ? "hit" : "stand"}s${cardLabel}`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -372,8 +385,8 @@ module.exports = class BlackJack extends Game {
                 const handLabel = typeof info?.handIndex === "number" && player?.hands?.length > 1
                     ? ` (Hand #${info.handIndex + 1})`
                     : ""
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Orange)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Orange)
                     .setFooter({
                         text: `${player.tag} doubles (-${setSeparator(player.bets.initial)}$)${cardLabel}`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -382,8 +395,8 @@ module.exports = class BlackJack extends Game {
                 this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} doubles bet${cardLabel}.`)
             break }
             case "split": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Aqua)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Aqua)
                     .setFooter({
                         text: `${player.tag} splits hand (-${setSeparator(player.bets.initial)}$)`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -393,8 +406,8 @@ module.exports = class BlackJack extends Game {
             break }
             case "insurance": {
                 const insuranceValue = Math.max(0, Number(info?.amount ?? player?.bets?.insurance ?? 0))
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Orange)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Orange)
                     .setFooter({
                         text: `${player.tag} has bought insurance (-${setSeparator(insuranceValue)}$)`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -404,8 +417,8 @@ module.exports = class BlackJack extends Game {
             break }
             case "insuranceRefund": {
                 const payout = Math.max(0, Number(info?.payout ?? 0))
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Green)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Green)
                     .setFooter({
                         text: `${player.tag} has been refunded due to insurance (+${setSeparator(payout)}$)`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -414,8 +427,8 @@ module.exports = class BlackJack extends Game {
                 this.appendDealerTimeline(`${formatPlayerName(player)} receives insurance payout (+${setSeparator(payout)}$).`)
             break }
             case "invalidBet": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
                     .setFooter({
                         text: `${player.tag}, invalid bet amount provided.`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -423,8 +436,8 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "betLocked": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
                     .setFooter({
                         text: `${player.tag}, you have already placed your bet for this round.`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -459,8 +472,8 @@ module.exports = class BlackJack extends Game {
                     return `${isCurrent && !info ? "▶ " : ""}Hand #${idx + 1} • ${statusParts.join(" • ")}`;
                 }).join("\n") || "No cards drawn yet.";
 
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Gold)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Gold)
                     .setTitle(`${player.tag} — Hand status`)
                     .setDescription([
                         handSummary,
@@ -520,8 +533,8 @@ module.exports = class BlackJack extends Game {
                 }
             break }
             case "noRemaining": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Orange)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Orange)
                     .setFooter({ text: "No util players left, proceding to next hand", iconURL: clientAvatar })
                 await sendEmbed(embed)
             break }
@@ -538,8 +551,8 @@ module.exports = class BlackJack extends Game {
                 if (impactedPlayers.length < 1) {
                     break
                 }
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.DarkRed)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.DarkRed)
                     .setTitle(impactedPlayers.length === 1 ? "Player eliminated" : "Players eliminated")
                     .setDescription(impactedPlayers
                         .map((pl) => `${formatPlayerName(pl)} lost all of their money and has left the table.`)
@@ -557,8 +570,8 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed, [], { allowedMentions: { users: [] } })
             break }
             case "noMoneyBet": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
                     .setFooter({
                         text: `${player.tag}, you can not afford to bet this amount of money`,
                         iconURL: player.displayAvatarURL({ extension: "png" })
@@ -566,8 +579,8 @@ module.exports = class BlackJack extends Game {
                 await sendEmbed(embed)
             break }
             case "betsOpened": {
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Green)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Green)
                     .setTitle(`Bets opened | Round #${this.hands}`)
                     .setDescription("Click **Bet** to place your bet, or **Leave** to exit the game.")
                     .addFields({
@@ -584,21 +597,21 @@ module.exports = class BlackJack extends Game {
                     .setFooter({ text: `You have got ${formatTimeout(config.blackjack.betsTimeout.default)}${this.getDeckWarning()}` })
 
                 const components = [
-                    new Discord.ActionRowBuilder().addComponents(
-                        new Discord.ButtonBuilder()
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
                             .setCustomId("bj_bet:place")
                             .setLabel("Bet")
-                            .setStyle(Discord.ButtonStyle.Success)
+                            .setStyle(ButtonStyle.Success)
                             .setEmoji("💰"),
-                        new Discord.ButtonBuilder()
+                        new ButtonBuilder()
                             .setCustomId("bj_bet:autobet")
                             .setLabel("Autobet")
-                            .setStyle(Discord.ButtonStyle.Primary)
+                            .setStyle(ButtonStyle.Primary)
                             .setEmoji("🔄"),
-                        new Discord.ButtonBuilder()
+                        new ButtonBuilder()
                             .setCustomId("bj_bet:leave")
                             .setLabel("Leave")
-                            .setStyle(Discord.ButtonStyle.Danger)
+                            .setStyle(ButtonStyle.Danger)
                             .setEmoji("🚪")
                     )
                 ]
@@ -610,8 +623,8 @@ module.exports = class BlackJack extends Game {
                 const message = allBetsPlaced
                     ? "All bets placed."
                     : "Time is up."
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Red)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
                     .setTitle(`Bets closed | Round #${this.hands}`)
                     .setDescription(message)
                 await sendEmbed(embed)
@@ -704,7 +717,7 @@ module.exports = class BlackJack extends Game {
             const resolvedFilename = filename ?? `blackjack_table_${this.hands}_${Date.now()}.png`
 
             return {
-                attachment: new Discord.AttachmentBuilder(buffer, {
+                attachment: new AttachmentBuilder(buffer, {
                     name: resolvedFilename,
                     description: description ?? `Blackjack table snapshot for round ${this.hands}`
                 }),
@@ -933,14 +946,20 @@ module.exports = class BlackJack extends Game {
         this.betsCollector.on("collect", async(interaction) => {
             const [, action] = interaction.customId.split(":")
             const player = this.GetPlayer(interaction.user.id)
+            const logCollectorError = (message, meta = {}) =>
+                buildInteractionLog(interaction, message, { phase: "betCollector", action, ...meta })
 
             if (!player || !player.data) {
-                await interaction.reply({ content: "⚠️ You are not in this game.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                await interaction.reply({ content: "⚠️ You are not in this game.", flags: MessageFlags.Ephemeral }).catch(
+                    logCollectorError("Failed to warn player about missing game state")
+                )
                 return
             }
 
             if (action === "leave") {
-                await interaction.deferUpdate().catch(() => null)
+                await interaction.deferUpdate().catch(
+                    logCollectorError("Failed to defer leave action update")
+                )
 
                 const leavingPlayer = player
 
@@ -970,19 +989,25 @@ module.exports = class BlackJack extends Game {
                 if (player.bets && player.bets.initial > 0) {
                     const reply = await interaction.reply({
                         content: "⚠️ You have already placed your bet for this round.",
-                        flags: Discord.MessageFlags.Ephemeral
-                    }).catch(() => null)
+                        flags: MessageFlags.Ephemeral
+                    }).catch(
+                        logCollectorError("Failed to warn player about duplicate bet")
+                    )
 
                     if (reply) {
                         setTimeout(() => {
-                            interaction.deleteReply().catch(() => null)
+                            interaction.deleteReply().catch(
+                                logCollectorError("Failed to remove duplicate bet warning", {
+                                    replyId: reply.id
+                                })
+                            )
                         }, 5000)
                     }
                     return
                 }
 
                 // Show select menu for number of rounds
-                const selectMenu = new Discord.StringSelectMenuBuilder()
+                const selectMenu = new StringSelectMenuBuilder()
                     .setCustomId(`bj_autobet_rounds:${interaction.user.id}:${interaction.message.id}`)
                     .setPlaceholder("How many rounds?")
                     .addOptions([
@@ -1003,13 +1028,15 @@ module.exports = class BlackJack extends Game {
                         }
                     ])
 
-                const row = new Discord.ActionRowBuilder().addComponents(selectMenu)
+                const row = new ActionRowBuilder().addComponents(selectMenu)
 
                 const setupReply = await interaction.reply({
                     content: "🔄 **Autobet Setup**\n\nSelect how many consecutive rounds you want to autobet:",
                     components: [row],
-                    flags: Discord.MessageFlags.Ephemeral
-                }).catch(() => null)
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logCollectorError("Failed to send autobet setup menu")
+                )
 
                 // Track this message for cleanup
                 if (setupReply) {
@@ -1026,30 +1053,43 @@ module.exports = class BlackJack extends Game {
 
                 selectCollector.on("collect", async(selectInteraction) => {
                     const rounds = parseInt(selectInteraction.values[0])
+                    const logSetupError = (message, meta = {}) =>
+                        buildInteractionLog(selectInteraction, message, {
+                            phase: "autobetSetup",
+                            action,
+                            rounds,
+                            ...meta
+                        })
 
                     // Delete the setup message after selection and remove from tracking
                     if (setupReply) {
-                        interaction.deleteReply().catch(() => null)
+                        interaction.deleteReply().catch(
+                            logCollectorError("Failed to remove autobet setup prompt", {
+                                replyId: setupReply.id
+                            })
+                        )
                         this.autobetSetupMessages = this.autobetSetupMessages.filter(msg => msg.messageId !== setupReply.id)
                     }
 
                     // Now show modal for bet amount
                     const modalCustomId = `bj_autobet_modal:${selectInteraction.message.id}:${selectInteraction.user.id}:${rounds}`
-                    const modal = new Discord.ModalBuilder()
+                    const modal = new ModalBuilder()
                         .setCustomId(modalCustomId)
                         .setTitle(`Autobet Setup (${rounds} rounds)`)
 
-                    const betInput = new Discord.TextInputBuilder()
+                    const betInput = new TextInputBuilder()
                         .setCustomId("bet_amount")
                         .setLabel("Bet amount per round")
-                        .setStyle(Discord.TextInputStyle.Short)
+                        .setStyle(TextInputStyle.Short)
                         .setRequired(false)
                         .setPlaceholder(`Min: ${setSeparator(this.minBet)}$ | Max: ${setSeparator(this.maxBuyIn)}$`)
 
-                    const actionRow = new Discord.ActionRowBuilder().addComponents(betInput)
+                    const actionRow = new ActionRowBuilder().addComponents(betInput)
                     modal.addComponents(actionRow)
 
-                    await selectInteraction.showModal(modal).catch(() => null)
+                    await selectInteraction.showModal(modal).catch(
+                        logSetupError("Failed to show autobet setup modal")
+                    )
 
                     // Wait for modal submission
                     let submission
@@ -1064,7 +1104,9 @@ module.exports = class BlackJack extends Game {
 
                     if (!submission) return
 
-                    await submission.deferUpdate().catch(() => null)
+                    await submission.deferUpdate().catch(
+                        logSetupError("Failed to defer autobet modal submission")
+                    )
 
                     // Check if bets collector has ended (timeout/closure)
                     if (!this.betsCollector || this.betsCollector.ended) {
@@ -1116,13 +1158,19 @@ module.exports = class BlackJack extends Game {
 
                     const confirmReply = await submission.followUp({
                         content: `✅ Autobet active: ${setSeparator(bet)}$ x ${rounds} rounds\n💰 First bet placed: ${setSeparator(bet)}$`,
-                        flags: Discord.MessageFlags.Ephemeral
-                    }).catch(() => null)
+                        flags: MessageFlags.Ephemeral
+                    }).catch(
+                        logSetupError("Failed to send autobet confirmation")
+                    )
 
                     // Delete after configured delay
                     if (confirmReply) {
                         setTimeout(() => {
-                            submission.deleteReply().catch(() => null)
+                            submission.deleteReply().catch(
+                                logSetupError("Failed to delete autobet confirmation", {
+                                    replyId: confirmReply.id
+                                })
+                            )
                         }, config.delays.medium.default)
                     }
 
@@ -1140,12 +1188,18 @@ module.exports = class BlackJack extends Game {
                 if (player.bets && player.bets.initial > 0) {
                     const reply = await interaction.reply({
                         content: "⚠️ You have already placed your bet for this round.",
-                        flags: Discord.MessageFlags.Ephemeral
-                    }).catch(() => null)
+                        flags: MessageFlags.Ephemeral
+                    }).catch(
+                        logCollectorError("Failed to warn player about duplicate bet placement")
+                    )
 
                     if (reply) {
                         setTimeout(() => {
-                            interaction.deleteReply().catch(() => null)
+                            interaction.deleteReply().catch(
+                                logCollectorError("Failed to remove duplicate bet warning", {
+                                    replyId: reply.id
+                                })
+                            )
                         }, 5000)
                     }
                     return
@@ -1153,15 +1207,15 @@ module.exports = class BlackJack extends Game {
 
                 // Show modal for bet amount
                 const modalCustomId = `bj_bet_modal:${interaction.message.id}:${interaction.user.id}`
-                const modal = new Discord.ModalBuilder()
+                const modal = new ModalBuilder()
                     .setCustomId(modalCustomId)
                     .setTitle(`Place Your Bet (Round #${this.hands})`)
                     .addComponents(
-                        new Discord.ActionRowBuilder().addComponents(
-                            new Discord.TextInputBuilder()
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
                                 .setCustomId("betAmount")
                                 .setLabel("Bet amount")
-                                .setStyle(Discord.TextInputStyle.Short)
+                                .setStyle(TextInputStyle.Short)
                                 .setRequired(false)
                                 .setPlaceholder(`Min: ${setSeparator(this.minBet)}$ | Max: ${setSeparator(player.stack)}$`)
                         )
@@ -1192,7 +1246,12 @@ module.exports = class BlackJack extends Game {
                 if (!submission) return
 
                 // Acknowledge submission immediately to prevent modal error
-                await submission.deferUpdate().catch(() => null)
+                await submission.deferUpdate().catch(
+                    buildInteractionLog(submission, "Failed to defer bet modal submission", {
+                        phase: "betModal",
+                        action
+                    })
+                )
 
                 // Check if bets collector has ended (timeout/closure)
                 if (!this.betsCollector || this.betsCollector.ended) {
@@ -1341,8 +1400,8 @@ module.exports = class BlackJack extends Game {
 
         const descriptionLines = ["Click **Bet** to place your bet, or **Leave** to exit the game."]
 
-        const embed = new Discord.EmbedBuilder()
-            .setColor(reason === "leave" ? Discord.Colors.Yellow : Discord.Colors.Green)
+        const embed = new EmbedBuilder()
+            .setColor(reason === "leave" ? Colors.Yellow : Colors.Green)
             .setTitle(`Bets opened | Round #${this.hands}`)
 
         const departedPlayers = this.getBettingDepartures()
@@ -1395,30 +1454,30 @@ module.exports = class BlackJack extends Game {
         this.betsPanelVersion += 1
 
         let message = "Time is up."
-        let color = Discord.Colors.Red
+        let color = Colors.Red
         let isGameDeleted = false
 
         if (reason === "allBetsPlaced") {
             message = "All bets placed."
-            color = Discord.Colors.Green
+            color = Colors.Green
         } else if (reason === "allPlayersLeft") {
             message = "Game deleted: all players left."
-            color = Discord.Colors.Orange
+            color = Colors.Orange
             isGameDeleted = true
         } else if (reason === "allPlayersRanOutOfMoney") {
             message = "Game ended: all players ran out of money."
-            color = Discord.Colors.Orange
+            color = Colors.Orange
             isGameDeleted = true
         } else if (reason === "noBetsPlaced") {
             message = "Game deleted: bets not placed."
-            color = Discord.Colors.Orange
+            color = Colors.Orange
             isGameDeleted = true
         } else if (reason === "forced") {
             message = "Betting closed by the dealer."
-            color = Discord.Colors.Orange
+            color = Colors.Orange
         }
 
-        const embed = new Discord.EmbedBuilder()
+        const embed = new EmbedBuilder()
             .setColor(color)
             .setTitle(`Bets closed | Round #${this.hands}`)
             .setDescription(message)
@@ -1463,7 +1522,12 @@ module.exports = class BlackJack extends Game {
         for (const setupMsg of this.autobetSetupMessages) {
             try {
                 if (setupMsg.interaction && typeof setupMsg.interaction.deleteReply === "function") {
-                    await setupMsg.interaction.deleteReply().catch(() => null)
+                    await setupMsg.interaction.deleteReply().catch(
+                        buildInteractionLog(setupMsg.interaction, "Failed to delete pending autobet setup reply", {
+                            phase: "autobetCleanup",
+                            replyId: setupMsg.messageId
+                        })
+                    )
                 }
             } catch (error) {
                 logger.debug("Failed to delete autobet setup message", {
@@ -1489,44 +1553,70 @@ module.exports = class BlackJack extends Game {
             time: 5 * 60 * 1000 // 5 minutes timeout
         })
         this.collector.on("collect", async(interaction) => {
+            const logCollectorError = (message, meta = {}) =>
+                buildInteractionLog(interaction, message, {
+                    phase: "actionCollector",
+                    customId: interaction.customId,
+                    ...meta
+                })
+
             // Handle disable autobet button
             if (interaction.customId === "bj_disable_autobet") {
                 const player = this.GetPlayer(interaction.user.id)
                 if (!player || !player.autobet || player.autobet.remaining <= 0) {
-                    await interaction.reply({ content: "⚠️ You don't have an active autobet.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                    await interaction.reply({ content: "⚠️ You don't have an active autobet.", flags: MessageFlags.Ephemeral }).catch(
+                        logCollectorError("Failed to warn player about missing autobet")
+                    )
                     return
                 }
 
                 player.autobet = null
-                await interaction.reply({ content: "✅ Autobet disabled.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                await interaction.reply({ content: "✅ Autobet disabled.", flags: MessageFlags.Ephemeral }).catch(
+                    logCollectorError("Failed to confirm autobet disable")
+                )
                 return
             }
 
             // Handle regular action buttons
             const [, action, playerId] = interaction.customId.split(":")
             const player = this.GetPlayer(playerId)
+            const logActionError = (message, meta = {}) => logCollectorError(message, { action, playerId, ...meta })
 
             if (!player || !player.status || !player.status.current) {
-                const reply = await interaction.reply({ content: "⚠️ It's not your turn.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                const reply = await interaction.reply({ content: "⚠️ It's not your turn.", flags: MessageFlags.Ephemeral }).catch(
+                    logActionError("Failed to warn player about invalid turn state")
+                )
                 if (reply) {
                     setTimeout(() => {
-                        interaction.deleteReply().catch(() => null)
+                        interaction.deleteReply().catch(
+                            logActionError("Failed to remove invalid turn warning", {
+                                replyId: reply.id
+                            })
+                        )
                     }, 5000)
                 }
                 return
             }
 
             if (interaction.user.id !== playerId) {
-                const reply = await interaction.reply({ content: "⚠️ You're not allowed to do this action.", flags: Discord.MessageFlags.Ephemeral }).catch(() => null)
+                const reply = await interaction.reply({ content: "⚠️ You're not allowed to do this action.", flags: MessageFlags.Ephemeral }).catch(
+                    logActionError("Failed to warn player about unauthorized action")
+                )
                 if (reply) {
                     setTimeout(() => {
-                        interaction.deleteReply().catch(() => null)
+                        interaction.deleteReply().catch(
+                            logActionError("Failed to remove unauthorized action warning", {
+                                replyId: reply.id
+                            })
+                        )
                     }, 5000)
                 }
                 return
             }
 
-            await interaction.deferUpdate().catch(() => null)
+            await interaction.deferUpdate().catch(
+                logActionError("Failed to defer blackjack action interaction")
+            )
             this.Action(action, player, player.status.currentHand)
         })
     }
@@ -1819,8 +1909,8 @@ module.exports = class BlackJack extends Game {
             const actionLogText = actionLogEntries.length > 0 ? actionLogEntries.join("\n") : "—"
             const timelineText = this.buildDealerTimelineDescription() ?? EMPTY_TIMELINE_TEXT
 
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Gold)
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Gold)
                 .setTitle(`${player.tag}'s turn`)
                 .setDescription(timelineText)
 
@@ -1832,12 +1922,12 @@ module.exports = class BlackJack extends Game {
 
             // Add disable autobet button if player has active autobet
             if (player.autobet && player.autobet.remaining > 0) {
-                const autobetRow = new Discord.ActionRowBuilder()
+                const autobetRow = new ActionRowBuilder()
                 autobetRow.addComponents(
-                    new Discord.ButtonBuilder()
+                    new ButtonBuilder()
                         .setCustomId("bj_disable_autobet")
                         .setLabel("Disable Autobet")
-                        .setStyle(Discord.ButtonStyle.Danger)
+                        .setStyle(ButtonStyle.Danger)
                         .setEmoji("🛑")
                 )
                 components.push(autobetRow)
@@ -1917,8 +2007,8 @@ module.exports = class BlackJack extends Game {
         try {
             const timelineText = this.buildDealerTimelineDescription()
 
-            const embed = new Discord.EmbedBuilder()
-                .setColor(isFinal ? Discord.Colors.Blue : Discord.Colors.Purple)
+            const embed = new EmbedBuilder()
+                .setColor(isFinal ? Colors.Blue : Colors.Purple)
                 .setTitle(isFinal ? "Round Results" : "Table Timeline")
                 .setDescription(timelineText ?? EMPTY_TIMELINE_TEXT)
 
@@ -2243,7 +2333,7 @@ module.exports = class BlackJack extends Game {
             try {
                 const progressEmbed = this.roundProgressMessage.embeds?.[0]
                 if (progressEmbed) {
-                    const updatedEmbed = Discord.EmbedBuilder.from(progressEmbed)
+                    const updatedEmbed = EmbedBuilder.from(progressEmbed)
                     await this.roundProgressMessage.edit({
                         embeds: [updatedEmbed],
                         components: []

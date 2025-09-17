@@ -16,6 +16,26 @@ const DEFAULT_PNG_COMPRESSION = 8;
 
 let cardBackPromise = null;
 
+const MAX_CARD_CACHE_SIZE = Number(process.env.CARD_RENDER_MAX_CACHE_SIZE) || 120;
+const MAX_BACKGROUND_CACHE_SIZE = Number(process.env.CARD_RENDER_MAX_BACKGROUND_CACHE_SIZE) || 8;
+
+const enforceCacheLimit = (cache, limit) => {
+    if (!Number.isFinite(limit) || limit < 1) return;
+    while (cache.size > limit) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey === undefined) break;
+        cache.delete(oldestKey);
+    }
+};
+
+const touchCacheEntry = (cache, key) => {
+    if (!cache.has(key)) return undefined;
+    const value = cache.get(key);
+    cache.delete(key);
+    cache.set(key, value);
+    return value;
+};
+
 const CONFIG = Object.freeze({
     canvasWidth: 1280,
     canvasHeight: 960,
@@ -128,6 +148,7 @@ async function ensureCardBackLoaded() {
         cardBackPromise = loadImage(CONFIG.cardBackImage)
             .then(image => {
                 cardCache.set("__card_back__", image);
+                enforceCacheLimit(cardCache, MAX_CARD_CACHE_SIZE);
                 return image;
             })
             .catch(error => {
@@ -145,13 +166,14 @@ async function ensureCardBackLoaded() {
 async function loadCardImage(cardName) {
     const normalized = normalizeCardName(cardName);
     if (cardCache.has(normalized)) {
-        return cardCache.get(normalized);
+        return touchCacheEntry(cardCache, normalized);
     }
 
     const cardPath = path.join(CONFIG.cardsPath, `${normalized}.png`);
     try {
         const image = await loadImage(cardPath);
         cardCache.set(normalized, image);
+        enforceCacheLimit(cardCache, MAX_CARD_CACHE_SIZE);
         return image;
     } catch (error) {
         logger.error("Unable to load card asset", {
@@ -171,6 +193,7 @@ async function preloadCards(cardNames = []) {
 
 function clearImageCache() {
     cardCache.clear();
+    backgroundLayerCache.clear();
 }
 
 function createSeededRandom(seed = 0xdecafbad) {
@@ -269,10 +292,13 @@ function createBackgroundLayer(height) {
 }
 
 function getBackgroundLayer(height) {
-    if (!backgroundLayerCache.has(height)) {
-        backgroundLayerCache.set(height, createBackgroundLayer(height));
+    if (backgroundLayerCache.has(height)) {
+        return touchCacheEntry(backgroundLayerCache, height);
     }
-    return backgroundLayerCache.get(height);
+    const layer = createBackgroundLayer(height);
+    backgroundLayerCache.set(height, layer);
+    enforceCacheLimit(backgroundLayerCache, MAX_BACKGROUND_CACHE_SIZE);
+    return layer;
 }
 
 function drawBackground(ctx, canvasHeight) {

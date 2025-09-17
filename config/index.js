@@ -92,6 +92,8 @@ const constants = {
             return constants.ports.botApi
         },
         sessionMaxAge: 24 * 60 * 60 * 1000,
+        tokenCacheTtlMs: 15 * 60 * 1000,
+        tokenCacheMaxEntries: 500,
         hstsMaxAge: 31536000,
         rateLimiter: {
             windowMs: 15 * 60 * 1000,

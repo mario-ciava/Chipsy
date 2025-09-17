@@ -1,9 +1,9 @@
-const Discord = require("discord.js")
-const { SlashCommandBuilder } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder, Colors, ButtonBuilder, ActionRowBuilder, MessageFlags, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js")
 const BlackJack = require("../games/blackjackGame.js")
 const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 const createCommand = require("../utils/createCommand")
 const bankrollManager = require("../utils/bankrollManager")
 const { registerGame } = require("../utils/gameRegistry")
@@ -16,6 +16,26 @@ const testerProvisionConfig = {
     defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL
 }
 const AUTO_START_DELAY_MS = config.lobby.autoStartDelay.default
+
+const buildCommandInteractionLog = (interaction, message, extraMeta = {}) =>
+    logAndSuppress(message, {
+        scope: "commands.blackjack",
+        interactionId: interaction?.id,
+        channelId: interaction?.channel?.id || interaction?.channelId,
+        userId: interaction?.user?.id,
+        ...extraMeta
+    })
+
+const buildStopLogHandler = (channelId, reason) => (error) => {
+    logger.warn("Failed to stop blackjack game", {
+        scope: "commands.blackjack",
+        channelId,
+        reason,
+        error: error?.message
+    })
+    return null
+}
+
 /**
  * Run blackjack game - uses Discord.js native interaction API.
  * Clean, simple, no abstractions.
@@ -40,8 +60,8 @@ const runBlackjack = async(interaction, client) => {
 
     if (channel.__blackjackStarting) {
         await replyOrEdit({
-            embeds: [new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Orange)
+            embeds: [new EmbedBuilder()
+                .setColor(Colors.Orange)
                 .setFooter({
                     text: `${interaction.user.tag}, please wait: a blackjack game is already being initialized.`,
                     iconURL: interaction.user.displayAvatarURL({ extension: "png" })
@@ -53,8 +73,8 @@ const runBlackjack = async(interaction, client) => {
 
     if (channel.game) {
         await replyOrEdit({
-            embeds: [new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Red)
+            embeds: [new EmbedBuilder()
+                .setColor(Colors.Red)
                 .setFooter({
                     text: `${interaction.user.tag}, access denied: a game is already existing in this channel`,
                     iconURL: interaction.user.displayAvatarURL({ extension: "png" })
@@ -80,7 +100,7 @@ const runBlackjack = async(interaction, client) => {
         if (!Number.isFinite(minBet) || minBet <= 0) {
             await replyOrEdit({
                 content: `❌ ${interaction.user.tag}, minimum bet must be a positive number.`,
-                flags: Discord.MessageFlags.Ephemeral
+                flags: MessageFlags.Ephemeral
             })
             return
         }
@@ -137,19 +157,19 @@ const runBlackjack = async(interaction, client) => {
 
         const statusConfig = {
             waiting: {
-                color: Discord.Colors.Green,
+                color: Colors.Green,
                 footer: "Waiting for players…"
             },
             starting: {
-                color: Discord.Colors.Blurple,
+                color: Colors.Blurple,
                 footer: "Starting the game…"
             },
             canceled: {
-                color: Discord.Colors.Red,
+                color: Colors.Red,
                 footer: "Game canceled."
             },
             ended: {
-                color: Discord.Colors.DarkGrey,
+                color: Colors.DarkGrey,
                 footer: "Game ended."
             }
         }
@@ -171,7 +191,7 @@ const runBlackjack = async(interaction, client) => {
                 : `${players.length}`
             const playersFieldName = `👥 Players [${playerCountLabel}]`
 
-            const embed = new Discord.EmbedBuilder()
+            const embed = new EmbedBuilder()
                 .setColor(palette.color)
                 .setTitle("🃏 Blackjack — Lobby")
                 .setDescription("Press **Join** to buy in and take a seat. When everyone is ready, the host can press **Start**.")
@@ -200,26 +220,26 @@ const runBlackjack = async(interaction, client) => {
             }
 
             const components = [
-                new Discord.ActionRowBuilder().addComponents(
-                    new Discord.ButtonBuilder()
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
                         .setCustomId("bj:join")
                         .setLabel("Join")
-                        .setStyle(Discord.ButtonStyle.Success)
+                        .setStyle(ButtonStyle.Success)
                         .setDisabled(playing || tableIsFull),
-                    new Discord.ButtonBuilder()
+                    new ButtonBuilder()
                         .setCustomId("bj:leave")
                         .setLabel("Leave")
-                        .setStyle(Discord.ButtonStyle.Secondary)
+                        .setStyle(ButtonStyle.Secondary)
                         .setDisabled(!hasPlayers || playing),
-                    new Discord.ButtonBuilder()
+                    new ButtonBuilder()
                         .setCustomId("bj:start")
                         .setLabel("Start")
-                        .setStyle(Discord.ButtonStyle.Primary)
+                        .setStyle(ButtonStyle.Primary)
                         .setDisabled(!hasPlayers || playing),
-                    new Discord.ButtonBuilder()
+                    new ButtonBuilder()
                         .setCustomId("bj:cancel")
                         .setLabel("Cancel")
-                        .setStyle(Discord.ButtonStyle.Danger)
+                        .setStyle(ButtonStyle.Danger)
                         .setDisabled(playing)
                 )
             ]
@@ -235,8 +255,14 @@ const runBlackjack = async(interaction, client) => {
                         await channel.send({
                             content: `❌ ${user.tag}, database connection error. Please try again later.`,
                             allowedMentions: { parse: [] },
-                            flags: Discord.MessageFlags.SuppressNotifications
-                        }).catch(() => null)
+                            flags: MessageFlags.SuppressNotifications
+                        }).catch(
+                            logAndSuppress("Failed to send blackjack database error notice", {
+                                scope: "commands.blackjack",
+                                channelId: channel.id,
+                                userId: user?.id
+                            })
+                        )
                     }
                     throw new Error("user-data-unavailable")
                 }
@@ -289,7 +315,9 @@ const runBlackjack = async(interaction, client) => {
                         footerText: "Game canceled — no players joined in time."
                     })
                     await lobbySession.close({ status: "canceled", reason: "timeout" })
-                    await game.Stop({ reason: "allPlayersLeft", notify: false }).catch(() => null)
+                    await game.Stop({ reason: "allPlayersLeft", notify: false }).catch(
+                        buildStopLogHandler(channel.id, "auto-start timeout")
+                    )
                     return
                 }
                 await startGame({ initiatedBy: "timer" })
@@ -316,7 +344,9 @@ const runBlackjack = async(interaction, client) => {
                     error: error.message,
                     stack: error.stack
                 })
-                await game.Stop({ reason: "error", notify: false }).catch(() => null)
+                await game.Stop({ reason: "error", notify: false }).catch(
+                    buildStopLogHandler(channel.id, "run-error")
+                )
             }
         }
 
@@ -337,7 +367,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -351,7 +381,7 @@ const runBlackjack = async(interaction, client) => {
                     : interactionComponent.reply.bind(interactionComponent)
                 await responder({
                     content: "❌ We could not load your profile right now. Please try again later.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -370,7 +400,7 @@ const runBlackjack = async(interaction, client) => {
             if (ctx.players.length >= maxSeats) {
                 await interactionComponent.reply({
                     content: "⚠️ This table is already full.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -378,22 +408,22 @@ const runBlackjack = async(interaction, client) => {
             if (ctx.GetPlayer(interactionComponent.user.id)) {
                 await interactionComponent.reply({
                     content: "⚠️ You are already seated at this table.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
 
             const baseMessageId = lobbySession.message?.id || interactionComponent.message?.id || `msg:${Date.now()}`
             const modalCustomId = `bj:modal:${baseMessageId}:${interactionComponent.user.id}`
-            const modal = new Discord.ModalBuilder()
+            const modal = new ModalBuilder()
                 .setCustomId(modalCustomId)
                 .setTitle("Join the table")
                 .addComponents(
-                    new Discord.ActionRowBuilder().addComponents(
-                        new Discord.TextInputBuilder()
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
                             .setCustomId("buyin")
                             .setLabel("Buy-in amount")
-                            .setStyle(Discord.TextInputStyle.Short)
+                            .setStyle(TextInputStyle.Short)
                             .setRequired(false)
                             .setPlaceholder(`Min: ${setSeparator(ctx.minBuyIn)}$ | Max: ${setSeparator(ctx.maxBuyIn)}$`)
                     )
@@ -424,7 +454,7 @@ const runBlackjack = async(interaction, client) => {
             if (!Number.isFinite(parsedBuyIn) || parsedBuyIn <= 0) {
                 await submission.reply({
                     content: "❌ Please enter a valid buy-in amount.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -438,7 +468,7 @@ const runBlackjack = async(interaction, client) => {
                 }
                 await submission.reply({
                     content: `❌ ${messages[buyInResult.reason] || "Unable to process your buy-in."}`,
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -457,7 +487,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -467,7 +497,7 @@ const runBlackjack = async(interaction, client) => {
             if (!player) {
                 await interactionComponent.followUp({
                     content: "⚠️ You are not seated at this table.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -480,7 +510,7 @@ const runBlackjack = async(interaction, client) => {
 
             await interactionComponent.followUp({
                 content: "✅ You left the table.",
-                flags: Discord.MessageFlags.Ephemeral
+                flags: MessageFlags.Ephemeral
             }).catch(() => null)
         })
 
@@ -489,7 +519,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -497,7 +527,7 @@ const runBlackjack = async(interaction, client) => {
             if (interactionComponent.user.id !== hostId) {
                 const reply = await interactionComponent.reply({
                     content: "❌ Only the host can start the game.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 if (reply) {
                     setTimeout(() => {
@@ -510,7 +540,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx.players.length) {
                 const reply = await interactionComponent.reply({
                     content: "⚠️ You need at least one player before starting.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 if (reply) {
                     setTimeout(() => {
@@ -536,7 +566,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx || lobbySession.isClosed) {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 return
             }
@@ -544,7 +574,7 @@ const runBlackjack = async(interaction, client) => {
             if (interactionComponent.user.id !== hostId) {
                 const reply = await interactionComponent.reply({
                     content: "❌ Only the host can cancel the game.",
-                    flags: Discord.MessageFlags.Ephemeral
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => null)
                 if (reply) {
                     setTimeout(() => {
@@ -596,7 +626,7 @@ const runBlackjack = async(interaction, client) => {
 
         await replyOrEdit({
             content: "❌ An error occurred while starting the game. Please try again later.",
-            flags: Discord.MessageFlags.Ephemeral
+            flags: MessageFlags.Ephemeral
         })
 
     } finally {

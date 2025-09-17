@@ -78,13 +78,23 @@ function isRunningInDocker() {
   try {
     fs.accessSync("/.dockerenv");
     return true;
-  } catch (_) {}
+  } catch (error) {
+    logMessage("debug", "Docker marker /.dockerenv not detected", {
+      phase: "env",
+      error: error?.message
+    });
+  }
 
   // Metodo B: verifica se esiste /proc/1/cgroup e contiene 'docker'
   try {
     const cgroup = fs.readFileSync("/proc/1/cgroup", "utf8");
     if (cgroup.includes("docker") || cgroup.includes("containerd")) return true;
-  } catch (_) {}
+  } catch (error) {
+    logMessage("debug", "Docker marker /proc/1/cgroup not detected", {
+      phase: "env",
+      error: error?.message
+    });
+  }
 
   // Metodo C: controlla variabile manuale opzionale
   return process.env.DOCKER_ENV === "true";

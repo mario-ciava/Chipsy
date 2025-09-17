@@ -1,14 +1,24 @@
-const Discord = require("discord.js")
-const Hand = require('pokersolver').Hand
+const { EmbedBuilder, Colors, ButtonBuilder, ActionRowBuilder, ButtonStyle, TextInputBuilder, TextInputStyle, ModalBuilder, AttachmentBuilder, MessageFlags } = require("discord.js")
+const { Hand } = require('pokersolver')
 const features = require("./features.js")
 const { sleep } = require("../utils/helpers")
 const Game = require("./game.js")
 const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 const { renderCardTable, createBlackjackTableState } = require("../rendering/cardTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
 const config = require("../../config")
+
+const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
+    logAndSuppress(message, {
+        scope: "texasGame",
+        interactionId: interaction?.id,
+        channelId: interaction?.channel?.id || interaction?.channelId,
+        userId: interaction?.user?.id,
+        ...extraMeta
+    })
 
 module.exports = class TexasGame extends Game {
     constructor(info) {
@@ -102,7 +112,6 @@ module.exports = class TexasGame extends Game {
         existing.status = existing.status || {};
         existing.status.removed = true;
 
-        // Return stack to bankroll before removing player
         if (existing.stack > 0) {
             bankrollManager.syncStackToBankroll(existing);
             await this.dataHandler.updateUserData(existing.id, this.dataHandler.resolveDBUser(existing));
@@ -133,17 +142,17 @@ module.exports = class TexasGame extends Game {
                 // Handled by lobby, no message needed here
                 break
             case 'noMoney':
-                await sendEmbed(new Discord.EmbedBuilder().setColor(Discord.Colors.Red).setFooter({ text: `${player.tag} was removed: no money left.`, iconURL: player.displayAvatarURL({ extension: "png" }) }))
+                await sendEmbed(new EmbedBuilder().setColor(Colors.Red).setFooter({ text: `${player.tag} was removed: no money left.`, iconURL: player.displayAvatarURL({ extension: "png" }) }))
                 break
             case 'nextHand':
-                await sendEmbed(new Discord.EmbedBuilder().setColor(Discord.Colors.Blue).setFooter({ text: "Next hand starting in 8 seconds..." }))
+                await sendEmbed(new EmbedBuilder().setColor(Colors.Blue).setFooter({ text: "Next hand starting in 8 seconds..." }))
                 break
             case 'handEnded':
                 const winnersText = this.bets.pots.map(pot => {
                     return pot.winners.map(p => `${p} wins ${setSeparator(this.GetNetValue(pot.amount / pot.winners.length, p))}$`).join('\n')
                 }).join('\n')
-                const embed = new Discord.EmbedBuilder()
-                    .setColor(Discord.Colors.Gold)
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Gold)
                     .setTitle(`Hand #${this.hands} Ended`)
                     .setDescription(this.inGamePlayers.map(p => `${p} - ${p.hand.name}`).join('\n'))
                     .addFields({ name: "Winner(s)", value: winnersText || "No winners" })
@@ -179,7 +188,7 @@ module.exports = class TexasGame extends Game {
             const buffer = await renderCardTable({ ...state, outputFormat: "png" })
             const filename = `texas_table_${this.hands}_${Date.now()}.png`
             return {
-                attachment: new Discord.AttachmentBuilder(buffer, { name: filename, description: "Texas Hold'em Table" }),
+                attachment: new AttachmentBuilder(buffer, { name: filename, description: "Texas Hold'em Table" }),
                 filename
             }
         } catch (error) {
@@ -192,19 +201,19 @@ module.exports = class TexasGame extends Game {
         const availableOptions = await this.GetAvailableOptions(player)
         const components = []
         if (!options.hideActions) {
-            const row = new Discord.ActionRowBuilder()
-            if (availableOptions.includes("fold")) row.addComponents(new Discord.ButtonBuilder().setCustomId(`tx_action:fold:${player.id}`).setLabel("Fold").setStyle(Discord.ButtonStyle.Danger))
-            if (availableOptions.includes("check")) row.addComponents(new Discord.ButtonBuilder().setCustomId(`tx_action:check:${player.id}`).setLabel("Check").setStyle(Discord.ButtonStyle.Secondary))
-            if (availableOptions.includes("call")) row.addComponents(new Discord.ButtonBuilder().setCustomId(`tx_action:call:${player.id}`).setLabel(`Call (${setSeparator(this.bets.currentMax - player.bets.current)})`).setStyle(Discord.ButtonStyle.Primary))
-            if (availableOptions.includes("bet")) row.addComponents(new Discord.ButtonBuilder().setCustomId(`tx_action:bet:${player.id}`).setLabel(`Bet (${setSeparator(this.minBet)})`).setStyle(Discord.ButtonStyle.Success))
-            if (availableOptions.includes("raise")) row.addComponents(new Discord.ButtonBuilder().setCustomId(`tx_action:raise:${player.id}`).setLabel(`Raise (min ${setSeparator(this.bets.currentMax + this.bets.minRaise)})`).setStyle(Discord.ButtonStyle.Success))
-            if (availableOptions.includes("allin")) row.addComponents(new Discord.ButtonBuilder().setCustomId(`tx_action:allin:${player.id}`).setLabel(`All-in (${setSeparator(player.stack)})`).setStyle(Discord.ButtonStyle.Success))
+            const row = new ActionRowBuilder()
+            if (availableOptions.includes("fold")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:fold:${player.id}`).setLabel("Fold").setStyle(ButtonStyle.Danger))
+            if (availableOptions.includes("check")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:check:${player.id}`).setLabel("Check").setStyle(ButtonStyle.Secondary))
+            if (availableOptions.includes("call")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:call:${player.id}`).setLabel(`Call (${setSeparator(this.bets.currentMax - player.bets.current)})`).setStyle(ButtonStyle.Primary))
+            if (availableOptions.includes("bet")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:bet:${player.id}`).setLabel(`Bet (${setSeparator(this.minBet)})`).setStyle(ButtonStyle.Success))
+            if (availableOptions.includes("raise")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:raise:${player.id}`).setLabel(`Raise (min ${setSeparator(this.bets.currentMax + this.bets.minRaise)})`).setStyle(ButtonStyle.Success))
+            if (availableOptions.includes("allin")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:allin:${player.id}`).setLabel(`All-in (${setSeparator(player.stack)})`).setStyle(ButtonStyle.Success))
             if (row.components.length > 0) components.push(row)
         }
 
         const snapshot = await this.captureTableRender({ title: `${player.tag}'s turn`, focusPlayerId: player.id })
-        const embed = new Discord.EmbedBuilder()
-            .setColor(Discord.Colors.Blue)
+        const embed = new EmbedBuilder()
+            .setColor(Colors.Blue)
             .setTitle(`Texas Hold'em - Round #${this.hands}`)
             .setDescription(`It's ${player}'s turn to act.`)
             .setFooter({
@@ -212,11 +221,11 @@ module.exports = class TexasGame extends Game {
             })
 
         if (this.players.length > 0) {
-            const infoRow = new Discord.ActionRowBuilder().addComponents(
-                new Discord.ButtonBuilder()
+            const infoRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
                     .setCustomId("tx_hand:view")
                     .setLabel("View Cards")
-                    .setStyle(Discord.ButtonStyle.Secondary)
+                    .setStyle(ButtonStyle.Secondary)
                     .setEmoji("🂠")
             )
             components.push(infoRow)
@@ -240,8 +249,8 @@ module.exports = class TexasGame extends Game {
             ? player.cards.join(" ")
             : "Cards are not available yet."
 
-        const embed = new Discord.EmbedBuilder()
-            .setColor(Discord.Colors.DarkBlue)
+        const embed = new EmbedBuilder()
+            .setColor(Colors.DarkBlue)
             .setTitle("Your hole cards")
             .setDescription(cards)
             .setFooter({ text: `Stack: ${setSeparator(player.stack)}$` })
@@ -252,7 +261,7 @@ module.exports = class TexasGame extends Game {
     async respondEphemeral(interaction, payload = {}) {
         if (!interaction || typeof interaction.reply !== "function") return null
         const response = {
-            flags: Discord.MessageFlags.Ephemeral,
+            flags: MessageFlags.Ephemeral,
             ...payload
         }
 
@@ -283,7 +292,6 @@ module.exports = class TexasGame extends Game {
             p.cards = await this.PickRandom(this.cards, 2);
         };
 
-        // Blinds
         const sbPlayer = this.inGamePlayers[0]
         const bbPlayer = this.inGamePlayers[1]
         const tableMinBet = this.getTableMinBet()
@@ -371,8 +379,8 @@ module.exports = class TexasGame extends Game {
 
         const snapshot = await this.captureTableRender({ title: phase.charAt(0).toUpperCase() + phase.slice(1) })
         if (snapshot) {
-            const embed = new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Blue)
+            const embed = new EmbedBuilder()
+                .setColor(Colors.Blue)
                 .setTitle(phase.toUpperCase())
                 .setImage(`attachment://${snapshot.filename}`)
             await this.channel.send({ embeds: [embed], files: [snapshot.attachment] })
@@ -412,11 +420,17 @@ module.exports = class TexasGame extends Game {
 
             let amount = null
             if (action === 'bet' || action === 'raise') {
-                const modal = new Discord.ModalBuilder().setCustomId(`tx_modal:${i.id}`).setTitle(`Amount for ${action}`)
-                const amountInput = new Discord.TextInputBuilder().setCustomId("amount").setLabel("Amount").setStyle(Discord.TextInputStyle.Short).setRequired(true)
-                modal.addComponents(new Discord.ActionRowBuilder().addComponents(amountInput))
+                const modal = new ModalBuilder().setCustomId(`tx_modal:${i.id}`).setTitle(`Amount for ${action}`)
+                const amountInput = new TextInputBuilder().setCustomId("amount").setLabel("Amount").setStyle(TextInputStyle.Short).setRequired(true)
+                modal.addComponents(new ActionRowBuilder().addComponents(amountInput))
                 await i.showModal(modal)
-                const submission = await i.awaitModalSubmit({ time: config.texas.modalTimeout.default }).catch(() => null)
+                const submission = await i.awaitModalSubmit({ time: config.texas.modalTimeout.default }).catch(
+                    buildTexasInteractionLog(i, "Failed to await Texas modal submission", {
+                        phase: "bettingModal",
+                        action,
+                        playerId
+                    })
+                )
                 if (!submission) return
                 amount = features.inputConverter(submission.fields.getTextInputValue("amount"))
                 await submission.deferUpdate()

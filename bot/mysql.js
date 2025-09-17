@@ -39,8 +39,11 @@ const ensureDatabase = async(connectionOptions, database) => {
 const createPoolWithRetry = async(
     connectionOptions,
     database,
-    retries = constants.retry.mysql.maxAttempts,
-    baseDelay = constants.retry.mysql.baseDelay
+    {
+        retries = constants.retry.mysql.maxAttempts,
+        baseDelay = constants.retry.mysql.baseDelay,
+        onPoolError
+    } = {}
 ) => {
     let attempt = 0
     let lastError = null
@@ -93,6 +96,17 @@ const createPoolWithRetry = async(
                         message: poolError.message,
                         hint: "Il bot potrebbe necessitare un restart per ripristinare la connessione"
                     })
+                }
+
+                if (typeof onPoolError === "function") {
+                    try {
+                        onPoolError(poolError)
+                    } catch (handlerError) {
+                        logger.error("MySQL pool error handler failed", {
+                            scope: "mysql",
+                            message: handlerError.message
+                        })
+                    }
                 }
             })
 
@@ -206,6 +220,32 @@ const shutdownPool = async(pool, timeout = constants.timeouts.mysqlShutdown) => 
     }
 }
 
+const createPoolProxy = (initialPool) => {
+    let currentPool = initialPool
+
+    const proxy = new Proxy(
+        {},
+        {
+            get(_target, prop) {
+                if (!currentPool) return undefined
+                const value = currentPool[prop]
+                if (typeof value === "function") {
+                    return value.bind(currentPool)
+                }
+                return value
+            }
+        }
+    )
+
+    const setPool = (nextPool) => {
+        currentPool = nextPool
+    }
+
+    const getPool = () => currentPool
+
+    return { proxy, setPool, getPool }
+}
+
 /**
  * Inizializza la connessione MySQL con:
  * - Creazione database e schema
@@ -241,19 +281,110 @@ const initializeMySql = async(client, config) => {
     // Crea il database se non esiste
     await ensureDatabase(connectionOptions, config.mysql.database)
 
-    // Crea il pool con retry automatico
-    const pool = await createPoolWithRetry(connectionOptions, config.mysql.database)
+    let handlePoolError
+    let poolProxyState = null
+    const recoveryTracker = (() => {
+        let recoveryPromise = null
 
-    // Inizializza lo schema (tabelle, indici, etc.)
-    await ensureSchema(pool)
+        const startRecovery = (reason) => {
+            if (recoveryPromise) {
+                logger.warn("MySQL pool recovery already in progress", {
+                    scope: "mysql",
+                    reason
+                })
+                return recoveryPromise
+            }
 
-    const healthCheck = createHealthCheck(pool)
-    const shutdown = () => shutdownPool(pool)
+            recoveryPromise = (async() => {
+                let attempt = 0
+                while (true) {
+                    attempt += 1
+                    try {
+                        logger.warn("Attempting to recover MySQL pool", {
+                            scope: "mysql",
+                            attempt,
+                            reason
+                        })
+
+                        const nextPool = await createPoolWithRetry(connectionOptions, config.mysql.database, {
+                            onPoolError: handlePoolError
+                        })
+
+                        await ensureSchema(nextPool)
+                        const previousPool = poolProxyState?.getPool ? poolProxyState.getPool() : null
+
+                        if (poolProxyState?.setPool) {
+                            poolProxyState.setPool(nextPool)
+                        } else {
+                            logger.error("MySQL pool proxy not initialized; unable to swap pool reference", {
+                                scope: "mysql"
+                            })
+                        }
+
+                        if (previousPool && previousPool !== nextPool) {
+                            shutdownPool(previousPool).catch((error) => {
+                                logger.warn("Failed to shutdown previous MySQL pool instance", {
+                                    scope: "mysql",
+                                    message: error.message
+                                })
+                            })
+                        }
+
+                        logger.info("MySQL pool recovered", {
+                            scope: "mysql",
+                            icon: "✅",
+                            attempt
+                        })
+                        return nextPool
+                    } catch (error) {
+                        logger.error("MySQL pool recovery attempt failed", {
+                            scope: "mysql",
+                            attempt,
+                            message: error.message
+                        })
+                        const delay = Math.min(constants.retry.mysql.baseDelay * Math.pow(2, attempt - 1), 30000)
+                        await sleep(delay)
+                    }
+                }
+            })().finally(() => {
+                recoveryPromise = null
+            })
+
+            return recoveryPromise
+        }
+
+        return { startRecovery }
+    })()
+
+    handlePoolError = (poolError) => {
+        if (!poolError?.fatal) {
+            return
+        }
+
+        logger.warn("Fatal MySQL pool error detected - scheduling recovery", {
+            scope: "mysql",
+            code: poolError.code,
+            message: poolError.message
+        })
+        recoveryTracker.startRecovery(poolError.code || "unknown")
+    }
+
+    const primaryPool = await createPoolWithRetry(connectionOptions, config.mysql.database, {
+        onPoolError: handlePoolError
+    })
+
+    await ensureSchema(primaryPool)
+
+    poolProxyState = createPoolProxy(primaryPool)
+    const poolProxy = poolProxyState.proxy
+
+    const healthCheck = createHealthCheck(poolProxy)
+    const shutdown = () => shutdownPool(poolProxyState?.getPool?.())
 
     // Salva il pool nel client per accesso globale
-    client.connection = pool
+    client.connection = poolProxy
 
-    return { pool, healthCheck, shutdown }
+    return { pool: poolProxy, healthCheck, shutdown }
 }
 
 module.exports = initializeMySql

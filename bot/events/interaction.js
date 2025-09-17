@@ -1,4 +1,5 @@
 const { MessageFlags } = require("discord.js")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 
 module.exports = async(interaction) => {
     if (!interaction?.client?.commandRouter) return
@@ -11,7 +12,12 @@ module.exports = async(interaction) => {
 
     if (!interaction.client.config?.enabled) {
         if (isAutocompleteInteraction) {
-            await interaction.respond([]).catch(() => null)
+            await interaction.respond([]).catch(
+                logAndSuppress("Failed to send disabled-state autocomplete response", {
+                    scope: "interactionEvent",
+                    interactionId: interaction?.id
+                })
+            )
         } else {
             const response = {
                 content: "The bot is currently disabled by the administrators. Please try again later.",

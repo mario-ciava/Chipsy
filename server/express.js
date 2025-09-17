@@ -2,25 +2,21 @@ const express = require("express")
 const bodyparser = require("body-parser")
 const session = require("express-session")
 const helmet = require("helmet")
-const Discord = require("discord.js")
-const fetch = require("node-fetch")
-const crypto = require("crypto")
-const path = require("path")
 const fs = require("fs")
-const { constants } = require("../config")
+const path = require("path")
+const crypto = require("crypto")
+const { PermissionsBitField, PermissionFlagsBits } = require("discord.js")
 const createSessionStore = require("../bot/utils/createSessionStore")
-
+const { constants } = require("../config")
+const { requestLogger, logger: structuredLogger } = require("./middleware/structuredLogger")
+const { globalLimiter } = require("./middleware/rateLimiter")
+const { notFoundHandler, errorHandler } = require("./middleware/errorHandler")
 const createAuthRouter = require("./routes/auth")
-const createEnhancedAdminRouter = require("./routes/adminEnhanced")
 const createUsersRouter = require("./routes/users")
 const createHealthRouter = require("./routes/health")
-
-const { logger: structuredLogger, requestLogger } = require("./middleware/structuredLogger")
-const { globalLimiter } = require("./middleware/rateLimiter")
-const { errorHandler, notFoundHandler } = require("./middleware/errorHandler")
+const createEnhancedAdminRouter = require("./routes/adminEnhanced")
 const createStatusWebSocketServer = require("./websocket/statusServer")
-
-const { PermissionsBitField, PermissionFlagsBits } = Discord
+const createTokenCache = require("./utils/tokenCache")
 
 const buildDiscordError = (error, fallbackMessage) => {
     const status = error.status || error.response?.status || 500
@@ -83,7 +79,10 @@ module.exports = (client, webSocket, options = {}) => {
     const apiRouter = express.Router()
     const v1Router = express.Router()
     const legacyRouter = express.Router()
-    const tokenCache = new Map()
+    const tokenCache = createTokenCache({
+        ttlMs: Number(process.env.TOKEN_CACHE_TTL_MS) || constants.server.tokenCacheTtlMs,
+        maxEntries: Number(process.env.TOKEN_CACHE_MAX_ENTRIES) || constants.server.tokenCacheMaxEntries
+    })
 
     // Security headers with Helmet
     app.use(helmet({
@@ -214,8 +213,11 @@ module.exports = (client, webSocket, options = {}) => {
 
         if (sessionUser) {
             req.user = sessionUser
-        } else if (req.headers.token && tokenCache.has(req.headers.token)) {
-            req.user = tokenCache.get(req.headers.token)
+        } else if (req.headers.token) {
+            const cachedUser = tokenCache.get(req.headers.token)
+            if (cachedUser) {
+                req.user = cachedUser
+            }
         }
 
         if (req.user?.isAdmin) {

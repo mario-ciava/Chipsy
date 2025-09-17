@@ -1,5 +1,4 @@
-const Discord = require("discord.js")
-const { SlashCommandBuilder } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js")
 const TexasGame = require("../games/texasGame.js")
 const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
@@ -31,8 +30,8 @@ const runTexas = async(interaction, client) => {
 
     if (channel.game) {
         await replyOrEdit({
-            embeds: [new Discord.EmbedBuilder()
-                .setColor(Discord.Colors.Red)
+            embeds: [new EmbedBuilder()
+                .setColor(Colors.Red)
                 .setFooter({
                     text: `${interaction.user.tag}, access denied: a game is already in progress in this channel.`,
                     iconURL: interaction.user.displayAvatarURL({ extension: "png" })
@@ -53,7 +52,7 @@ const runTexas = async(interaction, client) => {
         if (!Number.isFinite(minBet) || minBet <= 0) {
             await replyOrEdit({
                 content: `❌ ${interaction.user.tag}, the minimum bet must be a positive number.`,
-                flags: Discord.MessageFlags.Ephemeral
+                flags: MessageFlags.Ephemeral
             })
             return
         }
@@ -100,10 +99,10 @@ const runTexas = async(interaction, client) => {
         }
 
         const statusConfig = {
-            waiting: { color: Discord.Colors.Green, footer: "Waiting for players..." },
-            starting: { color: Discord.Colors.Blurple, footer: "Starting the game..." },
-            canceled: { color: Discord.Colors.Red, footer: "Game canceled." },
-            ended: { color: Discord.Colors.DarkGrey, footer: "Game ended." }
+            waiting: { color: Colors.Green, footer: "Waiting for players..." },
+            starting: { color: Colors.Blurple, footer: "Starting the game..." },
+            canceled: { color: Colors.Red, footer: "Game canceled." },
+            ended: { color: Colors.DarkGrey, footer: "Game ended." }
         }
 
         const renderLobbyView = ({ state }) => {
@@ -114,7 +113,7 @@ const runTexas = async(interaction, client) => {
             const tableIsFull = players.length >= maxPlayersLimit
             const hasPlayers = players.length > 1
 
-            const embed = new Discord.EmbedBuilder()
+            const embed = new EmbedBuilder()
                 .setColor(palette.color)
                 .setTitle("♠️ Texas Hold'em — Lobby")
                 .setDescription("Press **Join** to buy in. The host can start when at least 2 players have joined.")
@@ -129,11 +128,11 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 .setTimestamp()
 
             const components = [
-                new Discord.ActionRowBuilder().addComponents(
-                    new Discord.ButtonBuilder().setCustomId("tx:join").setLabel("Join").setStyle(Discord.ButtonStyle.Success).setDisabled(tableIsFull),
-                    new Discord.ButtonBuilder().setCustomId("tx:leave").setLabel("Leave").setStyle(Discord.ButtonStyle.Secondary),
-                    new Discord.ButtonBuilder().setCustomId("tx:start").setLabel("Start").setStyle(Discord.ButtonStyle.Primary).setDisabled(!hasPlayers),
-                    new Discord.ButtonBuilder().setCustomId("tx:cancel").setLabel("Cancel").setStyle(Discord.ButtonStyle.Danger)
+                new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId("tx:join").setLabel("Join").setStyle(ButtonStyle.Success).setDisabled(tableIsFull),
+                    new ButtonBuilder().setCustomId("tx:leave").setLabel("Leave").setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId("tx:start").setLabel("Start").setStyle(ButtonStyle.Primary).setDisabled(!hasPlayers),
+                    new ButtonBuilder().setCustomId("tx:cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger)
                 )
             ]
 
@@ -148,7 +147,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                         await channel.send({
                             content: `❌ ${user.tag}, database connection error. Please try again later.`,
                             allowedMentions: { parse: [] },
-                            flags: Discord.MessageFlags.SuppressNotifications
+                            flags: MessageFlags.SuppressNotifications
                         }).catch(() => null)
                     }
                     throw new Error("user-data-unavailable")
@@ -213,9 +212,9 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
             if (game.players.length >= game.maxPlayers) return i.reply({ content: "⚠️ This table is full.", ephemeral: true })
             if (game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are already at this table.", ephemeral: true })
 
-            const modal = new Discord.ModalBuilder().setCustomId(`tx:modal:${i.id}`).setTitle("Join Table").addComponents(
-                new Discord.ActionRowBuilder().addComponents(
-                    new Discord.TextInputBuilder().setCustomId("buyin").setLabel("Buy-in Amount").setStyle(Discord.TextInputStyle.Short).setRequired(true).setValue(String(game.minBuyIn))
+            const modal = new ModalBuilder().setCustomId(`tx:modal:${i.id}`).setTitle("Join Table").addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId("buyin").setLabel("Buy-in Amount").setStyle(TextInputStyle.Short).setRequired(true).setValue(String(game.minBuyIn))
                 )
             )
 
@@ -276,7 +275,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
     } catch (error) {
         logger.error("Texas command failed", { scope: "commands", command: "texas", error })
         if (game) await game.Stop({ notify: false }).catch(() => {})
-        await replyOrEdit({ content: "❌ An error occurred. Please try again.", flags: Discord.MessageFlags.Ephemeral })
+        await replyOrEdit({ content: "❌ An error occurred. Please try again.", flags: MessageFlags.Ephemeral })
     } finally {
         if (channel) channel.collector = null
     }
