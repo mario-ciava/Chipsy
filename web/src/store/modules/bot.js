@@ -62,7 +62,7 @@ export default {
             } catch (error) {
                 const is409 = error.response?.status === 409 || error.message?.includes("409")
                 if (is409) {
-                    const conflictError = new Error("Un'operazione è già in corso. Attendi fino a 10 secondi e riprova.")
+                    const conflictError = new Error("An operation is already in progress. Wait up to 10 seconds and try again.")
                     conflictError.code = 409
                     commit("SET_ERROR", conflictError)
                     throw conflictError

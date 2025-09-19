@@ -58,6 +58,9 @@ const runBlackjack = async(interaction, client) => {
         }
     }
 
+    const logLobbyInteraction = (component, message, extra = {}) =>
+        buildCommandInteractionLog(component, message, { phase: "lobby", ...extra })
+
     if (channel.__blackjackStarting) {
         await replyOrEdit({
             embeds: [new EmbedBuilder()
@@ -368,7 +371,9 @@ const runBlackjack = async(interaction, client) => {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to notify user about unavailable table")
+                )
                 return
             }
 
@@ -382,7 +387,9 @@ const runBlackjack = async(interaction, client) => {
                 await responder({
                     content: "❌ We could not load your profile right now. Please try again later.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to reply after user data error")
+                )
                 return
             }
 
@@ -401,7 +408,9 @@ const runBlackjack = async(interaction, client) => {
                 await interactionComponent.reply({
                     content: "⚠️ This table is already full.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about full table")
+                )
                 return
             }
 
@@ -409,7 +418,9 @@ const runBlackjack = async(interaction, client) => {
                 await interactionComponent.reply({
                     content: "⚠️ You are already seated at this table.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about duplicate seating")
+                )
                 return
             }
 
@@ -455,7 +466,11 @@ const runBlackjack = async(interaction, client) => {
                 await submission.reply({
                     content: "❌ Please enter a valid buy-in amount.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    buildCommandInteractionLog(submission, "Failed to warn about invalid buy-in", {
+                        phase: "lobby"
+                    })
+                )
                 return
             }
 
@@ -469,7 +484,12 @@ const runBlackjack = async(interaction, client) => {
                 await submission.reply({
                     content: `❌ ${messages[buyInResult.reason] || "Unable to process your buy-in."}`,
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    buildCommandInteractionLog(submission, "Failed to warn about invalid buy-in range", {
+                        phase: "lobby",
+                        reason: buyInResult.reason
+                    })
+                )
                 return
             }
 
@@ -477,7 +497,11 @@ const runBlackjack = async(interaction, client) => {
             queueAutoStart()
 
             // Acknowledge submission silently
-            await submission.deferUpdate().catch(() => null)
+            await submission.deferUpdate().catch(
+                buildCommandInteractionLog(submission, "Failed to defer lobby submission", {
+                    phase: "lobby"
+                })
+            )
 
             refreshLobbyView()
         })
@@ -488,17 +512,23 @@ const runBlackjack = async(interaction, client) => {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about unavailable table (leave)")
+                )
                 return
             }
 
-            await interactionComponent.deferUpdate().catch(() => null)
+            await interactionComponent.deferUpdate().catch(
+                logLobbyInteraction(interactionComponent, "Failed to defer leave interaction")
+            )
             const player = ctx.GetPlayer(interactionComponent.user.id)
             if (!player) {
                 await interactionComponent.followUp({
                     content: "⚠️ You are not seated at this table.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn non-seated user on leave")
+                )
                 return
             }
 
@@ -511,7 +541,9 @@ const runBlackjack = async(interaction, client) => {
             await interactionComponent.followUp({
                 content: "✅ You left the table.",
                 flags: MessageFlags.Ephemeral
-            }).catch(() => null)
+            }).catch(
+                logLobbyInteraction(interactionComponent, "Failed to confirm table leave")
+            )
         })
 
         lobbySession.registerComponentHandler("bj:start", async(interactionComponent) => {
@@ -520,7 +552,9 @@ const runBlackjack = async(interaction, client) => {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about unavailable table (start)")
+                )
                 return
             }
 
@@ -528,10 +562,16 @@ const runBlackjack = async(interaction, client) => {
                 const reply = await interactionComponent.reply({
                     content: "❌ Only the host can start the game.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn non-host attempting to start")
+                )
                 if (reply) {
                     setTimeout(() => {
-                        interactionComponent.deleteReply().catch(() => null)
+                        interactionComponent.deleteReply().catch(
+                            logLobbyInteraction(interactionComponent, "Failed to delete non-host start warning", {
+                                replyId: reply.id
+                            })
+                        )
                     }, 5000)
                 }
                 return
@@ -541,16 +581,24 @@ const runBlackjack = async(interaction, client) => {
                 const reply = await interactionComponent.reply({
                     content: "⚠️ You need at least one player before starting.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about missing players on start")
+                )
                 if (reply) {
                     setTimeout(() => {
-                        interactionComponent.deleteReply().catch(() => null)
+                        interactionComponent.deleteReply().catch(
+                            logLobbyInteraction(interactionComponent, "Failed to delete missing players warning", {
+                                replyId: reply.id
+                            })
+                        )
                     }, 5000)
                 }
                 return
             }
 
-            await interactionComponent.deferUpdate().catch(() => null)
+            await interactionComponent.deferUpdate().catch(
+                logLobbyInteraction(interactionComponent, "Failed to defer start interaction")
+            )
             try {
                 if (lobbySession.collector && !lobbySession.collector.ended) {
                     lobbySession.collector.stop("started")
@@ -567,7 +615,9 @@ const runBlackjack = async(interaction, client) => {
                 await interactionComponent.reply({
                     content: "❌ This table is no longer available.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about unavailable table (cancel)")
+                )
                 return
             }
 
@@ -575,20 +625,30 @@ const runBlackjack = async(interaction, client) => {
                 const reply = await interactionComponent.reply({
                     content: "❌ Only the host can cancel the game.",
                     flags: MessageFlags.Ephemeral
-                }).catch(() => null)
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn non-host attempting to cancel")
+                )
                 if (reply) {
                     setTimeout(() => {
-                        interactionComponent.deleteReply().catch(() => null)
+                        interactionComponent.deleteReply().catch(
+                            logLobbyInteraction(interactionComponent, "Failed to delete non-host cancel warning", {
+                                replyId: reply.id
+                            })
+                        )
                     }, 5000)
                 }
                 return
             }
 
-            await interactionComponent.deferUpdate().catch(() => null)
+            await interactionComponent.deferUpdate().catch(
+                logLobbyInteraction(interactionComponent, "Failed to defer cancel interaction")
+            )
             lobbySession.clearAutoTrigger()
             lobbySession.updateState({ status: "canceled", footerText: statusConfig.canceled.footer })
             await lobbySession.close({ status: "canceled", reason: "canceled" })
-            await game.Stop({ reason: "canceled", notify: false })
+            await game.Stop({ reason: "canceled", notify: false }).catch(
+                buildStopLogHandler(channel.id, "cancel")
+            )
         })
 
         lobbySession.on("end", async({ reason }) => {
@@ -599,7 +659,9 @@ const runBlackjack = async(interaction, client) => {
                 ? "Lobby closed due to inactivity."
                 : statusConfig.canceled.footer
             lobbySession.updateState({ status: "canceled", footerText: footer })
-            await game.Stop({ reason: "canceled", notify: false }).catch(() => null)
+            await game.Stop({ reason: "canceled", notify: false }).catch(
+                buildStopLogHandler(channel.id, reason || "lobby-end")
+            )
         })
 
         lobbySession.on("error", (collectorError) => {
@@ -621,7 +683,9 @@ const runBlackjack = async(interaction, client) => {
         })
 
         if (channel?.game) {
-            await channel.game.Stop({ notify: false }).catch(() => null)
+            await channel.game.Stop({ notify: false }).catch(
+                buildStopLogHandler(channel.id, "command-error-cleanup")
+            )
         }
 
         await replyOrEdit({

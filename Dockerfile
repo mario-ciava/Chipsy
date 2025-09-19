@@ -1,23 +1,23 @@
 # =====================================================
-#  Chipsy Bot - Dockerfile (unificato)
-#  Funziona identico su macOS e VPS (Node 20 LTS)
+#  Chipsy Bot - unified Dockerfile
+#  Same behavior on macOS and VPS (Node 20 LTS)
 # =====================================================
 
-# Immagine base leggera e stabile
+# Lightweight base image that won't melt build times
 FROM node:20-alpine
 
-# Imposta working directory
+# Working directory inside the container
 WORKDIR /usr/src/app
 
-# Copia file principali
+# Copy manifests first for layer caching
 COPY package*.json ./
 COPY . .
 
-# Installa dipendenze di produzione
+# Install prod dependencies only; dev stuff stays outside the container
 RUN npm install --omit=dev
 
-# Espone la porta usata dal pannello / API
+# Expose the panel/API port for whoever is reverse-proxying this mess
 EXPOSE 8082
 
-# Comando di avvio (ridefinito da docker-compose)
+# Default start command (docker-compose can still override it)
 CMD ["npm", "run", "dev:bot"]

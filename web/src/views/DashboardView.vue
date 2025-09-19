@@ -2,13 +2,13 @@
     <div class="dashboard">
         <header class="dashboard__header">
             <div>
-                <h1 class="dashboard__title">Pannello di controllo</h1>
+                <h1 class="dashboard__title">Control panel</h1>
                 <p class="dashboard__subtitle">
-                    Gestisci il bot, monitora i server connessi e osserva i dati provenienti dal database MySQL.
+                    Manage the bot, watch the linked servers, and keep an eye on the MySQL feed.
                 </p>
             </div>
             <div class="dashboard__meta" v-if="user">
-                <span class="dashboard__meta-label">Amministratore:</span>
+                <span class="dashboard__meta-label">Administrator:</span>
                 <span class="dashboard__meta-value">{{ user.username }}</span>
             </div>
         </header>
@@ -124,7 +124,7 @@ export default {
                 if (this.lastStatusEnabled === null) {
                     this.lastStatusEnabled = newStatus.enabled
                     this.lastStatusUpdatedAt = updatedAt
-                    this.pushLog("info", `Stato iniziale: bot ${newStatus.enabled ? "online" : "offline"}.`)
+                    this.pushLog("info", `Initial status: bot ${newStatus.enabled ? "online" : "offline"}.`)
                     return
                 }
                 const statusChanged = this.lastStatusEnabled !== newStatus.enabled
@@ -132,10 +132,10 @@ export default {
                 if (statusChanged) {
                     this.lastStatusEnabled = newStatus.enabled
                     this.lastStatusUpdatedAt = updatedAt
-                    this.pushLog("success", `Il bot è ora ${newStatus.enabled ? "online" : "offline"}.`)
+                    this.pushLog("success", `Bot is now ${newStatus.enabled ? "online" : "offline"}.`)
                 } else if (timestampChanged) {
                     this.lastStatusUpdatedAt = updatedAt
-                    this.pushLog("debug", "Aggiornamento stato completato senza variazioni.")
+                    this.pushLog("debug", "Status refresh completed with no changes.")
                 }
             }
         }
@@ -145,7 +145,7 @@ export default {
             this.$router.replace({ name: "Login" })
             return
         }
-        this.pushLog("system", "Dashboard caricata. Avvio sincronizzazione dati…")
+        this.pushLog("system", "Dashboard loaded. Kicking off data sync…")
         await this.initialize()
         await this.handleInviteRedirect()
     },
@@ -201,7 +201,7 @@ export default {
 
             if (code) {
                 if (!csrfToken) {
-                    this.setFlash("Sessione non valida. Effettua di nuovo il login e ripeti l'invito.", "warning")
+                    this.setFlash("Invalid session. Log in again and redo the invite.", "warning")
                     this.$router.replace({ path: "/control_panel" }).catch(() => {})
                     return
                 }
@@ -210,7 +210,7 @@ export default {
                 } catch (error) {
                     // eslint-disable-next-line no-console
                     console.error("Failed to finalize invite", error)
-                    this.setFlash("Non è stato possibile completare l'invito. Riprova più tardi.", "warning")
+                    this.setFlash("Unable to complete the invite. Try again later.", "warning")
                     this.$router.replace({ path: "/control_panel" }).catch(() => {})
                     return
                 }
@@ -219,11 +219,11 @@ export default {
             const joined = await this.waitForGuildJoin(guildId)
             if (joined) {
                 this.$store.dispatch("bot/fetchStatus").catch(() => null)
-                this.setFlash("Chipsy è stato aggiunto al server selezionato.", "success")
+                this.setFlash("Chipsy joined the selected server.", "success")
             } else if (guildId) {
-                this.setFlash("Invito completato. Discord sta ancora elaborando l'ingresso del bot, riprova tra qualche secondo.", "warning")
+                this.setFlash("Invite completed. Discord is still processing the bot join—try again in a few seconds.", "warning")
             } else {
-                this.setFlash("Invito completato. Aggiorna l'elenco per verificare i server attivi.")
+                this.setFlash("Invite completed. Refresh the list to confirm active servers.")
             }
             this.$router.replace({ path: "/control_panel" }).catch(() => {})
         },
@@ -232,10 +232,10 @@ export default {
             try {
                 await this.$store.dispatch("bot/fetchStatus")
             } catch (error) {
-                this.errorMessage = "Impossibile recuperare lo stato del bot."
+                this.errorMessage = "Unable to fetch the bot status."
                 // eslint-disable-next-line no-console
                 console.error(error)
-                this.pushLog("error", "Recupero stato bot fallito.")
+                this.pushLog("error", "Bot status fetch failed.")
             }
 
             await Promise.all([
@@ -249,7 +249,7 @@ export default {
             }
             this.statusInterval = setInterval(() => {
                 this.$store.dispatch("bot/fetchStatus").catch(() => {
-                    this.pushLog("warning", "Aggiornamento automatico dello stato non riuscito.")
+                    this.pushLog("warning", "Automatic status refresh failed.")
                 })
             }, 30000)
         },
@@ -269,7 +269,7 @@ export default {
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to load guilds", error)
-                this.pushLog("warning", "Impossibile aggiornare l'elenco server.")
+                this.pushLog("warning", "Unable to refresh the server list.")
             }
         },
         async loadActions() {
@@ -277,28 +277,28 @@ export default {
             try {
                 const response = await api.getAdminActions()
                 this.actions = response.actions || []
-                this.pushLog("info", `Azioni remote disponibili: ${this.actions.length}.`)
+                this.pushLog("info", `Remote actions available: ${this.actions.length}.`)
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to load remote actions", error)
-                this.pushLog("warning", "Impossibile aggiornare le azioni remote.")
+                this.pushLog("warning", "Unable to refresh remote actions.")
             }
         },
         async toggleBot(enabled) {
             const target = enabled ? "disable" : "enable"
-            this.pushLog("info", `Richiesta di ${enabled ? "accensione" : "spegnimento"} inviata.`)
+            this.pushLog("info", `Request to ${enabled ? "enable" : "disable"} sent.`)
             this.startCooldown(target)
             try {
                 await this.$store.dispatch("bot/updateEnabled", enabled)
-                this.pushLog("success", "Stato aggiornato correttamente dal server.")
+                this.pushLog("success", "Status updated successfully by the server.")
             } catch (error) {
                 this.cancelCooldown()
                 if (error.code === 409) {
                     this.setFlash(error.message, "warning")
-                    this.pushLog("warning", "Operazione già in corso: nessuna modifica applicata.")
+                    this.pushLog("warning", "Operation already in progress: nothing changed.")
                 } else {
-                    this.setFlash("Non è stato possibile aggiornare lo stato del bot.", "warning")
-                    this.pushLog("error", "Toggle fallito: controlla i log del server per maggiori dettagli.")
+                    this.setFlash("Unable to update the bot status.", "warning")
+                    this.pushLog("error", "Toggle failed: check the server logs for details.")
                 }
                 // eslint-disable-next-line no-console
                 console.error("Toggle bot failed", error)
@@ -310,7 +310,7 @@ export default {
             this.cooldown.active = true
             this.cooldown.remaining = this.cooldown.duration
             this.cooldownStart = Date.now()
-            this.pushLog("system", "Periodo di sicurezza di 15 secondi attivato.")
+            this.pushLog("system", "15-second safety cooldown activated.")
             this.cooldownInterval = setInterval(() => {
                 const elapsed = Date.now() - this.cooldownStart
                 const remaining = Math.max(0, this.cooldown.duration - elapsed)
@@ -330,7 +330,7 @@ export default {
             this.cooldown.target = null
             this.cooldownStart = null
             if (!silent) {
-                this.pushLog("system", "Cooldown completato: i controlli sono di nuovo disponibili.")
+                this.pushLog("system", "Cooldown finished: controls unlocked again.")
             }
         },
         cancelCooldown({ silent = false } = {}) {
@@ -347,7 +347,7 @@ export default {
                     search: searchValue
                 })
             } catch (error) {
-                this.errorMessage = "Errore durante la ricerca degli utenti."
+                this.errorMessage = "Error while searching users."
                 // eslint-disable-next-line no-console
                 console.error("User search failed", error)
             }
@@ -381,7 +381,7 @@ export default {
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to leave guild", error)
-                this.errorMessage = "Impossibile far uscire il bot dal server selezionato."
+                this.errorMessage = "Unable to remove the bot from the selected server."
             }
         },
         openUserDetails(id) {
@@ -398,9 +398,9 @@ export default {
         async handleKillRequest(payload) {
             const target = payload?.target || "bot"
             if (target === "mysql") {
-                const message = "La terminazione del servizio MySQL non è disponibile dal pannello."
+                const message = "Killing the MySQL service is not exposed in this panel."
                 this.setFlash(message, "warning")
-                this.pushLog("warning", "Richiesta di terminare il servizio MySQL non supportata dal pannello.")
+                this.pushLog("warning", "Panel does not support killing MySQL; ignoring request.")
                 return
             }
             await this.requestKillBot()
@@ -410,21 +410,21 @@ export default {
 
             const csrfToken = this.$store.state.session.csrfToken
             if (!csrfToken) {
-                this.handleActionError("Impossibile terminare il processo del bot.")
+                this.handleActionError("Unable to terminate the bot process.")
                 return
             }
 
             this.botKillPending = true
-            this.pushLog("info", "Comando 'Termina bot' richiesto.")
+            this.pushLog("info", "'Kill bot' command requested.")
 
             try {
                 await api.killBot({ csrfToken })
-                this.handleActionSuccess("Il processo del bot verrà terminato a breve.")
-                this.pushLog("success", "Comando 'Termina bot' inviato al server.")
+                this.handleActionSuccess("The bot process will be terminated shortly.")
+                this.pushLog("success", "'Kill bot' command sent to the server.")
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to kill bot process", error)
-                this.handleActionError("Impossibile terminare il processo del bot.")
+                this.handleActionError("Unable to terminate the bot process.")
             } finally {
                 this.botKillPending = false
             }

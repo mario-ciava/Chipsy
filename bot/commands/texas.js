@@ -3,6 +3,7 @@ const TexasGame = require("../games/texasGame.js")
 const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 const createCommand = require("../utils/createCommand")
 const bankrollManager = require("../utils/bankrollManager")
 const { registerGame } = require("../utils/gameRegistry")
@@ -12,6 +13,25 @@ const testerProvisionConfig = {
     testerUserId: process.env.TEXAS_TEST_USER_ID,
     bankrollEnvKey: "TEXAS_TEST_BANKROLL",
     defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL
+}
+
+const buildTexasCommandLog = (interaction, message, extraMeta = {}) =>
+    logAndSuppress(message, {
+        scope: "commands.texas",
+        interactionId: interaction?.id,
+        channelId: interaction?.channel?.id || interaction?.channelId,
+        userId: interaction?.user?.id,
+        ...extraMeta
+    })
+
+const buildTexasStopLogger = (channelId, reason) => (error) => {
+    logger.warn("Failed to stop Texas game", {
+        scope: "commands.texas",
+        channelId,
+        reason,
+        error: error?.message
+    })
+    return null
 }
 
 const runTexas = async(interaction, client) => {
@@ -28,6 +48,22 @@ const runTexas = async(interaction, client) => {
         }
     }
 
+    const logLobbyInteraction = (component, message, extra = {}) =>
+        buildTexasCommandLog(component, message, { phase: "lobby", ...extra })
+
+    if (channel.__texasStarting) {
+        await replyOrEdit({
+            embeds: [new EmbedBuilder()
+                .setColor(Colors.Orange)
+                .setFooter({
+                    text: `${interaction.user.tag}, please wait: a Texas Hold'em table is already being initialized.`,
+                    iconURL: interaction.user.displayAvatarURL({ extension: "png" })
+                })
+            ]
+        })
+        return
+    }
+
     if (channel.game) {
         await replyOrEdit({
             embeds: [new EmbedBuilder()
@@ -40,6 +76,8 @@ const runTexas = async(interaction, client) => {
         })
         return
     }
+
+    channel.__texasStarting = true
 
     let game = null
 
@@ -148,7 +186,13 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                             content: `❌ ${user.tag}, database connection error. Please try again later.`,
                             allowedMentions: { parse: [] },
                             flags: MessageFlags.SuppressNotifications
-                        }).catch(() => null)
+                        }).catch(
+                            logAndSuppress("Failed to send Texas database error notice", {
+                                scope: "commands.texas",
+                                channelId: channel.id,
+                                userId: user?.id
+                            })
+                        )
                     }
                     throw new Error("user-data-unavailable")
                 }
@@ -178,7 +222,13 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 await game.Run()
             } catch (error) {
                 logger.error("Failed to start Texas Hold'em game", { scope: "commands", command: "texas", error })
-                await game.Stop({ reason: "error", notify: false }).catch(() => {})
+                await game.Stop({ reason: "error", notify: false }).catch((stopError) => {
+                    logger.warn("Failed to stop Texas game after run error", {
+                        scope: "commands.texas",
+                        channelId: channel.id,
+                        error: stopError?.message
+                    })
+                })
             }
         }
 
@@ -191,7 +241,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
         })
 
         lobbySession.registerComponentHandler("tx:join", async (i) => {
-            if (lobbySession.isClosed) return i.reply({ content: "❌ This table is no longer available.", ephemeral: true })
+            if (lobbySession.isClosed) return i.reply({ content: "❌ This table is no longer available.", flags: MessageFlags.Ephemeral })
 
             try {
                 await ensureUserData(i.user)
@@ -202,15 +252,17 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                     : i.reply.bind(i)
                 await responder({
                     content: "❌ We could not load your profile right now. Please try again later.",
-                    ephemeral: true
-                }).catch(() => null)
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logLobbyInteraction(i, "Failed to respond after user data error")
+                )
                 return
             }
             
             await bankrollManager.ensureTesterProvision({ user: i.user, client, ...testerProvisionConfig })
             
-            if (game.players.length >= game.maxPlayers) return i.reply({ content: "⚠️ This table is full.", ephemeral: true })
-            if (game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are already at this table.", ephemeral: true })
+            if (game.players.length >= game.maxPlayers) return i.reply({ content: "⚠️ This table is full.", flags: MessageFlags.Ephemeral })
+            if (game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are already at this table.", flags: MessageFlags.Ephemeral })
 
             const modal = new ModalBuilder().setCustomId(`tx:modal:${i.id}`).setTitle("Join Table").addComponents(
                 new ActionRowBuilder().addComponents(
@@ -226,41 +278,41 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
             const buyInResult = bankrollManager.normalizeBuyIn({ requested: parsedBuyIn, minBuyIn: game.minBuyIn, maxBuyIn: game.maxBuyIn, bankroll: bankrollManager.getBankroll(submission.user) })
 
             if (!buyInResult.ok) {
-                return submission.reply({ content: `❌ ${buyInResult.reason}`, ephemeral: true })
+                return submission.reply({ content: `❌ ${buyInResult.reason}`, flags: MessageFlags.Ephemeral })
             }
 
             const added = await game.AddPlayer(submission.user, { buyIn: buyInResult.amount })
             if (!added) {
-                await submission.reply({ content: "❌ Unable to join this table. Please try again.", ephemeral: true })
+                await submission.reply({ content: "❌ Unable to join this table. Please try again.", flags: MessageFlags.Ephemeral })
                 return
             }
-            await submission.reply({ content: `✅ You joined with **${setSeparator(buyInResult.amount)}$**.`, ephemeral: true })
+            await submission.reply({ content: `✅ You joined with **${setSeparator(buyInResult.amount)}$**.`, flags: MessageFlags.Ephemeral })
             lobbySession.scheduleRefresh()
         })
 
         lobbySession.registerComponentHandler("tx:leave", async (i) => {
-            if (lobbySession.isClosed) return i.reply({ content: "❌ This table is no longer available.", ephemeral: true })
-            if (!game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are not at this table.", ephemeral: true })
+            if (lobbySession.isClosed) return i.reply({ content: "❌ This table is no longer available.", flags: MessageFlags.Ephemeral })
+            if (!game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are not at this table.", flags: MessageFlags.Ephemeral })
             
             const removed = await game.RemovePlayer(i.user)
             if (removed) {
-                await i.reply({ content: "✅ You have left the table.", ephemeral: true })
+                await i.reply({ content: "✅ You have left the table.", flags: MessageFlags.Ephemeral })
                 lobbySession.scheduleRefresh()
             } else {
-                await i.reply({ content: "❌ Failed to leave the table. Please try again.", ephemeral: true })
+                await i.reply({ content: "❌ Failed to leave the table. Please try again.", flags: MessageFlags.Ephemeral })
             }
         })
 
         lobbySession.registerComponentHandler("tx:start", async (i) => {
-            if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can start the game.", ephemeral: true })
-            if (game.players.length < game.getMinimumPlayers()) return i.reply({ content: `⚠️ You need at least ${game.getMinimumPlayers()} players to start.`, ephemeral: true })
+            if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can start the game.", flags: MessageFlags.Ephemeral })
+            if (game.players.length < game.getMinimumPlayers()) return i.reply({ content: `⚠️ You need at least ${game.getMinimumPlayers()} players to start.`, flags: MessageFlags.Ephemeral })
             
             await i.deferUpdate()
             startGame({ initiatedBy: i.user.tag })
         })
 
         lobbySession.registerComponentHandler("tx:cancel", async (i) => {
-            if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can cancel the game.", ephemeral: true })
+            if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can cancel the game.", flags: MessageFlags.Ephemeral })
 
             await i.deferUpdate()
             await game.Stop({ reason: "canceled", notify: false })
@@ -268,16 +320,21 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
 
         lobbySession.on("end", async ({ reason }) => {
             if (reason !== "started") {
-                await game.Stop({ reason: "canceled", notify: false }).catch(() => {})
+                await game.Stop({ reason: "canceled", notify: false }).catch(
+                    buildTexasStopLogger(channel.id, reason || "lobby-end")
+                )
             }
         })
 
     } catch (error) {
         logger.error("Texas command failed", { scope: "commands", command: "texas", error })
-        if (game) await game.Stop({ notify: false }).catch(() => {})
+        if (game) await game.Stop({ notify: false }).catch(buildTexasStopLogger(channel?.id, "command-error"))
         await replyOrEdit({ content: "❌ An error occurred. Please try again.", flags: MessageFlags.Ephemeral })
     } finally {
-        if (channel) channel.collector = null
+        if (channel) {
+            channel.collector = null
+            channel.__texasStarting = false
+        }
     }
 }
 

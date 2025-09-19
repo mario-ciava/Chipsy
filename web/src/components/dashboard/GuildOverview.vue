@@ -2,17 +2,17 @@
     <div class="card">
         <div class="card__header">
             <div>
-                <h3 class="card__title">Server Discord collegati</h3>
+                <h3 class="card__title">Connected Discord servers</h3>
                 <p class="card__subtitle">
-                    Verifica in quali server il bot è già operativo e dove puoi invitarlo.
+                    Track where the bot already lives and where you still can invite it.
                 </p>
             </div>
         </div>
 
         <div class="card__body guilds">
             <div class="guilds__column">
-                <h4 class="guilds__title">Attivi</h4>
-                <p v-if="!hasAdded" class="guilds__empty">Il bot non è presente in nessun server gestito.</p>
+                <h4 class="guilds__title">Active</h4>
+                <p v-if="!hasAdded" class="guilds__empty">The bot is not active on any managed server.</p>
                 <ul v-else class="guilds__list">
                     <li v-for="guild in addedGuilds" :key="guild.id">
                         <span class="guilds__name">{{ guild.name }}</span>
@@ -25,16 +25,16 @@
                                 <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                     <path d="M4 9a1 1 0 100 2h12a1 1 0 100-2H4z" />
                                 </svg>
-                                Lascia
+                                Leave
                             </button>
                         </div>
                     </li>
                 </ul>
             </div>
             <div class="guilds__column">
-                <h4 class="guilds__title">Gestibili</h4>
+                <h4 class="guilds__title">Available</h4>
                 <p v-if="!hasAvailable" class="guilds__empty">
-                    Non ci sono altri server su cui hai i permessi necessari.
+                    No other servers grant you enough permissions.
                 </p>
                 <ul v-else class="guilds__list">
                     <li v-for="guild in availableGuilds" :key="guild.id">
@@ -48,7 +48,7 @@
                                 <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                     <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
                                 </svg>
-                                Invita
+                                Invite
                             </button>
                         </div>
                     </li>
@@ -97,7 +97,7 @@ export default {
             if (Number.isSafeInteger(value) && value >= 0) {
                 return String(value)
             }
-            return "2147483648" // Administrator by default
+            return "2147483648" // Default to admin perms because Discord loves overkill
         },
         inviteState() {
             return "controlPanelInvite"

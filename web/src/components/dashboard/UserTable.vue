@@ -2,9 +2,9 @@
     <div class="card card--wide">
         <div class="card__header card__header--split">
             <div>
-                <h3 class="card__title">Statistiche utenti</h3>
+                <h3 class="card__title">User stats</h3>
                 <p class="card__subtitle">
-                    Visualizza i dati salvati nel database MySQL per monitorare progressi e bilanci.
+                    Review the data stored in MySQL to monitor balances and progress.
                 </p>
             </div>
             <div class="table-controls">
@@ -12,14 +12,14 @@
                     v-model="searchTerm"
                     class="table-controls__input"
                     type="search"
-                    placeholder="Cerca per ID utente…"
+                    placeholder="Search by user ID…"
                     @keyup.enter="emitSearch"
                 />
                 <button class="button button--secondary" @click="emitSearch" :disabled="loading">
-                    Cerca
+                    Search
                 </button>
                 <button class="button button--ghost" @click="refresh" :disabled="loading">
-                    Aggiorna
+                    Refresh
                 </button>
             </div>
         </div>
@@ -29,21 +29,21 @@
                 <thead>
                     <tr>
                         <th>ID</th>
-                        <th>Utente</th>
-                        <th>Saldo</th>
-                        <th>Livello</th>
+                        <th>User</th>
+                        <th>Balance</th>
+                        <th>Level</th>
                         <th>Win rate</th>
                         <th>Biggest win</th>
-                        <th>Ultima attività</th>
+                        <th>Last activity</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-if="loading">
-                        <td colspan="7" class="data-table__loading">Caricamento dati…</td>
+                        <td colspan="7" class="data-table__loading">Loading data…</td>
                     </tr>
                     <tr v-else-if="!formattedUsers.length">
                         <td colspan="7" class="data-table__empty">
-                            Nessun utente trovato con i filtri correnti.
+                            No users match the current filters.
                         </td>
                     </tr>
                     <tr v-else v-for="user in formattedUsers" :key="user.id">
@@ -52,7 +52,7 @@
                                 <button
                                     type="button"
                                     class="button button--ghost user-table__copy"
-                                    title="Copia ID"
+                                    title="Copy ID"
                                     @click="copyId(user.id)"
                                 >
                                     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -66,7 +66,7 @@
                                     class="button button--ghost data-table__details"
                                     @click="openDetails(user.id)"
                                 >
-                                    Dettagli
+                                    Details
                                 </button>
                             </div>
                         </td>
@@ -86,7 +86,7 @@
 
         <div class="card__footer pagination">
             <span class="pagination__count" v-if="pagination.total">
-                {{ pagination.total }} utenti
+                {{ pagination.total }} users
             </span>
             <div class="pagination__controls">
                 <button
@@ -94,17 +94,17 @@
                     :disabled="loading || pagination.page <= 1"
                     @click="changePage(pagination.page - 1)"
                 >
-                    ← Indietro
+                    ← Previous
                 </button>
                 <span class="pagination__info">
-                    Pagina {{ pagination.page }} di {{ pagination.totalPages }}
+                    Page {{ pagination.page }} of {{ pagination.totalPages }}
                 </span>
                 <button
                     class="button button--ghost"
                     :disabled="loading || pagination.page >= pagination.totalPages"
                     @click="changePage(pagination.page + 1)"
                 >
-                    Avanti →
+                    Next →
                 </button>
             </div>
         </div>
@@ -114,23 +114,23 @@
 <script>
 const formatCurrency = (value) => {
     const amount = Number(value) || 0
-    return `${amount.toLocaleString("it-IT")} $`
+    return `${amount.toLocaleString("en-US")} $`
 }
 
 const formatPercentage = (value) => `${Number(value || 0).toFixed(2)} %`
 
-const formatExp = (current, required) => `${current.toLocaleString("it-IT")} / ${required.toLocaleString("it-IT")}`
+const formatExp = (current, required) => `${current.toLocaleString("en-US")} / ${required.toLocaleString("en-US")}`
 
 const formatDate = (value) => {
-    if (!value) return "N/D"
+    if (!value) return "N/A"
     try {
-        const formatter = new Intl.DateTimeFormat("it-IT", {
+        const formatter = new Intl.DateTimeFormat("en-US", {
             dateStyle: "short",
             timeStyle: "short"
         })
         return formatter.format(new Date(value))
     } catch (_error) {
-        return "N/D"
+        return "N/A"
     }
 }
 
@@ -177,7 +177,7 @@ export default {
                 winRate: formatPercentage(user.winRate),
                 biggestWon: formatCurrency(user.biggest_won !== undefined ? user.biggest_won : user.biggestWon),
                 lastPlayed: formatDate(user.last_played !== undefined ? user.last_played : user.lastPlayed),
-                username: user.username || "N/D"
+                username: user.username || "N/A"
             }))
         }
     },

@@ -135,7 +135,7 @@ const createAdminService = ({
                             embeds: [
                                 new EmbedBuilder()
                                     .setColor(Colors.Orange || 0xf97316)
-                                    .setDescription("⚠️ La partita è stata interrotta perché Chipsy è stato disattivato dagli amministratori.")
+                                    .setDescription("⚠️ This table was stopped because Chipsy was disabled by the admins.")
                             ]
                         }).catch((error) => {
                             logger.warn("Failed to notify channel about forced game stop", {

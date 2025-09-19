@@ -2,9 +2,9 @@
     <div :class="['card', 'bot-status-card', { 'card--updating': isUpdating }]">
         <div class="card__header">
             <div>
-                <h3 class="card__title">Stato bot</h3>
+                <h3 class="card__title">Bot status</h3>
                 <p class="card__subtitle">
-                    Controlla la disponibilità del bot e verifica lo stato dei servizi collegati.
+                    Check bot availability and the health of its dependencies.
                 </p>
             </div>
             <div class="card__status">
@@ -23,7 +23,7 @@
         <div class="card__body">
             <ul class="status-list status-grid">
                 <li>
-                    <span class="status-list__label">Server Discord attivi</span>
+                    <span class="status-list__label">Active Discord servers</span>
                     <span class="status-list__value">{{ status.guildCount || 0 }}</span>
                 </li>
                 <li>
@@ -33,7 +33,7 @@
                     </span>
                 </li>
                 <li>
-                    <span class="status-list__label">Ultimo aggiornamento</span>
+                    <span class="status-list__label">Last update</span>
                     <span class="status-list__value">{{ formattedUpdatedAt }}</span>
                 </li>
             </ul>
@@ -64,7 +64,7 @@
                     ></span>
                     <span v-if="loading && !status.enabled" class="button__spinner"></span>
                     <span v-else class="button__content">
-                        <span>Disabilita</span>
+                        <span>Disable</span>
                         <span
                             v-if="showCooldownIndicator && cooldownTarget === 'disable'"
                             class="button__cooldown"
@@ -106,7 +106,7 @@
                     ></span>
                     <span v-if="loading && status.enabled" class="button__spinner"></span>
                     <span v-else class="button__content">
-                        <span>Abilita</span>
+                        <span>Enable</span>
                         <span
                             v-if="showCooldownIndicator && cooldownTarget === 'enable'"
                             class="button__cooldown"
@@ -129,10 +129,10 @@
             <div class="bot-status-card__guidance">
                 <p class="bot-status-card__instruction">
                     <span class="bot-status-card__instruction-icon" aria-hidden="true"></span>
-                    Tieni premuto per 3 secondi per confermare l'azione.
+                    Hold for 3 seconds to confirm.
                 </p>
                 <p class="bot-status-card__note">
-                    Disattiva le risposte ai comandi; il processo resta attivo.
+                    Disables command responses; the process stays alive.
                 </p>
             </div>
         </div>
@@ -141,24 +141,24 @@
 
 <script>
 const readableFormat = (value) => {
-    if (!value) return "N/D"
+    if (!value) return "N/A"
     try {
         const date = new Date(value)
-        const dateFormatter = new Intl.DateTimeFormat("it-IT", {
+        const dateFormatter = new Intl.DateTimeFormat("en-US", {
             day: "2-digit",
             month: "short",
             year: "numeric"
         })
-        const timeFormatter = new Intl.DateTimeFormat("it-IT", {
+        const timeFormatter = new Intl.DateTimeFormat("en-US", {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit"
         })
 
-        const formattedDate = dateFormatter.format(date).replace("di ", "")
+        const formattedDate = dateFormatter.format(date)
         return `${formattedDate} ${timeFormatter.format(date)}`
     } catch {
-        return "N/D"
+        return "N/A"
     }
 }
 
@@ -210,7 +210,7 @@ export default {
     },
     watch: {
         loading(newVal, oldVal) {
-            // Quando loading diventa true, forza "Aggiornamento" per 5 secondi
+            // When loading flips on, force an "Updating" badge for 5s.
             if (newVal && !oldVal) {
                 this.forceUpdating = true
                 if (this.updatingTimeout) {
@@ -248,7 +248,7 @@ export default {
             return this.loading || this.forceUpdating || !this.statusAvailable
         },
         statusLabel() {
-            if (this.isUpdating) return "Aggiornamento"
+            if (this.isUpdating) return "Updating"
             return this.status.enabled ? "Online" : "Offline"
         },
         statusClass() {
@@ -265,7 +265,7 @@ export default {
             return Boolean(mysql && mysql.alive)
         },
         formattedUpdatedAt() {
-            return this.statusAvailable ? readableFormat(this.status.updatedAt) : "N/D"
+            return this.statusAvailable ? readableFormat(this.status.updatedAt) : "N/A"
         },
         showCooldownIndicator() {
             return this.cooldownActive && this.cooldownDuration > 0

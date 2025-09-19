@@ -1,11 +1,10 @@
 import axios from "axios"
 import { getRuntimeOrigin } from "../utils/runtime"
 
-// NOTA: Fallback deve corrispondere a constants.urls.vueDevLocal + '/api'
-// Se VUE_APP_API_BASE_URL non è settato, assume Vue dev server con proxy
+// Fallback is constants.urls.vueDevLocal + '/api'; assume the Vue dev proxy otherwise.
 const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || "http://localhost:8080/api"
 
-// NOTA: Timeout da constants.server.sessionMaxAge (ma axios timeout è diverso)
+// Timeout loosely mirrors constants.server.sessionMaxAge, because axios needs a number anyway.
 const DEFAULT_TIMEOUT = 15000
 
 const http = axios.create({

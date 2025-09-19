@@ -2,9 +2,9 @@
     <div class="card">
         <div class="card__header">
             <div>
-                <h3 class="card__title">Azioni rapide</h3>
+                <h3 class="card__title">Quick actions</h3>
                 <p class="card__subtitle">
-                    Struttura modulare pronta per aggiungere comandi remoti in futuro.
+                    Modular shell waiting for whatever remote commands we wire up next.
                 </p>
             </div>
         </div>
@@ -26,15 +26,15 @@
                         @click="handleAction(action)"
                     >
                         <span v-if="loading" class="button__spinner"></span>
-                        <span v-else>Esegui</span>
+                        <span v-else>Execute</span>
                     </button>
                     <button v-else class="button button--ghost" disabled>
-                        {{ action.pendingLabel || 'In arrivo' }}
+                        {{ action.pendingLabel || 'Coming soon' }}
                     </button>
                 </li>
             </ul>
             <p v-if="!actions.length" class="actions__empty">
-                Non sono ancora state configurate azioni remote. Aggiungile lato server per attivarle qui.
+                No remote actions configured yet. Ship them server-side before expecting magic here.
             </p>
         </div>
 
@@ -49,10 +49,10 @@
                     </div>
                     <div class="modal-footer">
                         <button class="button button--ghost" @click="cancelConfirm">
-                            Annulla
+                            Cancel
                         </button>
                         <button class="button button--danger" @click="proceedConfirm">
-                            {{ confirmStep === 1 ? 'Continua' : 'Conferma' }}
+                            {{ confirmStep === 1 ? 'Continue' : 'Confirm' }}
                         </button>
                     </div>
                 </div>
@@ -85,7 +85,7 @@ export default {
             if (this.pendingAction?.confirmation?.title) {
                 return this.pendingAction.confirmation.title
             }
-            return this.confirmStep === 1 ? "Conferma azione" : "Conferma definitiva"
+            return this.confirmStep === 1 ? "Confirm action" : "Final confirmation"
         },
         confirmMessage() {
             const confirmation = this.pendingAction?.confirmation || {}
@@ -96,23 +96,23 @@ export default {
                 return confirmation.stepTwo
             }
             if (this.confirmStep === 1) {
-                return "Vuoi procedere con questa operazione?"
+                return "Do you actually want to run this?"
             }
-            return "Questa operazione è irreversibile. Confermi?"
+            return "This action is irreversible. Still sure?"
         }
     },
     methods: {
         ...mapActions("logs", { addLogEntry: "add" }),
         formatCommandLabel(action) {
-            if (!action) return "comando sconosciuto"
-            const label = action.label || action.id || "comando"
+            if (!action) return "unknown command"
+            const label = action.label || action.id || "command"
             const identifier = action.id && action.id !== label ? ` [${action.id}]` : ""
             return `'${label}'${identifier}`
         },
         logCommandEvent(level, action, message) {
             if (!action || action.type !== "command") return
             const descriptor = this.formatCommandLabel(action)
-            const finalMessage = message || `Comando ${descriptor}.`
+            const finalMessage = message || `Command ${descriptor}.`
             const userId = this.$store.state.session.user?.id || null
             this.addLogEntry({
                 level,
@@ -152,13 +152,13 @@ export default {
 
             this.loading = true
             try {
-                this.logCommandEvent("info", action, `Comando ${this.formatCommandLabel(action)} richiesto.`)
+                this.logCommandEvent("info", action, `Command ${this.formatCommandLabel(action)} requested.`)
                 const descriptor = this.formatCommandLabel(action)
-                this.$emit("action-error", `L'azione ${descriptor} non è ancora disponibile lato server.`)
+                this.$emit("action-error", `Action ${descriptor} is not available on the server yet.`)
                 this.logCommandEvent(
                     "warning",
                     action,
-                    `Comando ${descriptor} non eseguito: endpoint remoto non configurato.`
+                    `Command ${descriptor} skipped: remote endpoint not configured.`
                 )
             } finally {
                 this.loading = false

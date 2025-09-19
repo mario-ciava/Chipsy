@@ -20,6 +20,22 @@ const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
         ...extraMeta
     })
 
+const createWonState = () => ({ grossValue: 0, netValue: 0, expEarned: 0 })
+
+const createPlayerStatus = () => ({
+    folded: false,
+    movedone: false,
+    allIn: false,
+    removed: false,
+    won: createWonState()
+})
+
+const toSafeInteger = (value) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) return 0
+    return Math.floor(numeric)
+}
+
 module.exports = class TexasGame extends Game {
     constructor(info) {
         super(info)
@@ -33,6 +49,9 @@ module.exports = class TexasGame extends Game {
         }
         this.actionCollector = null
         this.gameMessage = null
+        this.awaitingPlayerId = null
+        this.actionOrder = []
+        this.actionCursor = -1
     }
 
     createPlayerSession(user, stackAmount) {
@@ -52,12 +71,16 @@ module.exports = class TexasGame extends Game {
                 ? `${user.username}#${user.discriminator || "0000"}`
                 : "Texas Hold'em player";
 
+        const data = user.data ?? {}
+        if (!Number.isFinite(data.hands_played)) data.hands_played = 0
+        if (!Number.isFinite(data.hands_won)) data.hands_won = 0
+
         return {
             id: user.id,
             tag,
             username: user.username,
             bot: user.bot,
-            data: user.data ?? {},
+            data,
             client: user.client,
             stack:
                 Number.isFinite(stackAmount) && stackAmount > 0
@@ -67,8 +90,8 @@ module.exports = class TexasGame extends Game {
             toString: safeToString,
             displayAvatarURL: safeDisplayAvatar,
             user,
-            status: { folded: false, movedone: false, won: { grossValue: 0, netValue: 0, expEarned: 0 } },
-            bets: { current: 0, total: 0 },
+            status: createPlayerStatus(),
+            bets: { current: 0, total: 0 }
         };
     }
 
@@ -119,6 +142,17 @@ module.exports = class TexasGame extends Game {
 
         this.players = this.players.filter((p) => p.id !== playerId);
 
+        if (Array.isArray(this.actionOrder) && this.actionOrder.length) {
+            this.actionOrder = this.actionOrder.filter((id) => id !== playerId)
+            if (!this.actionOrder.length) {
+                this.actionCursor = -1
+            } else if (this.actionCursor >= this.actionOrder.length) {
+                this.actionCursor = this.actionOrder.length - 1
+            }
+        }
+
+        this.UpdateInGame()
+
         if (!skipStop && this.players.length < this.getMinimumPlayers() && this.playing) {
             this.Stop({ reason: "notEnoughPlayers", ...stopOptions })
         }
@@ -148,16 +182,29 @@ module.exports = class TexasGame extends Game {
                 await sendEmbed(new EmbedBuilder().setColor(Colors.Blue).setFooter({ text: "Next hand starting in 8 seconds..." }))
                 break
             case 'handEnded':
-                const winnersText = this.bets.pots.map(pot => {
-                    return pot.winners.map(p => `${p} wins ${setSeparator(this.GetNetValue(pot.amount / pot.winners.length, p))}$`).join('\n')
-                }).join('\n')
+                const totalPotValue = this.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
+                const winnersText = this.bets.pots.map((pot, index) => {
+                    const name = pot.winners?.length > 1 ? `Pot #${index + 1}` : "Pot"
+                    const winnerLines = (pot.winners || []).map(({ player: winner, amount }) => {
+                        const payout = this.GetNetValue(amount, winner)
+                        return `${winner} wins ${setSeparator(payout)}$`
+                    })
+                    return `**${name} (${setSeparator(pot.amount)}$)**\n${winnerLines.join('\n')}`
+                }).filter(Boolean).join('\n\n') || "No winners"
+
+                const participantSummary = this.players.map((p) => {
+                    if (p.hand) return `${p} - ${p.hand.name}`
+                    if (p.status?.folded) return `${p} - Folded`
+                    return `${p} - Cards hidden`
+                }).join('\n') || "No active players"
+
                 const embed = new EmbedBuilder()
                     .setColor(Colors.Gold)
                     .setTitle(`Hand #${this.hands} Ended`)
-                    .setDescription(this.inGamePlayers.map(p => `${p} - ${p.hand.name}`).join('\n'))
-                    .addFields({ name: "Winner(s)", value: winnersText || "No winners" })
-                    .setFooter({ text: `Total pot: ${setSeparator(this.bets.pots.reduce((a, b) => a + b.amount, 0))}$` })
-                
+                    .setDescription(participantSummary)
+                    .addFields({ name: "Winner(s)", value: winnersText })
+                    .setFooter({ text: `Total pot: ${setSeparator(totalPotValue)}$` })
+
                 const snapshot = await this.captureTableRender({ title: "Showdown", showdown: true })
                 if (snapshot) {
                     embed.setImage(`attachment://${snapshot.filename}`)
@@ -171,7 +218,7 @@ module.exports = class TexasGame extends Game {
 
     async captureTableRender(options = {}) {
         const state = createBlackjackTableState({
-            dealer: { cards: this.tableCards, value: this.bets.pots.reduce((a, b) => a + b.amount, 0) },
+            dealer: { cards: this.tableCards, value: this.getDisplayedPotValue() },
             players: this.inGamePlayers.map(p => ({
                 ...p,
                 hands: [{ cards: p.cards, value: p.bets.current, busted: p.status.folded, BJ: false, push: false }]
@@ -198,16 +245,31 @@ module.exports = class TexasGame extends Game {
     }
 
     async updateGameMessage(player, options = {}) {
-        const availableOptions = await this.GetAvailableOptions(player)
+        const availableOptions = Array.isArray(options.availableOptions)
+            ? options.availableOptions
+            : await this.GetAvailableOptions(player)
         const components = []
         if (!options.hideActions) {
             const row = new ActionRowBuilder()
-            if (availableOptions.includes("fold")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:fold:${player.id}`).setLabel("Fold").setStyle(ButtonStyle.Danger))
-            if (availableOptions.includes("check")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:check:${player.id}`).setLabel("Check").setStyle(ButtonStyle.Secondary))
-            if (availableOptions.includes("call")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:call:${player.id}`).setLabel(`Call (${setSeparator(this.bets.currentMax - player.bets.current)})`).setStyle(ButtonStyle.Primary))
-            if (availableOptions.includes("bet")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:bet:${player.id}`).setLabel(`Bet (${setSeparator(this.minBet)})`).setStyle(ButtonStyle.Success))
-            if (availableOptions.includes("raise")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:raise:${player.id}`).setLabel(`Raise (min ${setSeparator(this.bets.currentMax + this.bets.minRaise)})`).setStyle(ButtonStyle.Success))
-            if (availableOptions.includes("allin")) row.addComponents(new ButtonBuilder().setCustomId(`tx_action:allin:${player.id}`).setLabel(`All-in (${setSeparator(player.stack)})`).setStyle(ButtonStyle.Success))
+            if (availableOptions.includes("fold")) {
+                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:fold:${player.id}`).setLabel("Fold").setStyle(ButtonStyle.Danger))
+            }
+            if (availableOptions.includes("check")) {
+                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:check:${player.id}`).setLabel("Check").setStyle(ButtonStyle.Secondary))
+            }
+            if (availableOptions.includes("call")) {
+                const callAmount = Math.max(0, this.bets.currentMax - player.bets.current)
+                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:call:${player.id}`).setLabel(`Call (${setSeparator(callAmount)})`).setStyle(ButtonStyle.Primary))
+            }
+            if (availableOptions.includes("bet")) {
+                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:bet:${player.id}`).setLabel(`Bet (${setSeparator(this.getTableMinBet())})`).setStyle(ButtonStyle.Success))
+            }
+            if (availableOptions.includes("raise")) {
+                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:raise:${player.id}`).setLabel(`Raise (min ${setSeparator(this.bets.currentMax + this.bets.minRaise)})`).setStyle(ButtonStyle.Success))
+            }
+            if (availableOptions.includes("allin")) {
+                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:allin:${player.id}`).setLabel(`All-in (${setSeparator(player.stack)})`).setStyle(ButtonStyle.Success))
+            }
             if (row.components.length > 0) components.push(row)
         }
 
@@ -217,7 +279,7 @@ module.exports = class TexasGame extends Game {
             .setTitle(`Texas Hold'em - Round #${this.hands}`)
             .setDescription(`It's ${player}'s turn to act.`)
             .setFooter({
-                text: `Pot: ${setSeparator(this.bets.pots.reduce((a, b) => a + b.amount, 0) + this.bets.total)}$ | ${config.texas.actionTimeout.default / 1000}s left`
+                text: `Pot: ${setSeparator(this.getDisplayedPotValue())}$ | ${config.texas.actionTimeout.default / 1000}s left`
             })
 
         if (this.players.length > 0) {
@@ -226,7 +288,6 @@ module.exports = class TexasGame extends Game {
                     .setCustomId("tx_hand:view")
                     .setLabel("View Cards")
                     .setStyle(ButtonStyle.Secondary)
-                    .setEmoji("🂠")
             )
             components.push(infoRow)
         }
@@ -281,38 +342,54 @@ module.exports = class TexasGame extends Game {
 
 
     async StartGame() {
-        await this.Reset();
-        this.Shuffle(this.cards);
-        this.players = await this.Rotate(this.players, 1);
-        this.inGamePlayers = [...this.players];
+        await this.Reset()
+        this.Shuffle(this.cards)
+        this.players = await this.Rotate(this.players, 1)
+        this.inGamePlayers = [...this.players]
 
-        for (const p of this.inGamePlayers) {
-            p.status = { folded: false, movedone: false, won: { grossValue: 0, netValue: 0, expEarned: 0 } };
-            p.bets = { current: 0, total: 0 };
-            p.cards = await this.PickRandom(this.cards, 2);
-        };
+        for (const player of this.inGamePlayers) {
+            player.status = createPlayerStatus()
+            player.bets = { current: 0, total: 0 }
+            player.cards = await this.PickRandom(this.cards, 2)
+        }
 
-        const sbPlayer = this.inGamePlayers[0]
-        const bbPlayer = this.inGamePlayers[1]
         const tableMinBet = this.getTableMinBet()
         const smallBlind = Math.max(1, Math.floor(tableMinBet / 2))
-        await this.Action("bet", sbPlayer, smallBlind, true)
-        await this.Action("bet", bbPlayer, tableMinBet, true)
+        const sbPlayer = this.inGamePlayers[0]
+        const bbPlayer = this.inGamePlayers[1]
 
-        this.hands++;
-        await this.SendMessage("nextHand");
-        await sleep(config.texas.nextHandDelay.default);
+        if (sbPlayer) {
+            await this.Action("bet", sbPlayer, smallBlind, { isBlind: true, skipAdvance: true })
+        }
+        if (bbPlayer) {
+            await this.Action("bet", bbPlayer, tableMinBet, { isBlind: true, skipAdvance: true })
+        }
 
-        if (!this.actionCollector) this.CreateOptions();
-        this.NextPlayer(this.inGamePlayers[2] || this.inGamePlayers[0]);
+        this.UpdateInGame()
+        this.updateActionOrder(this.getBettingStartIndex())
+
+        this.hands++
+        await this.SendMessage("nextHand")
+        await sleep(config.texas.nextHandDelay.default)
+
+        if (!this.actionCollector) this.CreateOptions()
+        const startingPlayer = this.findNextPendingPlayer() || this.inGamePlayers.find(p => !p.status.folded)
+        if (startingPlayer) {
+            await this.NextPlayer(startingPlayer)
+        }
     }
 
     async NextHand() {
-        if (!this.playing) return;
+        if (!this.playing) return
 
-        await Promise.all(this.players.map(player => this.AssignRewards(player)))
+        await Promise.all(this.players.map((player) => this.AssignRewards(player)))
+
         const tableMinBet = this.getTableMinBet()
-        this.players = this.players.filter(p => p.stack >= tableMinBet)
+        const bustedPlayers = this.players.filter((p) => p.stack < tableMinBet)
+        for (const busted of bustedPlayers) {
+            await this.RemovePlayer(busted, { skipStop: true })
+        }
+
         if (this.players.length < this.getMinimumPlayers()) {
             return this.Stop({ reason: "notEnoughPlayers" })
         }
@@ -327,6 +404,37 @@ module.exports = class TexasGame extends Game {
             }
         }
         this.bets.currentMax = 0
+        this.bets.minRaise = this.getTableMinBet()
+    }
+
+    getBettingStartIndex() {
+        const players = this.inGamePlayers || []
+        if (!players.length) return 0
+        if (this.tableCards.length === 0) {
+            if (players.length <= 2) return 0
+            return Math.min(2, players.length - 1)
+        }
+        return 0
+    }
+
+    updateActionOrder(startIndex = 0) {
+        const players = (this.inGamePlayers || []).filter((player) => !player.status?.removed)
+        if (!players.length) {
+            this.actionOrder = []
+            this.actionCursor = -1
+            return
+        }
+        const normalized = ((startIndex % players.length) + players.length) % players.length
+        const ordered = players.slice(normalized).concat(players.slice(0, normalized))
+        this.actionOrder = ordered.map((player) => player.id)
+        this.actionCursor = this.actionOrder.length - 1
+    }
+
+    resolveNextPhase() {
+        if (this.tableCards.length === 0) return "flop"
+        if (this.tableCards.length === 3) return "turn"
+        if (this.tableCards.length === 4) return "river"
+        return "showdown"
     }
 
     async NextPhase(phase) {
@@ -334,37 +442,8 @@ module.exports = class TexasGame extends Game {
         if (!phases.includes(phase)) return
 
         if (phase === "showdown") {
-            const contenders = this.inGamePlayers.filter(p => !p.status.folded)
-            if (contenders.length === 0) {
-                await this.SendMessage("handEnded")
-                return this.NextHand()
-            }
-
-            contenders.forEach(p => {
-                p.hand = Hand.solve(this.tableCards.concat(p.cards))
-            })
-
-            const winners = Hand.winners(contenders.map(p => p.hand))
-            const winnerPlayers = contenders.filter(p => winners.includes(p.hand))
-            const totalPot = this.bets.total
-            const baseShare = winnerPlayers.length > 0 ? Math.floor(totalPot / winnerPlayers.length) : 0
-            let remainder = totalPot - baseShare * winnerPlayers.length
-
-            winnerPlayers.forEach((player) => {
-                const payout = baseShare + (remainder-- > 0 ? 1 : 0)
-                if (!player.status.won) {
-                    player.status.won = { grossValue: 0, netValue: 0, expEarned: 0 }
-                }
-                player.status.won.grossValue += payout
-            })
-
-            this.bets.pots = [{
-                amount: totalPot,
-                winners: winnerPlayers
-            }]
-
-            await this.SendMessage("handEnded")
-            return this.NextHand()
+            await this.handleShowdown()
+            return
         }
 
         if (phase === "flop") {
@@ -374,8 +453,14 @@ module.exports = class TexasGame extends Game {
             if (card) this.tableCards.push(card)
         }
 
-        this.inGamePlayers.forEach(p => p.status.movedone = false)
         this.resetBettingRound()
+        this.inGamePlayers.forEach((player) => {
+            if (!player.status.folded && !player.status.allIn) {
+                player.status.movedone = false
+            }
+        })
+        this.UpdateInGame()
+        this.updateActionOrder(this.getBettingStartIndex())
 
         const snapshot = await this.captureTableRender({ title: phase.charAt(0).toUpperCase() + phase.slice(1) })
         if (snapshot) {
@@ -386,9 +471,11 @@ module.exports = class TexasGame extends Game {
             await this.channel.send({ embeds: [embed], files: [snapshot.attachment] })
         }
 
-        const nextPlayer = this.inGamePlayers.find(p => !p.status.folded)
+        const nextPlayer = this.findNextPendingPlayer()
         if (nextPlayer) {
-            this.NextPlayer(nextPlayer)
+            await this.NextPlayer(nextPlayer)
+        } else {
+            await this.NextPhase(this.resolveNextPhase())
         }
     }
 
@@ -401,150 +488,241 @@ module.exports = class TexasGame extends Game {
             },
             time: config.texas.collectorTimeout.default
         })
-        this.actionCollector.on("collect", async i => {
-            if (i.customId === "tx_hand:view") {
-                const seated = this.GetPlayer(i.user.id)
+
+        this.actionCollector.on("collect", async (interaction) => {
+            if (interaction.customId === "tx_hand:view") {
+                const seated = this.GetPlayer(interaction.user.id)
                 if (!seated) {
-                    await this.respondEphemeral(i, { content: "⚠️ You are not seated at this table." })
+                    await this.respondEphemeral(interaction, { content: "⚠️ You are not seated at this table." })
                     return
                 }
-                await this.showPlayerHand(seated, i)
+                await this.showPlayerHand(seated, interaction)
                 return
             }
 
-            const [, action, playerId] = i.customId.split(':')
+            const [, action, playerId] = interaction.customId.split(':')
             const player = this.GetPlayer(playerId)
-            if (!player || player.id !== this.inGamePlayers.find(p => !p.status.movedone)?.id) {
-                return i.reply({ content: "It's not your turn.", ephemeral: true })
+            if (!player) {
+                await this.respondEphemeral(interaction, { content: "⚠️ You are not seated at this table." })
+                return
+            }
+            if (this.awaitingPlayerId && player.id !== this.awaitingPlayerId) {
+                await this.respondEphemeral(interaction, { content: "❌ It's not your turn." })
+                return
             }
 
             let amount = null
-            if (action === 'bet' || action === 'raise') {
-                const modal = new ModalBuilder().setCustomId(`tx_modal:${i.id}`).setTitle(`Amount for ${action}`)
+            if (action === "bet" || action === "raise") {
+                const modal = new ModalBuilder().setCustomId(`tx_modal:${interaction.id}`).setTitle(`Amount for ${action}`)
                 const amountInput = new TextInputBuilder().setCustomId("amount").setLabel("Amount").setStyle(TextInputStyle.Short).setRequired(true)
                 modal.addComponents(new ActionRowBuilder().addComponents(amountInput))
-                await i.showModal(modal)
-                const submission = await i.awaitModalSubmit({ time: config.texas.modalTimeout.default }).catch(
-                    buildTexasInteractionLog(i, "Failed to await Texas modal submission", {
+
+                try {
+                    await interaction.showModal(modal)
+                } catch (error) {
+                    buildTexasInteractionLog(interaction, "Failed to show Texas modal", { action, playerId, error: error?.message })
+                    return
+                }
+
+                const submission = await interaction.awaitModalSubmit({ time: config.texas.modalTimeout.default }).catch((error) => {
+                    buildTexasInteractionLog(interaction, "Failed to await Texas modal submission", {
                         phase: "bettingModal",
                         action,
-                        playerId
+                        playerId,
+                        error: error?.message
                     })
-                )
+                    return null
+                })
+
                 if (!submission) return
-                amount = features.inputConverter(submission.fields.getTextInputValue("amount"))
-                await submission.deferUpdate()
+
+                const parsed = features.inputConverter(submission.fields.getTextInputValue("amount"))
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                    await this.respondEphemeral(submission, { content: "❌ Please enter a valid positive amount." })
+                    return
+                }
+                amount = Math.floor(parsed)
+                await submission.deferUpdate().catch((error) => {
+                    buildTexasInteractionLog(submission, "Failed to defer Texas modal submission", {
+                        action,
+                        playerId,
+                        error: error?.message
+                    })
+                    return null
+                })
+            } else {
+                await interaction.deferUpdate().catch((error) => {
+                    buildTexasInteractionLog(interaction, "Failed to defer Texas interaction", {
+                        action,
+                        playerId,
+                        error: error?.message
+                    })
+                    return null
+                })
             }
 
-            await this.Action(action, player, amount)
-            if(!i.deferred) await i.deferUpdate()
+            try {
+                await this.Action(action, player, amount)
+            } catch (error) {
+                buildTexasInteractionLog(interaction, "Player action failed", { action, playerId, error: error?.message })
+                await this.respondEphemeral(interaction, { content: "❌ Action failed. Please try again." })
+            }
         })
     }
 
-    async Action(type, player, params, isBlind = false) {
-        if (!player) return
-        if (!isBlind && !this.GetAvailableOptions(player).includes(type)) return
-        clearTimeout(this.timer)
+    async Action(type, player, params, options = {}) {
+        const { isBlind = false, skipAdvance = false } = options
+        if (!player || player.status?.removed) return
 
-        const tableMinBet = this.getTableMinBet()
+        if (!isBlind) {
+            if (this.awaitingPlayerId && player.id !== this.awaitingPlayerId) {
+                return
+            }
+            const available = await this.GetAvailableOptions(player)
+            if (!available.includes(type)) return
+            this.awaitingPlayerId = null
+        }
+
+        if (this.timer) clearTimeout(this.timer)
+
+        const previousCurrentMax = this.bets.currentMax
 
         switch (type) {
             case "fold":
                 player.status.folded = true
-            break
+                player.status.movedone = true
+                break
             case "check":
-                // Nothing to do
-            break
+                player.status.movedone = true
+                break
             case "call": {
                 const callAmount = Math.max(0, this.bets.currentMax - player.bets.current)
-                if (callAmount <= 0) break
-                if (player.stack <= callAmount) {
-                    const allInAmount = player.stack
-                    player.bets.current += allInAmount
-                    player.bets.total += allInAmount
-                    this.bets.total += allInAmount
-                    player.stack = 0
-                    if (player.bets.current > this.bets.currentMax) this.bets.currentMax = player.bets.current
-                    this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
-                } else {
-                    player.stack -= callAmount
-                    player.bets.current += callAmount
-                    player.bets.total += callAmount
-                    this.bets.total += callAmount
+                if (callAmount > 0) {
+                    this.commitChips(player, callAmount)
                 }
+                player.status.movedone = true
+                break
             }
-            break
-            case "bet":
+            case "bet": {
+                const requestedTotal = isBlind
+                    ? player.bets.current + toSafeInteger(params)
+                    : Math.max(this.getTableMinBet(), toSafeInteger(params) || this.getTableMinBet())
+                this.movePlayerToTotal(player, requestedTotal)
+                player.status.movedone = isBlind ? false : true
+                break
+            }
             case "raise": {
-                const requested = Number.isFinite(params) && params > 0 ? Math.floor(params) : tableMinBet
-                const betAmount = isBlind ? requested : Math.max(requested, tableMinBet)
-                if (player.stack <= betAmount) {
-                    const allInAmount = player.stack
-                    player.bets.current += allInAmount
-                    player.bets.total += allInAmount
-                    this.bets.total += allInAmount
-                    player.stack = 0
-                } else {
-                    player.stack -= betAmount
-                    player.bets.current += betAmount
-                    player.bets.total += betAmount
-                    this.bets.total += betAmount
-                }
-                if (player.bets.current > this.bets.currentMax) {
-                    this.bets.currentMax = player.bets.current
-                    this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
-                }
+                const minimumTotal = this.bets.currentMax + this.bets.minRaise
+                let requestedTotal = Number.isFinite(params) && params > 0 ? Math.floor(params) : minimumTotal
+                if (requestedTotal < minimumTotal) requestedTotal = minimumTotal
+                this.movePlayerToTotal(player, requestedTotal)
+                player.status.movedone = true
+                break
             }
-            break
             case "allin": {
-                const allInAmount = player.stack
-                if (allInAmount <= 0) break
-                player.bets.current += allInAmount
-                player.bets.total += allInAmount
-                this.bets.total += allInAmount
-                player.stack = 0
-                if (player.bets.current > this.bets.currentMax) {
-                    this.bets.currentMax = player.bets.current
-                    this.inGamePlayers.forEach(p => { if (p.id !== player.id) p.status.movedone = false })
+                if (player.stack > 0) {
+                    this.commitChips(player, player.stack)
                 }
+                player.status.movedone = true
+                break
             }
-            break
             default:
                 return
         }
 
-        player.status.movedone = true
+        if (player.bets.current > previousCurrentMax) {
+            const delta = player.bets.current - previousCurrentMax
+            this.bets.currentMax = player.bets.current
+            if (delta > 0) {
+                this.bets.minRaise = Math.max(delta, this.getTableMinBet())
+            }
+            if (!isBlind) {
+                this.resetPlayersAfterAggression(player)
+            }
+        }
+
         this.UpdateInGame()
 
-        if (this.inGamePlayers.length < this.getMinimumPlayers()) {
-            const winner = this.inGamePlayers[0]
-            if (winner) {
-                if (!winner.status.won) {
-                    winner.status.won = { grossValue: 0, netValue: 0, expEarned: 0 }
-                }
-                winner.status.won.grossValue += this.bets.total
-                this.bets.pots = [{
-                    amount: this.bets.total,
-                    winners: [winner]
-                }]
-            }
-            await this.SendMessage("handEnded")
-            return this.NextHand()
+        const activePlayers = this.inGamePlayers.filter((p) => !p.status.folded)
+        if (activePlayers.length === 1) {
+            await this.handleFoldWin(activePlayers[0])
+            return
         }
 
-        const next = this.inGamePlayers.find(p => !p.status.movedone)
-        if (next) {
-            await this.NextPlayer(next)
-        } else {
-            const phase = this.tableCards.length === 0
-                ? "flop"
-                : this.tableCards.length === 3
-                ? "turn"
-                : this.tableCards.length === 4
-                ? "river"
-                : "showdown"
-            await this.NextPhase(phase)
+        if (!skipAdvance) {
+            await this.advanceHand()
         }
+    }
+
+    async advanceHand() {
+        this.UpdateInGame()
+        const pending = this.findNextPendingPlayer()
+        if (pending) {
+            await this.NextPlayer(pending)
+            return
+        }
+        await this.NextPhase(this.resolveNextPhase())
+    }
+
+    findNextPendingPlayer() {
+        if (this.actionOrder.length > 0) {
+            const len = this.actionOrder.length
+            for (let offset = 1; offset <= len; offset++) {
+                const idx = (this.actionCursor + offset) % len
+                const playerId = this.actionOrder[idx]
+                const player = this.GetPlayer(playerId)
+                if (this.shouldPromptPlayer(player)) {
+                    this.actionCursor = idx
+                    return player
+                }
+            }
+        }
+        return this.inGamePlayers.find((player) => this.shouldPromptPlayer(player)) || null
+    }
+
+    shouldPromptPlayer(player) {
+        if (!player) return false
+        if (player.status.folded || player.status.removed || player.status.allIn) return false
+        if (player.stack <= 0 && player.bets.current >= this.bets.currentMax) return false
+        return !player.status.movedone
+    }
+
+    resetPlayersAfterAggression(actor) {
+        for (const participant of this.players) {
+            if (!participant || participant.id === actor.id) continue
+            if (participant.status.folded || participant.status.removed || participant.status.allIn) continue
+            participant.status.movedone = false
+        }
+    }
+
+    hasActiveOpponents(player) {
+        return this.players.some((p) => {
+            if (!p || p.id === player.id) return false
+            return !p.status.folded && !p.status.removed
+        })
+    }
+
+    commitChips(player, desiredAmount) {
+        if (!player || desiredAmount <= 0) return 0
+        const amount = Math.min(player.stack, Math.floor(desiredAmount))
+        if (amount <= 0) return 0
+        player.stack -= amount
+        player.bets.current += amount
+        player.bets.total += amount
+        this.bets.total += amount
+        if (player.stack === 0) {
+            player.status.allIn = true
+        }
+        return amount
+    }
+
+    movePlayerToTotal(player, targetTotal) {
+        if (!player) return 0
+        const maxTotal = player.bets.current + player.stack
+        const sanitizedTotal = Math.min(maxTotal, Math.max(player.bets.current, Math.floor(targetTotal)))
+        const required = sanitizedTotal - player.bets.current
+        if (required <= 0) return 0
+        return this.commitChips(player, required)
     }
 
     async NextPlayer(player) {
@@ -552,38 +730,94 @@ module.exports = class TexasGame extends Game {
         this.UpdateInGame()
         if (this.inGamePlayers.length < this.getMinimumPlayers()) return this.NextHand()
 
-        await this.updateGameMessage(player)
+        const availableOptions = await this.GetAvailableOptions(player)
+        if (!availableOptions.length) {
+            player.status.movedone = true
+            await this.advanceHand()
+            return
+        }
+
+        this.awaitingPlayerId = player.id
+        await this.updateGameMessage(player, { availableOptions })
 
         this.timer = setTimeout(() => {
-            if (this.GetAvailableOptions(player).includes("check")) this.Action("check", player)
-            else this.Action("fold", player)
+            const fallbackOptions = this.GetAvailableOptions(player)
+            if (fallbackOptions.includes("check")) {
+                this.Action("check", player).catch((error) => {
+                    logger.warn("Failed to auto-check player", {
+                        scope: "texasGame",
+                        playerId: player?.id,
+                        error: error?.message
+                    })
+                    return null
+                })
+            } else {
+                this.Action("fold", player).catch((error) => {
+                    logger.warn("Failed to auto-fold player", {
+                        scope: "texasGame",
+                        playerId: player?.id,
+                        error: error?.message
+                    })
+                    return null
+                })
+            }
         }, config.texas.actionTimeout.default)
     }
 
     async GetAvailableOptions(player) {
+        if (!player) return []
+        if (player.status?.folded || player.status?.removed || player.status?.allIn) return []
+
         const options = ["fold"]
-        if (player.bets.current === this.bets.currentMax) options.push("check")
-        else if (player.stack > this.bets.currentMax - player.bets.current) options.push("call")
-        if (player.stack > this.getTableMinBet()) options.push("bet")
-        if (player.stack > this.bets.currentMax - player.bets.current) options.push("raise")
-        options.push("allin")
-        return options
+        const toCall = Math.max(0, this.bets.currentMax - player.bets.current)
+
+        if (toCall === 0) {
+            options.push("check")
+        } else if (player.stack >= toCall) {
+            options.push("call")
+        }
+
+        const tableMinBet = this.getTableMinBet()
+        if (this.bets.currentMax === 0 && player.stack >= tableMinBet) {
+            options.push("bet")
+        }
+
+        const minRaiseTotal = this.bets.currentMax === 0
+            ? tableMinBet
+            : this.bets.currentMax + this.bets.minRaise
+
+        if (
+            player.stack + player.bets.current >= minRaiseTotal &&
+            this.hasActiveOpponents(player)
+        ) {
+            options.push("raise")
+        }
+
+        if (player.stack > 0) {
+            options.push("allin")
+        }
+
+        return [...new Set(options)]
     }
 
     UpdateInGame() {
-        this.inGamePlayers = this.players.filter(p => !p.status.folded && !p.status.removed)
+        this.inGamePlayers = this.players.filter((p) => !p.status.folded && !p.status.removed)
     }
 
     async AssignRewards(player) {
         if (!player || !player.status) return
-        if (player.status.won && player.status.won.grossValue > 0) {
-            const netValue = this.GetNetValue(player.status.won.grossValue, player)
+        const winnings = player.status.won?.grossValue ?? 0
+        if (winnings > 0) {
+            const netValue = this.GetNetValue(winnings, player)
             player.stack += netValue
-            player.data.money += netValue - player.bets.total
-            player.data.hands_won++
-            player.status.won.grossValue = 0
+            player.status.won = createWonState()
+            if (player.data) {
+                player.data.hands_won = (Number(player.data.hands_won) || 0) + 1
+            }
         }
-        player.data.hands_played++
+        if (player.data) {
+            player.data.hands_played = (Number(player.data.hands_played) || 0) + 1
+        }
         await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
     }
 
@@ -597,6 +831,134 @@ module.exports = class TexasGame extends Game {
         this.bets = { minRaise: this.getTableMinBet(), currentMax: 0, total: 0, pots: [] }
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
+        this.awaitingPlayerId = null
+        this.actionOrder = []
+        this.actionCursor = -1
+    }
+
+    getDisplayedPotValue() {
+        const settled = this.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
+        return settled + this.bets.total
+    }
+
+    buildSidePots() {
+        const entries = this.players
+            .map((player) => ({
+                player,
+                remaining: Math.max(0, player.bets?.total || 0),
+                eligible: !player.status?.folded && !player.status?.removed
+            }))
+            .filter((entry) => entry.remaining > 0)
+            .sort((a, b) => a.remaining - b.remaining)
+
+        const pots = []
+        const working = [...entries]
+        while (working.length > 0) {
+            const smallest = working[0].remaining
+            if (smallest <= 0) {
+                working.shift()
+                continue
+            }
+            const contributors = working.filter((entry) => entry.remaining > 0)
+            if (!contributors.length) break
+            const potAmount = smallest * contributors.length
+            const eligiblePlayers = contributors.filter((entry) => entry.eligible).map((entry) => entry.player)
+            pots.push({ amount: potAmount, eligiblePlayers })
+            for (const entry of contributors) {
+                entry.remaining -= smallest
+            }
+            while (working.length && working[0].remaining <= 0) {
+                working.shift()
+            }
+        }
+        return pots
+    }
+
+    distributePots(pots, contenders = []) {
+        const resolved = []
+        for (const pot of pots) {
+            const eligiblePlayers = pot.eligiblePlayers.filter(Boolean)
+            if (!eligiblePlayers.length) continue
+
+            let winners = eligiblePlayers.filter((player) => {
+                return contenders.includes(player) && player.hand
+            })
+
+            if (winners.length) {
+                const bestHands = Hand.winners(winners.map((player) => player.hand))
+                winners = winners.filter((player) => bestHands.includes(player.hand))
+            } else {
+                winners = eligiblePlayers
+            }
+
+            if (!winners.length) continue
+
+            const baseShare = Math.floor(pot.amount / winners.length)
+            let remainder = pot.amount - baseShare * winners.length
+
+            const winnerEntries = winners.map((player) => {
+                const payout = baseShare + (remainder-- > 0 ? 1 : 0)
+                if (!player.status.won) player.status.won = createWonState()
+                player.status.won.grossValue += payout
+                return { player, amount: payout }
+            })
+
+            resolved.push({ amount: pot.amount, winners: winnerEntries })
+        }
+        return resolved
+    }
+
+    async handleFoldWin(winner) {
+        if (!winner) return
+        if (!winner.status.won) winner.status.won = createWonState()
+        winner.status.won.grossValue += this.bets.total
+        this.bets.pots = [{ amount: this.bets.total, winners: [{ player: winner, amount: this.bets.total }] }]
+        this.bets.total = 0
+        await this.SendMessage("handEnded")
+        await this.NextHand()
+    }
+
+    async handleShowdown() {
+        const contenders = this.players.filter((player) => !player.status.folded && !player.status.removed)
+        if (!contenders.length) {
+            const fallback = this.players.find((p) => !p.status.removed)
+            if (fallback) await this.handleFoldWin(fallback)
+            else await this.Stop({ reason: "notEnoughPlayers" })
+            return
+        }
+
+        contenders.forEach((player) => {
+            try {
+                player.hand = Hand.solve(this.tableCards.concat(player.cards))
+            } catch (error) {
+                logger.error("Failed to evaluate Texas hand", {
+                    scope: "texasGame",
+                    playerId: player.id,
+                    error: error?.message
+                })
+                player.hand = null
+            }
+        })
+
+        const pots = this.buildSidePots()
+        const resolved = pots.length ? this.distributePots(pots, contenders) : []
+
+        if (!resolved.length) {
+            const defaultWinner = contenders[0]
+            if (defaultWinner) {
+                if (!defaultWinner.status.won) defaultWinner.status.won = createWonState()
+                defaultWinner.status.won.grossValue += this.bets.total
+                this.bets.pots = [{ amount: this.bets.total, winners: [{ player: defaultWinner, amount: this.bets.total }] }]
+            } else {
+                this.bets.pots = []
+            }
+        } else {
+            this.bets.pots = resolved
+        }
+
+        this.bets.total = 0
+        await this.SendMessage("handEnded")
+        await this.NextHand()
     }
 
     async Stop(options = {}) {
@@ -604,6 +966,7 @@ module.exports = class TexasGame extends Game {
         if (this.timer) clearTimeout(this.timer);
         this.playing = false;
         this.channel.game = null;
+        this.awaitingPlayerId = null;
         if (this.client.activeGames) this.client.activeGames.delete(this);
 
         if (options.reason === "notEnoughPlayers" || options.reason === "canceled") {

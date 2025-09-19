@@ -4,20 +4,20 @@
             <div>
                 <h1 class="logs-view__title">Console log</h1>
                 <p class="logs-view__subtitle">
-                    Monitora gli eventi registrati dal pannello di controllo e dalle azioni amministrative del bot.
+                    Monitor the events captured by the control panel and the bot's admin actions.
                 </p>
             </div>
         </header>
         <section class="logs-view__content">
             <LogConsole
                 :logs="generalLogs"
-                title="Log attività"
-                subtitle="Eventi del pannello, stato bot, azioni amministrative e notifiche di sistema."
+                title="Activity log"
+                subtitle="Panel events, bot status, admin actions, and system notices."
             />
             <LogConsole
                 :logs="commandLogs"
-                title="Log comandi"
-                subtitle="Registro dei comandi eseguiti tramite il terminale. Attiva la registrazione per popolare questo log."
+                title="Command log"
+                subtitle="Records every command executed through the terminal. Enable recording to populate this feed."
                 :show-toggle="true"
                 :recording-enabled="commandRecordingEnabled"
                 @toggle-recording="toggleCommandRecording"
@@ -50,7 +50,7 @@ export default {
             this.$router.replace({ name: "Login" })
             return
         }
-        this.addLogEntry({ level: "system", message: "Console log aperta." })
+        this.addLogEntry({ level: "system", message: "Console log opened." })
 
         await Promise.all([
             this.loadLogs("general"),
@@ -66,8 +66,8 @@ export default {
         toggleCommandRecording(enabled) {
             this.setCommandRecording(enabled)
             const message = enabled
-                ? "Registrazione comandi attivata."
-                : "Registrazione comandi disattivata."
+                ? "Command recording enabled."
+                : "Command recording disabled."
             this.addLogEntry({
                 level: "system",
                 message

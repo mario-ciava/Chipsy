@@ -1,21 +1,9 @@
-/**
- * ============================================================================
- * HELPER UTILITIES - Funzioni di utilità generiche
- * ============================================================================
- */
+/** Misc helper utilities — nothing glorious, just plumbing. */
 
-/**
- * Crea una Promise che si risolve dopo un determinato tempo.
- * @param {number} ms - Millisecondi da attendere
- * @returns {Promise<void>}
- */
+/** Promise-based sleep; apparently timers needed a wrapper. */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/**
- * Formatta una data in modo relativo (es. "2 hours ago", "just now")
- * @param {Date|string|number} date - Data da formattare
- * @returns {string}
- */
+/** Relative time formatter for people who hate timestamps. */
 const formatRelativeTime = (date) => {
     if (!date) return "Never"
 
@@ -42,11 +30,7 @@ const formatRelativeTime = (date) => {
     return `${years} year${years !== 1 ? 's' : ''} ago`
 }
 
-/**
- * Formatta il tempo rimanente fino a una data (es. "2h 30m", "5d 3h")
- * @param {Date|string|number} targetDate - Data target
- * @returns {string}
- */
+/** Countdown formatter so UX can shout "2h 30m" instead of thinking. */
 const formatTimeUntil = (targetDate) => {
     if (!targetDate) return "Available now"
 
@@ -80,13 +64,7 @@ const formatTimeUntil = (targetDate) => {
     return `${seconds}s`
 }
 
-/**
- * Crea una progress bar visuale
- * @param {number} current - Valore corrente
- * @param {number} max - Valore massimo
- * @param {number} length - Lunghezza della barra (default: 10)
- * @returns {string}
- */
+/** Fake progress bar because emoji apparently count as UI. */
 const progressBar = (current, max, length = 10) => {
     const ratio = Math.min(Math.max(current / max, 0), 1)
     const filled = Math.round(ratio * length)
@@ -98,7 +76,7 @@ const progressBar = (current, max, length = 10) => {
 
 module.exports = {
     sleep,
-    delay: sleep, // Alias per retrocompatibilità
+    delay: sleep, // Legacy alias some caller still expects
     formatRelativeTime,
     formatTimeUntil,
     progressBar

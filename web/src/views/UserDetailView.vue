@@ -3,43 +3,43 @@
         <div class="card user-detail__card">
             <header class="user-detail__header">
                 <div>
-                    <h1 class="user-detail__title">Profilo utente</h1>
+                    <h1 class="user-detail__title">User profile</h1>
                     <p class="user-detail__subtitle">
-                        Visione generale dei dati memorizzati nel database MySQL per <strong>{{ userId }}</strong>.
+                        Overview of the data stored in MySQL for <strong>{{ userId }}</strong>.
                     </p>
                 </div>
                 <router-link to="/control_panel" class="button button--ghost">
-                    ← Torna al pannello
+                    ← Back to the panel
                 </router-link>
             </header>
 
-            <div v-if="loading" class="user-detail__loading">Caricamento dati…</div>
+            <div v-if="loading" class="user-detail__loading">Loading data…</div>
             <div v-else-if="error" class="user-detail__error">{{ error }}</div>
             <div v-else class="user-detail__grid">
                 <section>
-                    <h2 class="user-detail__section-title">Bilanci</h2>
+                    <h2 class="user-detail__section-title">Balances</h2>
                     <ul class="user-detail__list">
-                        <li><span>Saldo</span><strong>{{ formatted.money }}</strong></li>
-                        <li><span>Oro</span><strong>{{ formatted.gold }}</strong></li>
+                        <li><span>Balance</span><strong>{{ formatted.money }}</strong></li>
+                        <li><span>Gold</span><strong>{{ formatted.gold }}</strong></li>
                         <li><span>Biggest win</span><strong>{{ formatted.biggestWon }}</strong></li>
                         <li><span>Biggest bet</span><strong>{{ formatted.biggestBet }}</strong></li>
                     </ul>
                 </section>
                 <section>
-                    <h2 class="user-detail__section-title">Progressione</h2>
+                    <h2 class="user-detail__section-title">Progression</h2>
                     <ul class="user-detail__list">
-                        <li><span>Livello</span><strong>{{ formatted.level }}</strong></li>
+                        <li><span>Level</span><strong>{{ formatted.level }}</strong></li>
                         <li><span>Exp</span><strong>{{ formatted.exp }}</strong></li>
                         <li><span>Win rate</span><strong>{{ formatted.winRate }}</strong></li>
-                        <li><span>Ultima attività</span><strong>{{ formatted.lastPlayed }}</strong></li>
+                        <li><span>Last activity</span><strong>{{ formatted.lastPlayed }}</strong></li>
                     </ul>
                 </section>
                 <section>
-                    <h2 class="user-detail__section-title">Azioni rapide</h2>
+                    <h2 class="user-detail__section-title">Quick actions</h2>
                     <div class="user-detail__actions">
-                        <p class="user-detail__actions-hint">Queste azioni verranno abilitate nelle prossime iterazioni.</p>
-                        <button type="button" class="button button--secondary" disabled>Invia bonus</button>
-                        <button type="button" class="button button--ghost" disabled>Reset statistiche</button>
+                        <p class="user-detail__actions-hint">These actions will unlock in a future iteration.</p>
+                        <button type="button" class="button button--secondary" disabled>Send bonus</button>
+                        <button type="button" class="button button--ghost" disabled>Reset stats</button>
                     </div>
                 </section>
             </div>
@@ -50,26 +50,26 @@
 <script>
 import api from "../services/api"
 
-const formatCurrency = (value) => `${Number(value || 0).toLocaleString("it-IT")} $`
+const formatCurrency = (value) => `${Number(value || 0).toLocaleString("en-US")} $`
 const formatPercentage = (value) => `${Number(value || 0).toFixed(2)} %`
-const formatExp = (current, required) => `${Number(current || 0).toLocaleString("it-IT")} / ${Number(required || 0).toLocaleString("it-IT")}`
+const formatExp = (current, required) => `${Number(current || 0).toLocaleString("en-US")} / ${Number(required || 0).toLocaleString("en-US")}`
 const formatDate = (value) => {
-    if (!value) return "N/D"
+    if (!value) return "N/A"
     try {
         const date = new Date(value)
-        const dateFormatter = new Intl.DateTimeFormat("it-IT", {
+        const dateFormatter = new Intl.DateTimeFormat("en-US", {
             day: "2-digit",
             month: "short",
             year: "numeric"
         })
-        const timeFormatter = new Intl.DateTimeFormat("it-IT", {
+        const timeFormatter = new Intl.DateTimeFormat("en-US", {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit"
         })
-        return `${dateFormatter.format(date).replace("di ", "")} ${timeFormatter.format(date)}`
+        return `${dateFormatter.format(date)} ${timeFormatter.format(date)}`
     } catch (error) {
-        return "N/D"
+        return "N/A"
     }
 }
 
@@ -111,7 +111,7 @@ export default {
                 const data = await api.getUserById({ id: this.userId })
                 this.user = data
             } catch (error) {
-                this.error = "Impossibile recuperare i dettagli dell'utente."
+                this.error = "Unable to fetch that user's details."
             } finally {
                 this.loading = false
             }

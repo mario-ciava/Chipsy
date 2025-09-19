@@ -12,6 +12,7 @@ const {
 } = upgrades
 const createCommand = require("../utils/createCommand")
 const logger = require("../utils/logger")
+const { logAndSuppress } = require("../utils/loggingHelpers")
 
 const slashCommand = new SlashCommandBuilder()
     .setName("profile")
@@ -31,6 +32,15 @@ module.exports = createCommand({
     deferEphemeral: true, // Defer to allow time for database fetch
     errorMessage: "Unable to load your profile right now. Please try again later.",
     execute: async(interaction, client) => {
+        const buildComponentLog = (target = interaction, message, extraMeta = {}) =>
+            logAndSuppress(message, {
+                scope: "commands.profile",
+                interactionId: target?.id || interaction?.id,
+                channelId: target?.channel?.id || target?.channelId || interaction?.channelId,
+                userId: target?.user?.id || interaction?.user?.id,
+                ...extraMeta
+            })
+
         const respond = async(payload = {}) => {
             if (interaction.deferred && !interaction.replied) {
                 return interaction.editReply(payload)
@@ -87,16 +97,25 @@ module.exports = createCommand({
             collector.on("collect", async(componentInteraction) => {
                 try {
                     const customId = componentInteraction.customId
+                    const logComponentError = (message, meta = {}) =>
+                        buildComponentLog(componentInteraction, message, {
+                            customId,
+                            ...meta
+                        })
+                    const handleProfilePromiseRejection = logComponentError("Profile interaction promise rejected")
 
                     // Handle toggling upgrade visibility
                     if (customId === `profile_toggle_upgrades:${author.id}`) {
                         try {
                             await componentInteraction.deferUpdate()
-                        } catch {
+                        } catch (error) {
+                            logComponentError("Failed to defer toggle upgrades interaction", { error: error?.message })
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(
+                                logComponentError("Failed to notify about unavailable profile")
+                            )
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -104,13 +123,22 @@ module.exports = createCommand({
 
                         // Re-render with updated state
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
-                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                        try {
+                            await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents })
+                        } catch (error) {
+                            logger.warn("Failed to edit profile message", {
+                                scope: "commands.profile",
+                                channelId: interaction.channel?.id,
+                                error: error?.message
+                            })
                             await componentInteraction.followUp({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(
+                                logComponentError("Failed to warn about unavailable profile on edit failure")
+                            )
                             if (collector && !collector.ended) collector.stop("message_deleted")
-                        })
+                        }
                         return
                     }
 
@@ -151,11 +179,14 @@ module.exports = createCommand({
                     if (customId === `profile_show_settings:${author.id}`) {
                         try {
                             await componentInteraction.deferUpdate()
-                        } catch {
+                        } catch (error) {
+                            logComponentError("Failed to defer show settings interaction", { error: error?.message })
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(
+                                logComponentError("Failed to warn about unavailable profile (settings)")
+                            )
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -165,11 +196,14 @@ module.exports = createCommand({
 
                         // Re-render with settings menu
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
-                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async(error) => {
+                            logComponentError("Failed to edit profile view when showing settings", { error: error?.message })
                             await componentInteraction.followUp({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(
+                                logComponentError("Failed to warn about unavailable profile after edit failure (settings)")
+                            )
                             if (collector && !collector.ended) collector.stop("message_deleted")
                         })
                         return
@@ -179,11 +213,14 @@ module.exports = createCommand({
                     if (customId === `profile_cancel_setting:${author.id}`) {
                         try {
                             await componentInteraction.deferUpdate()
-                        } catch {
+                        } catch (error) {
+                            logComponentError("Failed to defer cancel setting interaction", { error: error?.message })
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(
+                                logComponentError("Failed to warn about unavailable profile (cancel setting)")
+                            )
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -192,11 +229,14 @@ module.exports = createCommand({
 
                         // Re-render without settings menu
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
-                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
+                        await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async(error) => {
+                            logComponentError("Failed to edit profile view when canceling setting", { error: error?.message })
                             await componentInteraction.followUp({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(
+                                logComponentError("Failed to warn about unavailable profile after edit failure (cancel setting)")
+                            )
                             if (collector && !collector.ended) collector.stop("message_deleted")
                         })
                         return
@@ -210,7 +250,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -224,7 +264,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ Please select a setting from the menu first!",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             return
                         }
 
@@ -234,7 +274,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -267,7 +307,7 @@ module.exports = createCommand({
                                 await componentInteraction.followUp({
                                     content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}!\n\n⚠️ Profile view expired. Use \`/profile\` to see updated settings.`,
                                     flags: MessageFlags.Ephemeral
-                                }).catch(() => null)
+                                }).catch(handleProfilePromiseRejection)
                                 if (collector && !collector.ended) collector.stop("message_deleted")
                                 return null
                             })
@@ -277,7 +317,7 @@ module.exports = createCommand({
                                 await componentInteraction.followUp({
                                     content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}! ${newValue === 1 ? "🔒 Others cannot see your money and gold." : "🔓 Others can see your money and gold."}`,
                                     flags: MessageFlags.Ephemeral
-                                }).catch(() => null)
+                                }).catch(handleProfilePromiseRejection)
                             }
                         }
                         return
@@ -291,7 +331,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -304,7 +344,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                         })
                         return
@@ -319,7 +359,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -333,7 +373,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                         })
                         return
@@ -348,7 +388,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -362,7 +402,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ Please select an upgrade from the menu first!",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             return
                         }
 
@@ -373,7 +413,7 @@ module.exports = createCommand({
                             await componentInteraction.reply({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return
                         }
@@ -391,7 +431,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: "❌ Invalid upgrade selection!",
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             return
                         }
 
@@ -402,7 +442,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: `❌ ${upgrade.emoji} **${upgrade.name}** is already at maximum level!`,
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             return
                         }
 
@@ -412,7 +452,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: `❌ You need **${setSeparator(cost)}$** to buy this upgrade!\n💰 Your balance: **${setSeparator(freshData.money)}$**`,
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             return
                         }
 
@@ -436,7 +476,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**\n\n⚠️ Profile view expired. Use \`/profile\` to see updated stats.`,
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
                             return null
                         })
@@ -446,7 +486,7 @@ module.exports = createCommand({
                             await componentInteraction.followUp({
                                 content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**`,
                                 flags: MessageFlags.Ephemeral
-                            }).catch(() => null)
+                            }).catch(handleProfilePromiseRejection)
                         }
                     }
 
@@ -463,12 +503,12 @@ module.exports = createCommand({
                         await componentInteraction.reply({
                             content: "❌ An error occurred. Please try again.",
                             flags: MessageFlags.Ephemeral
-                        }).catch(() => null)
+                        }).catch(handleProfilePromiseRejection)
                     } else {
                         await componentInteraction.followUp({
                             content: "❌ An error occurred. Please try again.",
                             flags: MessageFlags.Ephemeral
-                        }).catch(() => null)
+                        }).catch(handleProfilePromiseRejection)
                     }
                 }
             })
@@ -485,7 +525,14 @@ module.exports = createCommand({
                     return newRow
                 })
 
-                interaction.editReply({ components: disabledComponents }).catch(() => null)
+                interaction.editReply({ components: disabledComponents }).catch((error) => {
+                    logger.warn("Failed to disable profile components after collector end", {
+                        scope: "commands.profile",
+                        channelId: interaction.channel?.id,
+                        error: error?.message
+                    })
+                    return null
+                })
             })
         }
     }
@@ -505,7 +552,7 @@ function buildProfileMessage(author, state = {}) {
 
     const winLossRatio = data.hands_played > 0 ? (data.hands_won / data.hands_played) * 100 : 0
     const winLossRatioString = `${winLossRatio.toFixed(1)}%`
-    const joinDate = new Date(data.join_date).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' })
+    const joinDate = new Date(data.join_date).toLocaleDateString("en-US", { day: "2-digit", month: "long", year: "numeric" })
 
     const upgradeFields = []
 

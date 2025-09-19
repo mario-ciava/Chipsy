@@ -16,7 +16,7 @@
                     />
                     <span class="toggle-switch__slider"></span>
                 </label>
-                <span class="log-console__toggle-label">Registra comandi</span>
+                <span class="log-console__toggle-label">Record commands</span>
             </div>
         </div>
         <div class="log-console__body">
@@ -32,24 +32,24 @@
                         <span class="log-console__message">{{ entry.message }}</span>
                     </li>
                 </transition-group>
-                <p v-if="!logs.length" class="log-console__empty">Nessun evento registrato al momento.</p>
+                <p v-if="!logs.length" class="log-console__empty">No events logged right now.</p>
             </div>
         </div>
         <div class="log-console__footer">
             <div class="log-console__hint">
-                <strong>Terminale remoto</strong>
-                <span>Per motivi di sicurezza l'invio di comandi remoti non è abilitato in questa interfaccia.</span>
+                <strong>Remote shell</strong>
+                <span>Remote command submission stays disabled here for everyone's sanity.</span>
             </div>
             <div class="log-console__input">
-                <input type="text" placeholder="Invio comandi disabilitato" disabled />
-                <button class="button button--secondary" disabled>Invia</button>
+                <input type="text" placeholder="Remote commands disabled" disabled />
+                <button class="button button--secondary" disabled>Send</button>
             </div>
         </div>
     </div>
 </template>
 
 <script>
-const formatter = new Intl.DateTimeFormat("it-IT", {
+const formatter = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -74,11 +74,11 @@ export default {
         },
         title: {
             type: String,
-            default: "Log attività"
+            default: "Activity log"
         },
         subtitle: {
             type: String,
-            default: "Traccia gli eventi principali del pannello di controllo e gli aggiornamenti dello stato bot."
+            default: "Track key panel events and bot status updates."
         },
         showToggle: {
             type: Boolean,

@@ -3,60 +3,60 @@
         <header class="page__header home__hero">
             <h1 class="page__title">Chipsy Control Panel</h1>
             <p class="page__subtitle home__subtitle">
-                Gestisci Chipsy con un click: controlla lo stato del bot, monitora i dati MySQL e invita l’assistente nei tuoi server Discord.
+                Manage Chipsy with one click: check bot status, watch MySQL data, and drop the assistant into your Discord servers.
             </p>
         </header>
 
         <section class="page__section home__section">
             <div class="card card--highlight home__card">
                 <template v-if="!isAuthenticated">
-                    <h2 class="card__title">Accedi con Discord</h2>
+                    <h2 class="card__title">Sign in with Discord</h2>
                     <p class="card__body">
-                        Collegati con il tuo account per aprire il pannello di controllo. Solo gli amministratori autorizzati possono abilitare o sospendere Chipsy e consultare le statistiche della community.
+                        Use your account to unlock the control panel. Only approved admins can enable or suspend Chipsy and review community stats.
                     </p>
                     <div class="home__cta">
                         <button class="button button--primary home__cta-button" @click="goToLogin" :disabled="processing">
-                            <span v-if="processing">Reindirizzamento in corso…</span>
-                            <span v-else>Accedi con Discord</span>
+                            <span v-if="processing">Redirecting…</span>
+                            <span v-else>Sign in with Discord</span>
                         </button>
                     </div>
                 </template>
                 <template v-else-if="isAdmin">
-                    <h2 class="card__title">Bentornato, {{ userName }}</h2>
+                    <h2 class="card__title">Welcome back, {{ userName }}</h2>
                     <p class="card__body">
-                        Sei pronto a gestire Chipsy. Apri il pannello per abilitare o sospendere il bot, invitare nuovi server e consultare i dati live.
+                        Time to babysit Chipsy. Open the panel to enable/disable the bot, invite new servers, and read live stats.
                     </p>
                     <div class="home__cta">
                         <router-link to="/control_panel" class="button button--primary home__cta-button">
-                            Vai al pannello
+                            Open the panel
                         </router-link>
                     </div>
                 </template>
                 <template v-else>
-                    <h2 class="card__title">Accesso completato</h2>
+                    <h2 class="card__title">Access granted</h2>
                     <p class="card__body">
-                        Il tuo account è autenticato, ma non dispone dei permessi amministrativi necessari per il pannello. Continua a usare i comandi di Chipsy direttamente da Discord oppure contatta un admin per ottenere l’accesso.
+                        Your account is authenticated but lacks the admin role for this panel. Keep using Chipsy directly on Discord or ping an admin for elevated access.
                     </p>
                 </template>
             </div>
 
             <div class="card home__features">
-                <h3 class="card__title">Perché scegliere Chipsy</h3>
+                <h3 class="card__title">Why Chipsy</h3>
                 <ul class="features-list">
                     <li>
-                        <strong>Esperienza casinò:</strong> blackjack, texas hold’em e altri giochi con bankroll condiviso tra bot e pannello.
+                        <strong>Casino workflow:</strong> blackjack, texas hold'em, and other games with a bankroll shared between bot and panel.
                     </li>
                     <li>
-                        <strong>Progressione giocatori:</strong> livelli, premi automatici e statistiche sempre sincronizzate con il database MySQL.
+                        <strong>Player progression:</strong> levels, auto-rewards, and stats kept in sync with MySQL.
                     </li>
                     <li>
-                        <strong>Integrazione Discord:</strong> gestione trasparente di inviti, permessi e comandi slash ottimizzati per le community.
+                        <strong>Discord-native:</strong> sane invite flows, permissions, and slash commands tuned for communities.
                     </li>
                 </ul>
             </div>
 
             <div v-if="processing" class="page__status home__status">
-                Stiamo convalidando l’accesso…
+                Validating your access…
             </div>
 
             <transition name="fade">
@@ -138,7 +138,7 @@ export default {
                 }
                 this.onAuthenticated()
             } catch (error) {
-                this.errorMessage = "Impossibile completare l'accesso. Riprova più tardi."
+                this.errorMessage = "Unable to complete the login. Try again later."
                 // eslint-disable-next-line no-console
                 console.error("OAuth exchange failed", error)
             } finally {

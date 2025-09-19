@@ -1,10 +1,10 @@
 /**
  * =====================================================
  * Chipsy Dev Runner (Docker Edition)
- *  - Avvia MySQL tramite Docker
- *  - Attende healthcheck del DB
- *  - Lancia bot e pannello in parallelo
- *  - Gestisce log e terminazioni pulite
+ *  - Spins up MySQL with Docker because apparently that's our life
+ *  - Waits for the DB health check before anything melts
+ *  - Boots bot and panel in parallel
+ *  - Pipes logs and kills processes without mercy
  * =====================================================
  */
 
@@ -14,12 +14,12 @@ import dotenv from "dotenv";
 import readline from "readline";
 import fs from "fs";
 
-// Per importare moduli CommonJS da ES module
+// Drag CommonJS modules into this ESM sandbox.
 const require = createRequire(import.meta.url);
 const { constants } = require("../config");
 const sharedLogger = require("../bot/utils/logger");
 
-// Carica le variabili d'ambiente dal file .env
+// Load .env because the process sure won't.
 dotenv.config();
 
 const LOG_SCOPE = "devRunner";
@@ -38,7 +38,7 @@ const logOk = (message, meta) => logMessage("info", message, meta);
 const logWarn = (message, meta) => logMessage("warn", message, meta);
 const logErr = (message, meta) => logMessage("error", message, meta);
 
-// Piccolo filtro per evitare spam di log duplicati in rapida successione
+// Cheap dedupe layer so the console stops repeating itself every millisecond.
 const DEDUPE_WINDOW_MS = 1500;
 const DEDUPE_CACHE_LIMIT = 256;
 const recentLogCache = new Map();
@@ -74,7 +74,7 @@ const shouldSkipDuplicateLog = (level, message) => {
 };
 
 function isRunningInDocker() {
-  // Metodo A: verifica se esiste /.dockerenv (file presente in tutti i container Docker)
+  // Plan A: /.dockerenv exists on every Docker container, allegedly.
   try {
     fs.accessSync("/.dockerenv");
     return true;
@@ -85,7 +85,7 @@ function isRunningInDocker() {
     });
   }
 
-  // Metodo B: verifica se esiste /proc/1/cgroup e contiene 'docker'
+  // Plan B: sniff /proc/1/cgroup for docker/containerd breadcrumbs.
   try {
     const cgroup = fs.readFileSync("/proc/1/cgroup", "utf8");
     if (cgroup.includes("docker") || cgroup.includes("containerd")) return true;
@@ -96,13 +96,12 @@ function isRunningInDocker() {
     });
   }
 
-  // Metodo C: controlla variabile manuale opzionale
+  // Plan C: trust whoever flipped DOCKER_ENV.
   return process.env.DOCKER_ENV === "true";
 }
 
 // ============================================================================
-// HOST DETECTION: Rileva automaticamente l'ambiente ed imposta MYSQL_HOST
-// Questo avviene PRIMA che bot/config.js legga le variabili
+// HOST DETECTION: decide MYSQL_HOST before bot/config.js wakes up
 // ============================================================================
 if (isRunningInDocker()) {
   process.env.MYSQL_HOST = "mysql";
@@ -112,7 +111,7 @@ if (isRunningInDocker()) {
   logSys("Detected local environment → MYSQL_HOST=localhost", { phase: "env" });
 }
 
-// --- Funzioni di utilità ----------------------------------------------------
+// --- Utility noise ----------------------------------------------------------
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -216,18 +215,18 @@ const attachProcessLogging = (child, name) => {
   attachStreamLogger(child.stderr, name, "stderr");
 };
 
-// --- Gestione child process -------------------------------------------------
+// --- Child-process babysitting ----------------------------------------------
 
 const children = new Map(); // { name: { process, restartCount, shouldRestart } }
 let isShuttingDown = false;
 
 /**
- * Spawna un processo figlio con monitoraggio crash e restart automatico
- * @param {string} cmd - Comando da eseguire
- * @param {string[]} args - Argomenti
- * @param {string} name - Nome del processo per logging
- * @param {boolean} autoRestart - Se true, riavvia automaticamente in caso di crash
- * @param {number} inheritRestartCount - Restart count ereditato (per preservare il contatore)
+ * Spawn a child process, watch it explode, optionally auto-restart it.
+ * @param {string} cmd - Command to run
+ * @param {string[]} args - Args for the command
+ * @param {string} name - Label for logs
+ * @param {boolean} autoRestart - Restart if it dies
+ * @param {number} inheritRestartCount - Keeps the restart counter honest
  */
 function spawnProc(cmd, args, name, autoRestart = true, inheritRestartCount = 0) {
   const child = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"], shell: true });
@@ -247,35 +246,32 @@ function spawnProc(cmd, args, name, autoRestart = true, inheritRestartCount = 0)
     const childInfo = children.get(name);
 
     if (isShuttingDown) {
-      // Shutdown normale - rimuovi dalla mappa
       children.delete(name);
-      logSys(`${name} terminato correttamente`);
+      logSys(`${name} exited cleanly`);
       return;
     }
 
     if (code !== 0 && code !== null) {
-      logErr(`${name} crashato con codice ${code}`);
+      logErr(`${name} crashed with exit code ${code}`);
     } else if (signal) {
-      logWarn(`${name} terminato da segnale ${signal}`);
+      logWarn(`${name} died via signal ${signal}`);
     }
 
-    // Auto-restart se abilitato e non in shutdown
     if (childInfo?.shouldRestart && !isShuttingDown) {
       childInfo.restartCount += 1;
 
       if (childInfo.restartCount > constants.retry.childProcess.maxRestarts) {
-        logErr(`${name} crashato troppe volte (${childInfo.restartCount}). Restart disabilitato.`);
+        logErr(`${name} crashed ${childInfo.restartCount} times. Auto-restart disabled.`);
         childInfo.shouldRestart = false;
         return;
       }
 
       const delay = Math.min(1000 * childInfo.restartCount, constants.retry.childProcess.maxDelay);
-      logWarn(`Riavvio ${name} tra ${delay}ms... (tentativo ${childInfo.restartCount}/${constants.retry.childProcess.maxRestarts})`);
+      logWarn(`Restarting ${name} in ${delay}ms (attempt ${childInfo.restartCount}/${constants.retry.childProcess.maxRestarts})`);
 
       setTimeout(() => {
         if (!isShuttingDown) {
-          logSys(`Riavvio ${name}...`);
-          // Passa il restartCount corrente per preservare il contatore
+          logSys(`Restarting ${name} now...`);
           spawnProc(childInfo.cmd, childInfo.args, childInfo.name, true, childInfo.restartCount);
         }
       }, delay);
@@ -285,7 +281,7 @@ function spawnProc(cmd, args, name, autoRestart = true, inheritRestartCount = 0)
   });
 
   child.on("error", (error) => {
-    logErr(`Errore spawn ${name}: ${error.message}`);
+    logErr(`Failed to spawn ${name}: ${error.message}`);
   });
 
   return child;
@@ -316,78 +312,78 @@ const runCommandOnce = (cmd, args, name, options = {}) => {
   });
 };
 
-// --- Gestione chiusura graceful ---------------------------------------------
+// --- Graceful-ish shutdown ---------------------------------------------------
 
 /**
- * Gestisce la terminazione graceful di tutti i processi figli
- * - Invia SIGINT ai figli
- * - Attende fino a 10 secondi per chiusura normale
- * - Forza SIGKILL se necessario
+ * Try to shut down every child without torching the box:
+ * - Send SIGINT first
+ * - Wait a bit like civilized people
+ * - Swing SIGKILL if they ignore us
  */
 async function handleExit() {
   if (isShuttingDown) {
-    logWarn("Shutdown già in corso...");
+    logWarn("Shutdown already in progress...");
     return;
   }
 
   isShuttingDown = true;
-  logWarn("🛑 Terminazione in corso...");
+  logWarn("🛑 Tearing everything down...");
 
-  // Chiudi readline per evitare nuovi input
+  // Kill readline so no more input sneaks in.
   rl.close();
 
   if (children.size === 0) {
-    logSys("Nessun processo figlio da terminare");
+    logSys("No child processes left to terminate");
     process.exit(0);
   }
 
-  // Fase 1: Invia SIGINT per graceful shutdown
-  logSys(`Invio SIGINT a ${children.size} processi...`);
+  // Phase 1: ask nicely with SIGINT.
+  logSys(`Sending SIGINT to ${children.size} processes...`);
   for (const [name, childInfo] of children) {
     try {
       if (childInfo.process && !childInfo.process.killed) {
         childInfo.process.kill("SIGINT");
       }
     } catch (error) {
-      logWarn(`Impossibile inviare SIGINT a ${name}: ${error.message}`);
+      logWarn(`Failed to deliver SIGINT to ${name}: ${error.message}`);
     }
   }
 
-  // Fase 2: Attendi graceful shutdown
+  // Phase 2: wait a little.
   const startTime = Date.now();
 
   while (children.size > 0 && (Date.now() - startTime) < constants.timeouts.devRunnerShutdown) {
     await sleep(100);
   }
 
-  // Fase 3: Force kill eventuali processi rimasti
+  // Phase 3: swing SIGKILL at whatever still breathes.
   if (children.size > 0) {
-    logWarn(`${children.size} processi ancora attivi. Invio SIGKILL...`);
+    logWarn(`${children.size} processes still alive. Sending SIGKILL...`);
     for (const [name, childInfo] of children) {
       try {
         if (childInfo.process && !childInfo.process.killed) {
           childInfo.process.kill("SIGKILL");
-          logWarn(`SIGKILL inviato a ${name}`);
+          logWarn(`SIGKILL sent to ${name}`);
         }
       } catch (error) {
-        logWarn(`Impossibile killare ${name}: ${error.message}`);
+        logWarn(`Unable to kill ${name}: ${error.message}`);
       }
     }
-    // Breve attesa finale
+    // Tiny pause while the OS cleans up.
     await sleep(500);
   }
 
-  logOk("Tutti i processi terminati correttamente ✅");
+  logOk("Every child process is finally dead ✅");
   process.exit(0);
 }
 
-// Gestione segnali di terminazione
+// Signal wiring
 process.on("SIGINT", handleExit);
 process.on("SIGTERM", handleExit);
 
-// Gestione errori non catturati (evita crash silenti)
+// Crash handlers so we at least know what exploded.
 process.on("uncaughtException", (error) => {
-  logErr(`Eccezione non gestita: ${error.message}`, {
+  logErr(`Unhandled exception: ${error.message}`, {
     stack: error.stack
   });
   handleExit();
@@ -395,29 +391,29 @@ process.on("uncaughtException", (error) => {
 
 process.on("unhandledRejection", (reason, promise) => {
   const baseMessage = reason instanceof Error ? reason.message : String(reason);
-  logErr(`Promise rejection non gestita: ${baseMessage}`, {
+  logErr(`Unhandled promise rejection: ${baseMessage}`, {
     stack: reason instanceof Error ? reason.stack : undefined
   });
   handleExit();
 });
 
-// --- Avvio sequenziale ------------------------------------------------------
+// --- Startup sequence -------------------------------------------------------
 
 async function main() {
   console.clear();
-  logSys("🚀 Avvio completo ambiente Chipsy...");
+  logSys("🚀 Booting the full Chipsy stack...");
 
-  // 1️⃣ Avvio MySQL tramite Docker
+  // 1️⃣ Spin up MySQL via Docker
   try {
-    logSys("Avvio Docker MySQL...");
+    logSys("Starting Docker MySQL service...");
     await runCommandOnce("docker", ["compose", "up", "-d", "mysql"], "docker:compose");
   } catch (e) {
-    logErr("Impossibile avviare Docker Compose. Assicurati che Docker Desktop sia attivo.");
+    logErr("Unable to start Docker Compose. Make sure Docker Desktop is awake.");
     process.exit(1);
   }
 
-  // 2️⃣ Attesa healthcheck MySQL
-  logSys("⏳ Attendo che MySQL diventi 'healthy'...");
+  // 2️⃣ Wait for MySQL to report healthy
+  logSys("⏳ Waiting for MySQL to become healthy...");
   let healthy = false;
   const maxHealthcheckAttempts = Math.floor(constants.timeouts.mysqlHealthcheck / constants.development.healthcheckInterval);
 
@@ -435,29 +431,29 @@ async function main() {
   }
 
   if (!healthy) {
-    logErr(`MySQL non è pronto entro il tempo limite (${constants.timeouts.mysqlHealthcheck / 1000}s).`);
+    logErr(`MySQL never got healthy within ${constants.timeouts.mysqlHealthcheck / 1000}s.`);
     process.exit(1);
   }
-  logOk("MySQL pronto e funzionante ✅");
+  logOk("MySQL is up ✅");
 
-  // 3️⃣ Avvio bot e pannello in parallelo
-  logSys("Avvio bot e pannello web...");
+  // 3️⃣ Launch bot and panel in parallel
+  logSys("Starting bot and web panel...");
   spawnProc("npm", ["run dev:bot"], "bot");
-  await sleep(constants.development.panelStartDelay); // Piccolo offset per separare output nei log
+  await sleep(constants.development.panelStartDelay); // Small offset so the logs are readable.
   spawnProc("npm", ["run dev:panel"], "panel");
 
-  // 4️⃣ Informazioni riepilogative
-  logOk("Tutti i servizi sono in esecuzione.");
-  logSys("Endpoints disponibili:", { stage: "summary" });
-  logSys("• Pannello Web: http://localhost:8080", { stage: "summary", target: "web" });
+  // 4️⃣ Summary spam
+  logOk("All services are running.");
+  logSys("Available endpoints:", { stage: "summary" });
+  logSys("• Web panel: http://localhost:8080", { stage: "summary", target: "web" });
   logSys("• Bot API: http://localhost:8082/api", { stage: "summary", target: "api" });
   logSys("• MySQL CLI: docker exec -it chipsy-mysql mysql -u root -p", { stage: "summary", target: "mysql" });
 
-  // 5️⃣ Mantieni il processo aperto per poterlo terminare con Ctrl+C
+  // 5️⃣ Keep the runner alive so Ctrl+C still works
   rl.on("SIGINT", handleExit);
 }
 
 main().catch((err) => {
-  logErr(`Errore fatale: ${err.message}`, { stack: err.stack });
+  logErr(`Fatal error: ${err.message}`, { stack: err.stack });
   process.exit(1);
 });

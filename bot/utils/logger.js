@@ -73,7 +73,7 @@ const dim = (value) => {
 const formatTimestamp = (inputTimestamp) => {
     const date = inputTimestamp instanceof Date ? inputTimestamp : new Date(inputTimestamp || Date.now())
     return date
-        .toLocaleTimeString("it-IT", {
+        .toLocaleTimeString("en-US", {
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit",

@@ -18,8 +18,16 @@ store.dispatch("session/bootstrap")
         try {
             if (store.getters["session/isAuthenticated"] && store.getters["session/isAdmin"]) {
                 await Promise.all([
-                    store.dispatch("bot/fetchStatus").catch(() => null),
-                    store.dispatch("users/refresh").catch(() => null)
+                    store.dispatch("bot/fetchStatus").catch((error) => {
+                        // eslint-disable-next-line no-console
+                        console.warn("Failed to prefetch bot status", error)
+                        return null
+                    }),
+                    store.dispatch("users/refresh").catch((error) => {
+                        // eslint-disable-next-line no-console
+                        console.warn("Failed to prefetch users list", error)
+                        return null
+                    })
                 ])
             }
         } catch (error) {

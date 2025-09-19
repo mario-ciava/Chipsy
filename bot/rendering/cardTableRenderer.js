@@ -188,7 +188,18 @@ async function loadCardImage(cardName) {
 
 async function preloadCards(cardNames = []) {
     await ensureCardBackLoaded();
-    await Promise.all((cardNames || []).map(card => loadCardImage(card).catch(() => null)));
+    await Promise.all(
+        (cardNames || []).map((card) =>
+            loadCardImage(card).catch((error) => {
+                logger.warn("Failed to preload card asset", {
+                    scope: "cardTableRenderer",
+                    cardName: card,
+                    message: error?.message
+                });
+                return null;
+            })
+        )
+    );
 }
 
 function clearImageCache() {
