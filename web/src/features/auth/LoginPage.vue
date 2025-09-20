@@ -30,10 +30,10 @@
 </template>
 
 <script>
-import { getRuntimeOrigin } from "../utils/runtime"
+import { getRuntimeOrigin } from "../../utils/runtime"
 
 export default {
-    name: "LoginView",
+    name: "LoginPage",
     computed: {
         clientId() {
             return process.env.VUE_APP_DISCORD_CLIENT_ID

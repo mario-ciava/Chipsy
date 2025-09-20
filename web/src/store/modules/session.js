@@ -1,5 +1,7 @@
 import api from "../../services/api"
 
+let bootstrapPromise = null
+
 const initialState = () => ({
     user: null,
     csrfToken: null,
@@ -43,15 +45,26 @@ export default {
     },
     actions: {
         async bootstrap({ commit, dispatch, state }) {
-            if (state.initialized) return
-
-            try {
-                await dispatch("refreshSession")
-            } catch (error) {
-                commit("SET_ERROR", error)
+            if (state.initialized) {
+                return Promise.resolve()
             }
 
-            commit("SET_INITIALIZED", true)
+            if (bootstrapPromise) {
+                return bootstrapPromise
+            }
+
+            bootstrapPromise = (async() => {
+                try {
+                    await dispatch("refreshSession")
+                } catch (error) {
+                    commit("SET_ERROR", error)
+                } finally {
+                    commit("SET_INITIALIZED", true)
+                    bootstrapPromise = null
+                }
+            })()
+
+            return bootstrapPromise
         },
 
         async completeLogin({ commit, dispatch }, code) {
@@ -120,6 +133,10 @@ export default {
                 commit("RESET_STATE")
                 commit("SET_INITIALIZED", true)
             }
+        },
+
+        clear({ commit }) {
+            commit("RESET_STATE")
         }
     }
 }

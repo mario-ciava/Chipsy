@@ -112,27 +112,7 @@
 </template>
 
 <script>
-const formatCurrency = (value) => {
-    const amount = Number(value) || 0
-    return `${amount.toLocaleString("en-US")} $`
-}
-
-const formatPercentage = (value) => `${Number(value || 0).toFixed(2)} %`
-
-const formatExp = (current, required) => `${current.toLocaleString("en-US")} / ${required.toLocaleString("en-US")}`
-
-const formatDate = (value) => {
-    if (!value) return "N/A"
-    try {
-        const formatter = new Intl.DateTimeFormat("en-US", {
-            dateStyle: "short",
-            timeStyle: "short"
-        })
-        return formatter.format(new Date(value))
-    } catch (_error) {
-        return "N/A"
-    }
-}
+import { formatCurrency, formatPercentage, formatExpRange, formatDateTime } from "../../../utils/formatters"
 
 export default {
     name: "UserTable",
@@ -170,13 +150,13 @@ export default {
                 id: user.id,
                 balance: formatCurrency(user.money),
                 level: user.level,
-                exp: formatExp(
+                exp: formatExpRange(
                     Number(user.current_exp !== undefined ? user.current_exp : user.currentExp),
                     Number(user.required_exp !== undefined ? user.required_exp : user.requiredExp)
                 ),
                 winRate: formatPercentage(user.winRate),
                 biggestWon: formatCurrency(user.biggest_won !== undefined ? user.biggest_won : user.biggestWon),
-                lastPlayed: formatDate(user.last_played !== undefined ? user.last_played : user.lastPlayed),
+                lastPlayed: formatDateTime(user.last_played !== undefined ? user.last_played : user.lastPlayed),
                 username: user.username || "N/A"
             }))
         }

@@ -103,18 +103,6 @@ a:hover {
     background: rgba(15, 23, 42, 0.82);
 }
 
-.features-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: grid;
-    gap: 16px;
-}
-
-.features-list strong {
-    color: var(--fg-secondary);
-}
-
 .home__status {
     justify-self: center;
 }
@@ -319,6 +307,21 @@ a:hover {
     background: rgba(148, 163, 184, 0.16);
     border-color: rgba(148, 163, 184, 0.55);
     transform: translateY(-1px);
+}
+.button__spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .button--danger {
@@ -800,10 +803,6 @@ a:hover {
 
 .features-list strong {
     color: var(--fg-secondary);
-}
-
-.home__status {
-    justify-self: center;
 }
 
 .user-detail {

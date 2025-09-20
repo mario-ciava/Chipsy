@@ -9,7 +9,7 @@
 
 <script>
 export default {
-    name: "LogoutView",
+    name: "LogoutPage",
     async created() {
         await this.$store.dispatch("session/logout")
         this.$router.replace({ name: "Home" })

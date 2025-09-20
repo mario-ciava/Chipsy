@@ -20,7 +20,13 @@ const createTokenCache = require("./utils/tokenCache")
 
 const buildDiscordError = (error, fallbackMessage) => {
     const status = error.status || error.response?.status || 500
-    const message = error.data?.message
+    const description =
+        error.data?.error_description
+        || error.response?.data?.error_description
+        || error.data?.description
+        || error.response?.data?.description
+    const message = description
+        || error.data?.message
         || error.response?.data?.message
         || error.response?.statusText
         || error.message
@@ -29,6 +35,9 @@ const buildDiscordError = (error, fallbackMessage) => {
 
     const err = new Error(message)
     err.status = status
+    if (error.data || error.response?.data) {
+        err.details = error.data || error.response?.data
+    }
     return err
 }
 
@@ -320,8 +329,8 @@ module.exports = (client, webSocket, options = {}) => {
 
     app.use("/api", apiRouter)
 
-    // Serve static files from public directory (production build)
-    const publicPath = path.join(__dirname, "../public")
+    // Serve static files from the Vue build output (web/dist)
+    const publicPath = path.join(__dirname, "../web/dist")
     const indexPath = path.join(publicPath, "index.html")
     const hasBuiltFrontend = fs.existsSync(indexPath)
 

@@ -1,4 +1,5 @@
-const { defineConfig } = require('@vue/cli-service')
+const path = require("path")
+const { defineConfig } = require("@vue/cli-service")
 
 // NOTA: Queste porte devono corrispondere a config/index.js
 // - vueDev: 8080
@@ -48,8 +49,8 @@ module.exports = defineConfig({
     }
   },
 
-  // Production build output directory
-  outputDir: '../public',
+  // Production build output directory (kept inside web/ to avoid polluting the root workspace)
+  outputDir: path.resolve(__dirname, "dist"),
 
   // Public path configuration
   publicPath: process.env.NODE_ENV === 'production' ? '/' : '/'

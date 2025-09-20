@@ -8,6 +8,7 @@ const createCommand = require("../utils/createCommand")
 const bankrollManager = require("../utils/bankrollManager")
 const { registerGame } = require("../utils/gameRegistry")
 const { createLobbySession } = require("../lobbies")
+const config = require("../../config")
 
 const testerProvisionConfig = {
     testerUserId: process.env.TEXAS_TEST_USER_ID,
@@ -150,6 +151,7 @@ const runTexas = async(interaction, client) => {
             const playerCountLabel = `${players.length}/${maxPlayersLimit}`
             const tableIsFull = players.length >= maxPlayersLimit
             const hasPlayers = players.length > 1
+            const actionTimeoutSeconds = Math.round((game?.actionTimeoutMs || config.texas.actionTimeout.default) / 1000)
 
             const embed = new EmbedBuilder()
                 .setColor(palette.color)
@@ -160,7 +162,8 @@ const runTexas = async(interaction, client) => {
                     { name: "💰 Requirements", value: `Min buy-in: ${setSeparator(game.minBuyIn)}
 Max buy-in: ${setSeparator(game.maxBuyIn)}
 Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`, inline: false },
-                    { name: "👑 Host", value: hostMention, inline: true }
+                    { name: "👑 Host", value: hostMention, inline: true },
+                    { name: "⏱️ Table speed", value: `${actionTimeoutSeconds}s per action`, inline: true }
                 )
                 .setFooter({ text: state.footerText || palette.footer })
                 .setTimestamp()
@@ -170,7 +173,8 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                     new ButtonBuilder().setCustomId("tx:join").setLabel("Join").setStyle(ButtonStyle.Success).setDisabled(tableIsFull),
                     new ButtonBuilder().setCustomId("tx:leave").setLabel("Leave").setStyle(ButtonStyle.Secondary),
                     new ButtonBuilder().setCustomId("tx:start").setLabel("Start").setStyle(ButtonStyle.Primary).setDisabled(!hasPlayers),
-                    new ButtonBuilder().setCustomId("tx:cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger)
+                    new ButtonBuilder().setCustomId("tx:cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId("tx:settings").setLabel("Settings").setStyle(ButtonStyle.Secondary)
                 )
             ]
 
@@ -286,6 +290,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 await submission.reply({ content: "❌ Unable to join this table. Please try again.", flags: MessageFlags.Ephemeral })
                 return
             }
+            game.rememberPlayerInteraction(submission.user.id, submission)
             await submission.reply({ content: `✅ You joined with **${setSeparator(buyInResult.amount)}$**.`, flags: MessageFlags.Ephemeral })
             lobbySession.scheduleRefresh()
         })
@@ -307,13 +312,65 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
             if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can start the game.", flags: MessageFlags.Ephemeral })
             if (game.players.length < game.getMinimumPlayers()) return i.reply({ content: `⚠️ You need at least ${game.getMinimumPlayers()} players to start.`, flags: MessageFlags.Ephemeral })
             
+            game.rememberPlayerInteraction(i.user.id, i)
             await i.deferUpdate()
             startGame({ initiatedBy: i.user.tag })
+        })
+
+        lobbySession.registerComponentHandler("tx:settings", async (i) => {
+            if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can change the table speed.", flags: MessageFlags.Ephemeral })
+            if (lobbySession.isClosed) return i.reply({ content: "⚠️ This table is no longer available.", flags: MessageFlags.Ephemeral })
+
+            const modal = new ModalBuilder()
+                .setCustomId(`tx:settings:${i.id}`)
+                .setTitle("Table Settings")
+                .addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId("actionTimeout")
+                            .setLabel("Tempo per azione (secondi)")
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true)
+                            .setValue(String(Math.round(game.actionTimeoutMs / 1000)))
+                    )
+                )
+
+            const submission = await lobbySession.presentModal(i, modal)
+            if (!submission) return
+
+            const rawValue = submission.fields.getTextInputValue("actionTimeout")
+            const parsedSeconds = features.inputConverter(rawValue)
+            if (!Number.isFinite(parsedSeconds) || parsedSeconds <= 0) {
+                await submission.reply({ content: "❌ Inserisci un numero valido di secondi.", flags: MessageFlags.Ephemeral })
+                return
+            }
+
+            const updateResult = game.updateActionTimeoutFromSeconds(parsedSeconds)
+            if (!updateResult.ok) {
+                await submission.reply({ content: "❌ Impossibile aggiornare il timer.", flags: MessageFlags.Ephemeral })
+                return
+            }
+
+            game.rememberPlayerInteraction(submission.user.id, submission)
+            const seconds = Math.round(updateResult.value / 1000)
+            const limits = game.getActionTimeoutLimits()
+            const minSeconds = Math.round(limits.min / 1000)
+            const maxSeconds = Math.round(limits.max / 1000)
+            const note = updateResult.clamped
+                ? ` (range consentito ${minSeconds}-${maxSeconds}s)`
+                : ""
+
+            await submission.reply({
+                content: `⏱️ Tempo per azione aggiornato a **${seconds}s**${note}.`,
+                flags: MessageFlags.Ephemeral
+            })
+            lobbySession.scheduleRefresh()
         })
 
         lobbySession.registerComponentHandler("tx:cancel", async (i) => {
             if (i.user.id !== hostId) return i.reply({ content: "❌ Only the host can cancel the game.", flags: MessageFlags.Ephemeral })
 
+            game.rememberPlayerInteraction(i.user.id, i)
             await i.deferUpdate()
             await game.Stop({ reason: "canceled", notify: false })
         })

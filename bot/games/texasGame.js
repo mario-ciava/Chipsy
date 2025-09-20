@@ -7,7 +7,7 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const { logAndSuppress } = require("../utils/loggingHelpers")
-const { renderCardTable, createBlackjackTableState } = require("../rendering/cardTableRenderer")
+const { renderTexasTable, createTexasTableState, renderTexasPlayerPanel } = require("../rendering/texasTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
 const config = require("../../config")
 
@@ -27,6 +27,8 @@ const createPlayerStatus = () => ({
     movedone: false,
     allIn: false,
     removed: false,
+    lastAllInAmount: 0,
+    lastReminderHand: 0,
     won: createWonState()
 })
 
@@ -47,11 +49,14 @@ module.exports = class TexasGame extends Game {
             total: 0,
             pots: []
         }
+        this.actionTimeoutMs = config.texas.actionTimeout.default
         this.actionCollector = null
         this.gameMessage = null
         this.awaitingPlayerId = null
         this.actionOrder = []
         this.actionCursor = -1
+        this.currentHandHasInteraction = false
+        this.inactiveHands = 0
     }
 
     createPlayerSession(user, stackAmount) {
@@ -91,8 +96,115 @@ module.exports = class TexasGame extends Game {
             displayAvatarURL: safeDisplayAvatar,
             user,
             status: createPlayerStatus(),
-            bets: { current: 0, total: 0 }
+            bets: { current: 0, total: 0 },
+            lastInteraction: null
         };
+    }
+
+    getActionTimeoutLimits() {
+        const fallbackMin = 15 * 1000
+        const fallbackMax = 120 * 1000
+        const allowed = config?.texas?.actionTimeout?.allowedRange || {}
+        return {
+            min: Number.isFinite(allowed.min) ? allowed.min : fallbackMin,
+            max: Number.isFinite(allowed.max) ? allowed.max : fallbackMax
+        }
+    }
+
+    updateActionTimeout(durationMs) {
+        const { min, max } = this.getActionTimeoutLimits()
+        const numeric = Number(durationMs)
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return { ok: false, reason: "Tempo non valido." }
+        }
+        const clamped = Math.max(min, Math.min(max, Math.floor(numeric)))
+        this.actionTimeoutMs = clamped
+        return { ok: true, value: clamped, clamped: clamped !== numeric }
+    }
+
+    updateActionTimeoutFromSeconds(seconds) {
+        const millis = Number(seconds) * 1000
+        return this.updateActionTimeout(millis)
+    }
+
+    rememberPlayerInteraction(playerRef, interaction) {
+        if (!interaction || typeof interaction.followUp !== "function") return
+        const player = typeof playerRef === "object" ? playerRef : this.GetPlayer(playerRef)
+        if (!player) return
+        player.lastInteraction = interaction
+        if (this.playing && this.hands > 0) {
+            this.currentHandHasInteraction = true
+        }
+    }
+
+    buildPlayerRenderPayload(player, options = {}) {
+        if (!player) return null
+        return {
+            id: player.id,
+            label: player.tag || player.username,
+            cards: Array.isArray(player.cards) ? [...player.cards] : [],
+            stack: player.stack,
+            bet: player.bets?.current ?? 0,
+            totalBet: player.bets?.total ?? 0,
+            winnings: player.status?.won?.grossValue ?? 0,
+            folded: Boolean(player.status?.folded),
+            allIn: Boolean(player.status?.allIn),
+            eliminated: Boolean(player.status?.removed),
+            handRank: player.hand?.name || null,
+            allInAmount: player.status?.allIn
+                ? Math.max(player.status?.lastAllInAmount || player.bets?.total || 0, 0)
+                : null,
+            showCards: Boolean(
+                options.showdown ||
+                options.revealCards ||
+                player.showCards
+            )
+        }
+    }
+
+    async createPlayerPanelAttachment(player, options = {}) {
+        const payload = this.buildPlayerRenderPayload(player, {
+            showdown: Boolean(options.showdown),
+            revealCards: Boolean(options.revealCards),
+            focusPlayerId: player?.id
+        })
+        if (!payload) return null
+        const buffer = await renderTexasPlayerPanel({ player: payload })
+        if (!buffer) return null
+        const filename = `texas_player_${player?.id || "unknown"}_${Date.now()}.png`
+        return {
+            filename,
+            attachment: new AttachmentBuilder(buffer, { name: filename, description: payload.label })
+        }
+    }
+
+    async evaluateHandInactivity() {
+        if (!this.playing) {
+            this.currentHandHasInteraction = false
+            this.inactiveHands = 0
+            return false
+        }
+        if (this.currentHandHasInteraction) {
+            this.inactiveHands = 0
+        } else {
+            this.inactiveHands += 1
+        }
+        this.currentHandHasInteraction = false
+
+        if (this.inactiveHands >= 2) {
+            await this.channel.send({
+                content: "♠️ Tavolo chiuso per inattività: nessun giocatore ha agito per due mani consecutive."
+            }).catch((error) => {
+                logger.warn("Failed to announce Texas inactivity stop", {
+                    scope: "texasGame",
+                    error: error?.message
+                })
+                return null
+            })
+            await this.Stop({ reason: "inactivity", notify: false })
+            return true
+        }
+        return false
     }
 
     async AddPlayer(user, options = {}) {
@@ -151,6 +263,19 @@ module.exports = class TexasGame extends Game {
             }
         }
 
+        if (this.awaitingPlayerId === playerId) {
+            this.awaitingPlayerId = null
+            if (this.playing) {
+                this.advanceHand().catch((error) => {
+                    logger.warn("Failed to advance hand after player removal", {
+                        scope: "texasGame",
+                        playerId,
+                        error: error?.message
+                    })
+                })
+            }
+        }
+
         this.UpdateInGame()
 
         if (!skipStop && this.players.length < this.getMinimumPlayers() && this.playing) {
@@ -178,19 +303,20 @@ module.exports = class TexasGame extends Game {
             case 'noMoney':
                 await sendEmbed(new EmbedBuilder().setColor(Colors.Red).setFooter({ text: `${player.tag} was removed: no money left.`, iconURL: player.displayAvatarURL({ extension: "png" }) }))
                 break
-            case 'nextHand':
-                await sendEmbed(new EmbedBuilder().setColor(Colors.Blue).setFooter({ text: "Next hand starting in 8 seconds..." }))
-                break
             case 'handEnded':
                 const totalPotValue = this.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
-                const winnersText = this.bets.pots.map((pot, index) => {
+                const winnersSections = this.bets.pots.map((pot, index) => {
                     const name = pot.winners?.length > 1 ? `Pot #${index + 1}` : "Pot"
                     const winnerLines = (pot.winners || []).map(({ player: winner, amount }) => {
                         const payout = this.GetNetValue(amount, winner)
                         return `${winner} wins ${setSeparator(payout)}$`
                     })
-                    return `**${name} (${setSeparator(pot.amount)}$)**\n${winnerLines.join('\n')}`
-                }).filter(Boolean).join('\n\n') || "No winners"
+                    return `**${name}**\n${winnerLines.join('\n')}`
+                }).filter(Boolean)
+                const winnersText = [
+                    winnersSections.length ? winnersSections.join('\n\n') : "No winners",
+                    totalPotValue > 0 ? `_Total pot: ${setSeparator(totalPotValue)}$_` : null
+                ].filter(Boolean).join('\n\n')
 
                 const participantSummary = this.players.map((p) => {
                     if (p.hand) return `${p} - ${p.hand.name}`
@@ -203,7 +329,7 @@ module.exports = class TexasGame extends Game {
                     .setTitle(`Hand #${this.hands} Ended`)
                     .setDescription(participantSummary)
                     .addFields({ name: "Winner(s)", value: winnersText })
-                    .setFooter({ text: `Total pot: ${setSeparator(totalPotValue)}$` })
+                    .setFooter({ text: "Showdown complete" })
 
                 const snapshot = await this.captureTableRender({ title: "Showdown", showdown: true })
                 if (snapshot) {
@@ -217,22 +343,48 @@ module.exports = class TexasGame extends Game {
     }
 
     async captureTableRender(options = {}) {
-        const state = createBlackjackTableState({
-            dealer: { cards: this.tableCards, value: this.getDisplayedPotValue() },
-            players: this.inGamePlayers.map(p => ({
-                ...p,
-                hands: [{ cards: p.cards, value: p.bets.current, busted: p.status.folded, BJ: false, push: false }]
+        const tableMinBet = this.getTableMinBet()
+        const smallBlind = Math.max(1, Math.floor(tableMinBet / 2))
+        const stage = this.tableCards.length === 0
+            ? "Pre-Flop"
+            : this.tableCards.length === 3
+                ? "Flop"
+                : this.tableCards.length === 4
+                    ? "Turn"
+                    : this.tableCards.length >= 5
+                        ? "River"
+                        : "Showdown"
+
+        const sidePotsSource = Array.isArray(this.bets?.pots) ? this.bets.pots : []
+        const state = createTexasTableState({
+            boardCards: [...this.tableCards],
+            potTotal: this.getDisplayedPotValue(),
+            sidePots: sidePotsSource.map((pot) => ({
+                amount: pot?.amount || 0,
+                winners: (pot?.winners || []).map((winner) => {
+                    if (!winner) return null
+                    if (winner.player?.id) return winner.player.id
+                    return winner.id ?? null
+                })
             })),
             round: this.hands,
-            id: this.id
+            stage,
+            blinds: `${setSeparator(smallBlind)} / ${setSeparator(tableMinBet)}`,
+            players: this.players
+                .map((player) => this.buildPlayerRenderPayload(player, {
+                    showdown: Boolean(options.showdown),
+                    focusPlayerId: options.focusPlayerId
+                }))
+                .filter(Boolean)
         }, {
             title: options.title || `Round #${this.hands}`,
             focusPlayerId: options.focusPlayerId,
-            showdown: options.showdown
+            showdown: Boolean(options.showdown),
+            revealFocusCards: Boolean(options.revealFocusCards)
         })
 
         try {
-            const buffer = await renderCardTable({ ...state, outputFormat: "png" })
+            const buffer = await renderTexasTable({ sanitizedParams: state, outputFormat: "png" })
             const filename = `texas_table_${this.hands}_${Date.now()}.png`
             return {
                 attachment: new AttachmentBuilder(buffer, { name: filename, description: "Texas Hold'em Table" }),
@@ -274,23 +426,24 @@ module.exports = class TexasGame extends Game {
         }
 
         const snapshot = await this.captureTableRender({ title: `${player.tag}'s turn`, focusPlayerId: player.id })
+        const toCall = Math.max(0, this.bets.currentMax - player.bets.current)
         const embed = new EmbedBuilder()
             .setColor(Colors.Blue)
-            .setTitle(`Texas Hold'em - Round #${this.hands}`)
-            .setDescription(`It's ${player}'s turn to act.`)
-            .setFooter({
-                text: `Pot: ${setSeparator(this.getDisplayedPotValue())}$ | ${config.texas.actionTimeout.default / 1000}s left`
-            })
-
-        if (this.players.length > 0) {
-            const infoRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId("tx_hand:view")
-                    .setLabel("View Cards")
-                    .setStyle(ButtonStyle.Secondary)
+            .setTitle(`Texas Hold'em — Round #${this.hands}`)
+            .addFields(
+                { name: "In azione", value: player.toString(), inline: true },
+                { name: "Pot", value: `${setSeparator(this.getDisplayedPotValue())}$`, inline: true },
+                { name: "Da chiamare", value: `${setSeparator(toCall)}$`, inline: true }
             )
-            components.push(infoRow)
+
+        const footerParts = [
+            `Round #${this.hands}`,
+            `${Math.round(this.actionTimeoutMs / 1000)}s per turno`
+        ]
+        if (this.inactiveHands >= 1 && !this.currentHandHasInteraction) {
+            footerParts.push("⚠️ Nessuna azione: chiusura imminente")
         }
+        embed.setFooter({ text: footerParts.join(" • ") })
 
         const payload = { embeds: [embed], components, files: [], attachments: [] }
         if (snapshot) {
@@ -299,24 +452,18 @@ module.exports = class TexasGame extends Game {
         }
 
         if (this.gameMessage) {
-            await this.gameMessage.edit(payload)
+            try {
+                await this.gameMessage.edit(payload)
+            } catch (error) {
+                logger.warn("Texas action message edit failed, sending fallback", {
+                    scope: "texasGame",
+                    error: error?.message
+                })
+                this.gameMessage = await this.channel.send(payload)
+            }
         } else {
             this.gameMessage = await this.channel.send(payload)
         }
-    }
-
-    async showPlayerHand(player, interaction) {
-        const cards = Array.isArray(player.cards) && player.cards.length > 0
-            ? player.cards.join(" ")
-            : "Cards are not available yet."
-
-        const embed = new EmbedBuilder()
-            .setColor(Colors.DarkBlue)
-            .setTitle("Your hole cards")
-            .setDescription(cards)
-            .setFooter({ text: `Stack: ${setSeparator(player.stack)}$` })
-
-        await this.respondEphemeral(interaction, { embeds: [embed] })
     }
 
     async respondEphemeral(interaction, payload = {}) {
@@ -339,7 +486,66 @@ module.exports = class TexasGame extends Game {
             return null
         }
     }
+    
+    async sendHoleCardsReminder(player) {
+        if (!player || !Array.isArray(player.cards) || player.cards.length === 0) return
+        if (player.bot) return
+        if (player.status?.lastReminderHand === this.hands) return
 
+        const interaction = player.lastInteraction
+        if (!interaction || typeof interaction.followUp !== "function") {
+            logger.debug("No interaction available for player hole cards reminder", {
+                scope: "texasGame",
+                playerId: player?.id
+            })
+            return
+        }
+
+        const panel = await this.createPlayerPanelAttachment(player, { revealCards: true })
+
+        const embed = new EmbedBuilder()
+            .setColor(Colors.DarkBlue)
+            .setTitle("Le tue hole cards")
+            .setDescription(player.cards.join(" "))
+            .setFooter({ text: `Stack attuale: ${setSeparator(player.stack)}$` })
+
+        const payload = {
+            embeds: [embed],
+            flags: MessageFlags.Ephemeral
+        }
+        if (panel) {
+            embed.setImage(`attachment://${panel.filename}`)
+            payload.files = [panel.attachment]
+        }
+
+        try {
+            await interaction.followUp(payload)
+            if (player.status) {
+                player.status.lastReminderHand = this.hands
+            }
+        } catch (error) {
+            logger.debug("Failed to send Texas hole cards reminder", {
+                scope: "texasGame",
+                playerId: player?.id,
+                error: error?.message
+            })
+        }
+    }
+
+    async remindAllPlayersHoleCards() {
+        await Promise.all(
+            this.players.map((player) =>
+                this.sendHoleCardsReminder(player).catch((error) => {
+                    logger.debug("Failed to send bulk hole card reminder", {
+                        scope: "texasGame",
+                        playerId: player?.id,
+                        error: error?.message
+                    })
+                    return null
+                })
+            )
+        )
+    }
 
     async StartGame() {
         await this.Reset()
@@ -369,8 +575,13 @@ module.exports = class TexasGame extends Game {
         this.updateActionOrder(this.getBettingStartIndex())
 
         this.hands++
-        await this.SendMessage("nextHand")
-        await sleep(config.texas.nextHandDelay.default)
+        this.currentHandHasInteraction = false
+        const transitionDelay = Math.max(0, Math.min(config.texas.nextHandDelay.default, 2000))
+        if (transitionDelay > 0) {
+            await sleep(transitionDelay)
+        }
+
+        await this.remindAllPlayersHoleCards()
 
         if (!this.actionCollector) this.CreateOptions()
         const startingPlayer = this.findNextPendingPlayer() || this.inGamePlayers.find(p => !p.status.folded)
@@ -405,6 +616,10 @@ module.exports = class TexasGame extends Game {
         }
         this.bets.currentMax = 0
         this.bets.minRaise = this.getTableMinBet()
+    }
+
+    async burnCard() {
+        await this.PickRandom(this.cards, 1)
     }
 
     getBettingStartIndex() {
@@ -447,8 +662,10 @@ module.exports = class TexasGame extends Game {
         }
 
         if (phase === "flop") {
+            await this.burnCard()
             this.tableCards = await this.PickRandom(this.cards, 3)
         } else {
+            await this.burnCard()
             const [card] = await this.PickRandom(this.cards, 1)
             if (card) this.tableCards.push(card)
         }
@@ -462,15 +679,6 @@ module.exports = class TexasGame extends Game {
         this.UpdateInGame()
         this.updateActionOrder(this.getBettingStartIndex())
 
-        const snapshot = await this.captureTableRender({ title: phase.charAt(0).toUpperCase() + phase.slice(1) })
-        if (snapshot) {
-            const embed = new EmbedBuilder()
-                .setColor(Colors.Blue)
-                .setTitle(phase.toUpperCase())
-                .setImage(`attachment://${snapshot.filename}`)
-            await this.channel.send({ embeds: [embed], files: [snapshot.attachment] })
-        }
-
         const nextPlayer = this.findNextPendingPlayer()
         if (nextPlayer) {
             await this.NextPlayer(nextPlayer)
@@ -483,33 +691,29 @@ module.exports = class TexasGame extends Game {
         this.actionCollector = this.channel.createMessageComponentCollector({
             filter: (i) => {
                 if (!i?.customId) return false
-                if (!i.customId.startsWith("tx_action:") && i.customId !== "tx_hand:view") return false
+                if (!i.customId.startsWith("tx_action:")) return false
                 return Boolean(this.GetPlayer(i.user.id))
             },
             time: config.texas.collectorTimeout.default
         })
 
         this.actionCollector.on("collect", async (interaction) => {
-            if (interaction.customId === "tx_hand:view") {
-                const seated = this.GetPlayer(interaction.user.id)
-                if (!seated) {
-                    await this.respondEphemeral(interaction, { content: "⚠️ You are not seated at this table." })
-                    return
-                }
-                await this.showPlayerHand(seated, interaction)
-                return
-            }
-
             const [, action, playerId] = interaction.customId.split(':')
             const player = this.GetPlayer(playerId)
             if (!player) {
                 await this.respondEphemeral(interaction, { content: "⚠️ You are not seated at this table." })
                 return
             }
-            if (this.awaitingPlayerId && player.id !== this.awaitingPlayerId) {
+            if (interaction.user.id !== player.id) {
+                await this.respondEphemeral(interaction, { content: "❌ You can only act for your own seat." })
+                return
+            }
+            if (this.awaitingPlayerId && interaction.user.id !== this.awaitingPlayerId) {
                 await this.respondEphemeral(interaction, { content: "❌ It's not your turn." })
                 return
             }
+
+            this.rememberPlayerInteraction(player, interaction)
 
             let amount = null
             if (action === "bet" || action === "raise") {
@@ -535,6 +739,8 @@ module.exports = class TexasGame extends Game {
                 })
 
                 if (!submission) return
+
+                this.rememberPlayerInteraction(player, submission)
 
                 const parsed = features.inputConverter(submission.fields.getTextInputValue("amount"))
                 if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -566,6 +772,22 @@ module.exports = class TexasGame extends Game {
             } catch (error) {
                 buildTexasInteractionLog(interaction, "Player action failed", { action, playerId, error: error?.message })
                 await this.respondEphemeral(interaction, { content: "❌ Action failed. Please try again." })
+            }
+        })
+
+        this.actionCollector.on("end", (_collected, reason) => {
+            this.actionCollector = null
+            const shouldRecreate = this.playing && !["channelDelete", "messageDelete", "guildDelete"].includes(reason)
+            if (shouldRecreate) {
+                try {
+                    this.CreateOptions()
+                } catch (error) {
+                    logger.warn("Failed to recreate Texas action collector", {
+                        scope: "texasGame",
+                        reason,
+                        error: error?.message
+                    })
+                }
             }
         })
     }
@@ -712,6 +934,7 @@ module.exports = class TexasGame extends Game {
         this.bets.total += amount
         if (player.stack === 0) {
             player.status.allIn = true
+            player.status.lastAllInAmount = Math.max(player.bets.total, 0)
         }
         return amount
     }
@@ -740,28 +963,19 @@ module.exports = class TexasGame extends Game {
         this.awaitingPlayerId = player.id
         await this.updateGameMessage(player, { availableOptions })
 
-        this.timer = setTimeout(() => {
-            const fallbackOptions = this.GetAvailableOptions(player)
-            if (fallbackOptions.includes("check")) {
-                this.Action("check", player).catch((error) => {
-                    logger.warn("Failed to auto-check player", {
-                        scope: "texasGame",
-                        playerId: player?.id,
-                        error: error?.message
-                    })
-                    return null
-                })
-            } else {
-                this.Action("fold", player).catch((error) => {
-                    logger.warn("Failed to auto-fold player", {
-                        scope: "texasGame",
-                        playerId: player?.id,
-                        error: error?.message
-                    })
-                    return null
+        this.timer = setTimeout(async () => {
+            try {
+                const fallbackOptions = await this.GetAvailableOptions(player)
+                const fallbackAction = fallbackOptions.includes("check") ? "check" : "fold"
+                await this.Action(fallbackAction, player)
+            } catch (error) {
+                logger.warn("Failed to auto-resolve Texas action timeout", {
+                    scope: "texasGame",
+                    playerId: player?.id,
+                    error: error?.message
                 })
             }
-        }, config.texas.actionTimeout.default)
+        }, this.actionTimeoutMs)
     }
 
     async GetAvailableOptions(player) {
@@ -915,7 +1129,10 @@ module.exports = class TexasGame extends Game {
         this.bets.pots = [{ amount: this.bets.total, winners: [{ player: winner, amount: this.bets.total }] }]
         this.bets.total = 0
         await this.SendMessage("handEnded")
-        await this.NextHand()
+        const stopped = await this.evaluateHandInactivity()
+        if (!stopped) {
+            await this.NextHand()
+        }
     }
 
     async handleShowdown() {
@@ -958,13 +1175,18 @@ module.exports = class TexasGame extends Game {
 
         this.bets.total = 0
         await this.SendMessage("handEnded")
-        await this.NextHand()
+        const stopped = await this.evaluateHandInactivity()
+        if (!stopped) {
+            await this.NextHand()
+        }
     }
 
     async Stop(options = {}) {
-        if (this.actionCollector) this.actionCollector.stop();
-        if (this.timer) clearTimeout(this.timer);
         this.playing = false;
+        this.inactiveHands = 0;
+        this.currentHandHasInteraction = false;
+        if (this.actionCollector) this.actionCollector.stop("gameStopped");
+        if (this.timer) clearTimeout(this.timer);
         this.channel.game = null;
         this.awaitingPlayerId = null;
         if (this.client.activeGames) this.client.activeGames.delete(this);

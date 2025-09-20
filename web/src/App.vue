@@ -54,7 +54,7 @@ export default {
     mounted() {
         window.addEventListener("session-expired", this.handleSessionExpired)
     },
-    beforeUnmount() {
+    beforeDestroy() {
         window.removeEventListener("session-expired", this.handleSessionExpired)
     },
     methods: {

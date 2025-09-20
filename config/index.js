@@ -298,7 +298,7 @@ const config = {
         password: env.MYSQL_PASSWORD
     },
     web: {
-        redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.botApiLocal
+        redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.vueDevLocal
     },
     blackjack: {
         deckCount: {

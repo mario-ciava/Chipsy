@@ -48,33 +48,16 @@
 </template>
 
 <script>
-import api from "../services/api"
-
-const formatCurrency = (value) => `${Number(value || 0).toLocaleString("en-US")} $`
-const formatPercentage = (value) => `${Number(value || 0).toFixed(2)} %`
-const formatExp = (current, required) => `${Number(current || 0).toLocaleString("en-US")} / ${Number(required || 0).toLocaleString("en-US")}`
-const formatDate = (value) => {
-    if (!value) return "N/A"
-    try {
-        const date = new Date(value)
-        const dateFormatter = new Intl.DateTimeFormat("en-US", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric"
-        })
-        const timeFormatter = new Intl.DateTimeFormat("en-US", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-        })
-        return `${dateFormatter.format(date)} ${timeFormatter.format(date)}`
-    } catch (error) {
-        return "N/A"
-    }
-}
+import api from "../../services/api"
+import {
+    formatCurrency,
+    formatPercentage,
+    formatExpRange,
+    formatDetailedDateTime
+} from "../../utils/formatters"
 
 export default {
-    name: "UserDetailView",
+    name: "UserDetailPage",
     data() {
         return {
             loading: true,
@@ -94,9 +77,9 @@ export default {
                 biggestWon: formatCurrency(user.biggest_won),
                 biggestBet: formatCurrency(user.biggest_bet),
                 level: user.level !== undefined ? user.level : 0,
-                exp: formatExp(user.current_exp, user.required_exp),
+                exp: formatExpRange(user.current_exp, user.required_exp),
                 winRate: formatPercentage(user.winRate),
-                lastPlayed: formatDate(user.last_played)
+                lastPlayed: formatDetailedDateTime(user.last_played)
             }
         }
     },

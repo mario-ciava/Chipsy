@@ -64,14 +64,14 @@
 
 <script>
 import { mapActions, mapGetters, mapState } from "vuex"
-import BotStatusCard from "../components/dashboard/BotStatusCard.vue"
-import GuildOverview from "../components/dashboard/GuildOverview.vue"
-import RemoteActions from "../components/dashboard/RemoteActions.vue"
-import UserTable from "../components/dashboard/UserTable.vue"
-import api from "../services/api"
+import BotStatusCard from "./components/BotStatusCard.vue"
+import GuildOverview from "./components/GuildOverview.vue"
+import RemoteActions from "./components/RemoteActions.vue"
+import UserTable from "./components/UserTable.vue"
+import api from "../../services/api"
 
 export default {
-    name: "DashboardView",
+    name: "DashboardPage",
     components: {
         BotStatusCard,
         GuildOverview,
@@ -285,7 +285,7 @@ export default {
             }
         },
         async toggleBot(enabled) {
-            const target = enabled ? "disable" : "enable"
+            const target = enabled ? "enable" : "disable"
             this.pushLog("info", `Request to ${enabled ? "enable" : "disable"} sent.`)
             this.startCooldown(target)
             try {

@@ -32,7 +32,7 @@ const createClient = (config) => {
         owner: config.discord.ownerId,
         prefix: config.bot.prefix,
         enabled: config.bot.enabled,
-        redirectUri: config.web?.redirectOrigin || constants.urls.botApiLocal
+        redirectUri: config.web?.redirectOrigin || constants.urls.vueDevLocal
     }
 
     return client

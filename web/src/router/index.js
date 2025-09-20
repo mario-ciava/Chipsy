@@ -3,12 +3,12 @@ import Router from "vue-router"
 
 import store from "../store"
 
-import HomeView from "../views/HomeView.vue"
-import LoginView from "../views/LoginView.vue"
-import LogoutView from "../views/LogoutView.vue"
-import DashboardView from "../views/DashboardView.vue"
-import UserDetailView from "../views/UserDetailView.vue"
-import LogsView from "../views/LogsView.vue"
+import HomePage from "../features/home/HomePage.vue"
+import LoginPage from "../features/auth/LoginPage.vue"
+import LogoutPage from "../features/auth/LogoutPage.vue"
+import DashboardPage from "../features/dashboard/DashboardPage.vue"
+import UserDetailPage from "../features/users/UserDetailPage.vue"
+import LogsPage from "../features/logs/LogsPage.vue"
 
 Vue.use(Router)
 
@@ -18,12 +18,12 @@ const router = new Router({
         {
             path: "/",
             name: "Home",
-            component: HomeView
+            component: HomePage
         },
         {
             path: "/login",
             name: "Login",
-            component: LoginView,
+            component: LoginPage,
             meta: {
                 requiresVisitor: true
             }
@@ -31,7 +31,7 @@ const router = new Router({
         {
             path: "/logout",
             name: "Logout",
-            component: LogoutView,
+            component: LogoutPage,
             meta: {
                 requiresAuth: true
             }
@@ -40,7 +40,7 @@ const router = new Router({
             path: "/dashboard",
             alias: "/control_panel",
             name: "ControlPanel",
-            component: DashboardView,
+            component: DashboardPage,
             meta: {
                 requiresAuth: true,
                 requiresAdmin: true
@@ -49,7 +49,7 @@ const router = new Router({
         {
             path: "/logs",
             name: "Logs",
-            component: LogsView,
+            component: LogsPage,
             meta: {
                 requiresAuth: true,
                 requiresAdmin: true
@@ -58,7 +58,7 @@ const router = new Router({
         {
             path: "/users/:id",
             name: "UserDetail",
-            component: UserDetailView,
+            component: UserDetailPage,
             meta: {
                 requiresAuth: true,
                 requiresAdmin: true

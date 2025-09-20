@@ -72,7 +72,7 @@
 import { mapGetters } from "vuex"
 
 export default {
-    name: "HomeView",
+    name: "HomePage",
     data() {
         return {
             processing: false,
