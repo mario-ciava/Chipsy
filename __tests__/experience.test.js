@@ -1,4 +1,9 @@
-const { BASE_REQUIRED_EXP, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
+const {
+    BASE_REQUIRED_EXP,
+    DEFAULT_PLAYER_LEVEL,
+    calculateRequiredExp,
+    normalizeUserExperience
+} = require("../bot/utils/experience")
 
 describe("experience helpers", () => {
     test("calculateRequiredExp returns base for level 0", () => {
@@ -21,9 +26,9 @@ describe("experience helpers", () => {
 
     test("normalizeUserExperience guards against invalid values", () => {
         const normalized = normalizeUserExperience({ level: -10, current_exp: -5, required_exp: NaN })
-        expect(normalized.level).toBe(0)
+        expect(normalized.level).toBe(DEFAULT_PLAYER_LEVEL)
         expect(normalized.current_exp).toBe(0)
-        expect(normalized.required_exp).toBe(BASE_REQUIRED_EXP)
+        expect(normalized.required_exp).toBe(calculateRequiredExp(DEFAULT_PLAYER_LEVEL))
     })
 
     test("normalizeUserExperience coerces string based BIGINT values", () => {

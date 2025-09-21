@@ -6,14 +6,63 @@ jest.mock("discord.js", () => {
             this.setFooter = jest.fn(() => this)
             this.setThumbnail = jest.fn(() => this)
             this.setDescription = jest.fn(() => this)
+            this.setTitle = jest.fn(() => this)
         }
     }
 
-    const SlashCommandBuilder = jest.fn().mockImplementation(() => ({
-        setName: jest.fn().mockReturnThis(),
-        setDescription: jest.fn().mockReturnThis(),
-        toJSON: jest.fn(() => ({}))
-    }))
+    class MockSlashCommandBuilder {
+        constructor() {
+            this.setName = jest.fn(() => this)
+            this.setDescription = jest.fn(() => this)
+            this.toJSON = jest.fn(() => ({}))
+        }
+
+        addUserOption(handler) {
+            if (typeof handler === "function") {
+                const optionBuilder = {}
+                optionBuilder.setName = jest.fn(() => optionBuilder)
+                optionBuilder.setDescription = jest.fn(() => optionBuilder)
+                optionBuilder.setRequired = jest.fn(() => optionBuilder)
+                handler(optionBuilder)
+            }
+            return this
+        }
+    }
+
+    class MockButtonBuilder {
+        constructor() {
+            this.setCustomId = jest.fn(() => this)
+            this.setLabel = jest.fn(() => this)
+            this.setStyle = jest.fn(() => this)
+            this.setEmoji = jest.fn(() => this)
+            this.setDisabled = jest.fn(() => this)
+        }
+    }
+
+    class MockActionRowBuilder {
+        constructor() {
+            this.components = []
+        }
+
+        addComponents(...components) {
+            this.components.push(...components)
+            return this
+        }
+
+        static from(row) {
+            const clone = new MockActionRowBuilder()
+            clone.components = row?.components ? [...row.components] : []
+            return clone
+        }
+    }
+
+    class MockStringSelectMenuBuilder {
+        constructor() {
+            this.setCustomId = jest.fn(() => this)
+            this.setPlaceholder = jest.fn(() => this)
+            this.addOptions = jest.fn(() => this)
+        }
+    }
 
     const Colors = {
         Red: "#ff0000",
@@ -23,9 +72,25 @@ jest.mock("discord.js", () => {
         Orange: "#ffa500"
     }
 
+    const ButtonStyle = {
+        Primary: 1,
+        Secondary: 2,
+        Success: 3,
+        Danger: 4
+    }
+
+    const MessageFlags = {
+        Ephemeral: 1 << 6
+    }
+
     return {
         EmbedBuilder: MockEmbed,
-        SlashCommandBuilder,
+        SlashCommandBuilder: MockSlashCommandBuilder,
+        MessageFlags,
+        ButtonBuilder: MockButtonBuilder,
+        ButtonStyle,
+        ActionRowBuilder: MockActionRowBuilder,
+        StringSelectMenuBuilder: MockStringSelectMenuBuilder,
         Colors
     }
 })
@@ -40,70 +105,106 @@ jest.mock("../bot/games/features.js", () => ({
     getCosts: jest.fn(() => ["100"])
 }))
 
-const rewardCommand = require("../commands/reward")
-const profileCommand = require("../commands/profile")
+const rewardCommand = require("../bot/commands/reward")
+const profileCommand = require("../bot/commands/profile")
+const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp } = require("../bot/utils/experience")
 
-const createMockMessage = (overrides = {}) => ({
-    channel: {
-        send: jest.fn().mockResolvedValue(undefined),
-        ...(overrides.channel || {})
-    },
-    author: {
+const createCollectorStub = () => {
+    const collector = {
+        ended: false,
+        on: jest.fn().mockReturnThis(),
+        stop: jest.fn(() => {
+            collector.ended = true
+        })
+    }
+    return collector
+}
+
+const createResponseMessageStub = () => ({
+    createMessageComponentCollector: jest.fn(() => createCollectorStub())
+})
+
+const createMockInteraction = (overrides = {}) => {
+    const { data: overrideUserData, ...userOverrides } = overrides.user || {}
+
+    const userData = {
+        money: 5000,
+        gold: 1,
+        current_exp: 0,
+        required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
+        level: DEFAULT_PLAYER_LEVEL,
+        hands_played: 0,
+        hands_won: 0,
+        biggest_won: 0,
+        biggest_bet: 0,
+        withholding_upgrade: 0,
+        reward_amount_upgrade: 0,
+        reward_time_upgrade: 0,
+        next_reward: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        last_played: new Date().toISOString(),
+        ...(overrideUserData || {})
+    }
+
+    const user = {
         id: "user-123",
+        username: "Tester",
         tag: "Tester#0001",
         displayAvatarURL: jest.fn().mockReturnValue("https://avatar"),
-        data: {
-            money: 5000,
-            gold: 1,
-            current_exp: 0,
-            required_exp: 100,
-            level: 0,
-            hands_played: 0,
-            hands_won: 0,
-            biggest_won: 0,
-            biggest_bet: 0,
-            withholding_upgrade: 0,
-            reward_amount_upgrade: 0,
-            reward_time_upgrade: 0,
-            next_reward: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-            last_played: new Date().toISOString(),
-            ...(overrides.author?.data || {})
-        },
-        ...(overrides.author || {})
-    },
-    client: {
+        ...userOverrides,
+        data: userData
+    }
+
+    const client = {
         dataHandler: {
             updateUserData: jest.fn().mockResolvedValue(undefined),
-            resolveDBUser: jest.fn((user) => ({
-                money: user.data.money,
-                gold: user.data.gold
+            resolveDBUser: jest.fn((targetUser) => ({
+                money: targetUser.data.money,
+                gold: targetUser.data.gold
             }))
         },
         ...(overrides.client || {})
     }
-})
+
+    const responseMessage = createResponseMessageStub()
+
+    const interaction = {
+        user,
+        client,
+        channel: { id: "channel-123", ...(overrides.channel || {}) },
+        deferred: false,
+        replied: false,
+        options: {
+            getUser: jest.fn(() => overrides.targetUser ?? null)
+        },
+        reply: jest.fn(async() => responseMessage),
+        editReply: jest.fn(async() => responseMessage),
+        followUp: jest.fn(async() => responseMessage)
+    }
+
+    return { interaction, user, client }
+}
 
 describe("reward command", () => {
     test("updates balance and persists the change", async() => {
-        const msg = createMockMessage()
+        const { interaction, user, client } = createMockInteraction()
 
-        await rewardCommand.run({ message: msg })
+        await rewardCommand.execute(interaction, client)
 
-        expect(msg.author.data.money).toBe(6500)
-        expect(msg.client.dataHandler.resolveDBUser).toHaveBeenCalledWith(msg.author)
-        expect(msg.client.dataHandler.updateUserData).toHaveBeenCalledWith(
-            msg.author.id,
+        expect(user.data.money).toBe(6500)
+        expect(client.dataHandler.resolveDBUser).toHaveBeenCalledWith(user)
+        expect(client.dataHandler.updateUserData).toHaveBeenCalledWith(
+            user.id,
             { money: 6500, gold: 1 }
         )
-        expect(msg.author.data.next_reward).toBeInstanceOf(Date)
-        expect(msg.channel.send).toHaveBeenCalledTimes(1)
+        expect(user.data.next_reward).toBeInstanceOf(Date)
+        expect(interaction.reply).toHaveBeenCalledTimes(1)
     })
 })
 
 describe("profile command", () => {
     test("normalizes string based BIGINT fields before rendering", async() => {
-        const msg = createMockMessage({
-            author: {
+        const { interaction, user, client } = createMockInteraction({
+            user: {
                 data: {
                     money: "7500",
                     gold: "3",
@@ -123,11 +224,11 @@ describe("profile command", () => {
             }
         })
 
-        await profileCommand.run({ message: msg })
+        await profileCommand.execute(interaction, client)
 
-        expect(typeof msg.author.data.money).toBe("number")
-        expect(typeof msg.author.data.gold).toBe("number")
-        expect(typeof msg.author.data.biggest_bet).toBe("number")
-        expect(msg.channel.send).toHaveBeenCalledTimes(1)
+        expect(typeof user.data.money).toBe("number")
+        expect(typeof user.data.gold).toBe("number")
+        expect(typeof user.data.biggest_bet).toBe("number")
+        expect(interaction.reply).toHaveBeenCalledTimes(1)
     })
 })

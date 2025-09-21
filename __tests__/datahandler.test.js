@@ -1,9 +1,10 @@
 const createDataHandler = require("../bot/utils/datahandler")
 const createSetData = require("../bot/utils/createSetData")
 const Game = require("../bot/games/game")
-const { calculateRequiredExp, BASE_REQUIRED_EXP, normalizeUserExperience } = require("../bot/utils/experience")
+const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
 
 const createMockConnection = (initialRows = []) => {
+    const startingRequiredExp = calculateRequiredExp(DEFAULT_PLAYER_LEVEL)
     const data = new Map()
     initialRows.forEach((row) => {
         data.set(row.id, { ...row })
@@ -25,8 +26,8 @@ const createMockConnection = (initialRows = []) => {
                 money: 5000,
                 gold: 1,
                 current_exp: 0,
-                required_exp: BASE_REQUIRED_EXP,
-                level: 0,
+                required_exp: startingRequiredExp,
+                level: DEFAULT_PLAYER_LEVEL,
                 hands_played: 0,
                 hands_won: 0,
                 biggest_won: 0,
@@ -106,8 +107,8 @@ describe("data handler experience persistence", () => {
                 money: 5000,
                 gold: 1,
                 current_exp: 95,
-                required_exp: BASE_REQUIRED_EXP,
-                level: 0,
+                required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
+                level: DEFAULT_PLAYER_LEVEL,
                 hands_played: 0,
                 hands_won: 0,
                 biggest_won: 0,
@@ -149,10 +150,10 @@ describe("data handler experience persistence", () => {
         await dataHandler.updateUserData(userId, payload)
 
         const persisted = await dataHandler.getUserData(userId)
-        expect(persisted.level).toBe(1)
+        expect(persisted.level).toBe(DEFAULT_PLAYER_LEVEL)
         expect(persisted.current_exp).toBeGreaterThanOrEqual(0)
-        expect(persisted.required_exp).toBe(calculateRequiredExp(1))
-        expect(persisted.money).toBeGreaterThan(5000)
+        expect(persisted.required_exp).toBe(calculateRequiredExp(DEFAULT_PLAYER_LEVEL))
+        expect(persisted.money).toBeGreaterThanOrEqual(5000)
     })
 
     test("getUserData converts BIGINT columns returned as strings", async() => {

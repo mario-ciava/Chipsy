@@ -16,6 +16,22 @@ const clampSafeInteger = (value) => {
     return floored
 }
 
+const sanitizePositiveAmount = (amount) => {
+    const numeric = toInteger(amount)
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return null
+    }
+    return clampSafeInteger(numeric)
+}
+
+const ensurePlayerData = (player) => {
+    if (!player) return null
+    if (!player.data) {
+        player.data = {}
+    }
+    return player.data
+}
+
 const readStack = (player) => clampSafeInteger(toInteger(player?.stack))
 
 const readBankroll = (player) => clampSafeInteger(toInteger(player?.data?.money))
@@ -105,9 +121,8 @@ const normalizeBuyIn = ({ requested, minBuyIn, maxBuyIn, bankroll }) => {
 
 const canAfford = (player, amount, { includeStack = true, includeBankroll = true } = {}) => {
     if (!player) return false
-    const numericAmount = toInteger(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
-    const sanitizedAmount = clampSafeInteger(numericAmount)
+    const sanitizedAmount = sanitizePositiveAmount(amount)
+    if (sanitizedAmount === null) return false
     const stack = readStack(player)
     const bankroll = readBankroll(player)
     if (includeStack && stack < sanitizedAmount) return false
@@ -117,45 +132,34 @@ const canAfford = (player, amount, { includeStack = true, includeBankroll = true
 
 const canAffordStack = (player, amount) => {
     if (!player) return false
-    const numericAmount = toInteger(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
-    const sanitizedAmount = clampSafeInteger(numericAmount)
-    const stack = readStack(player)
-    return stack >= sanitizedAmount
+    const sanitizedAmount = sanitizePositiveAmount(amount)
+    if (sanitizedAmount === null) return false
+    return readStack(player) >= sanitizedAmount
 }
 
 const withdraw = (player, amount) => {
-    if (!player) return false
-    if (!player.data) player.data = {}
-    const numericAmount = toInteger(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
-    const sanitizedAmount = clampSafeInteger(numericAmount)
+    if (!player || !ensurePlayerData(player)) return false
+    const sanitizedAmount = sanitizePositiveAmount(amount)
+    if (sanitizedAmount === null) return false
     if (!canAfford(player, sanitizedAmount)) return false
-    const currentStack = readStack(player)
-    const currentBankroll = readBankroll(player)
-    player.stack = clampSafeInteger(currentStack - sanitizedAmount)
-    player.data.money = clampSafeInteger(currentBankroll - sanitizedAmount)
+    player.stack = clampSafeInteger(readStack(player) - sanitizedAmount)
+    player.data.money = clampSafeInteger(readBankroll(player) - sanitizedAmount)
     return true
 }
 
 const deposit = (player, amount) => {
-    if (!player) return false
-    if (!player.data) player.data = {}
-    const numericAmount = toInteger(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
-    const sanitizedAmount = clampSafeInteger(numericAmount)
-    const currentStack = readStack(player)
-    const currentBankroll = readBankroll(player)
-    player.stack = clampSafeInteger(currentStack + sanitizedAmount)
-    player.data.money = clampSafeInteger(currentBankroll + sanitizedAmount)
+    if (!player || !ensurePlayerData(player)) return false
+    const sanitizedAmount = sanitizePositiveAmount(amount)
+    if (sanitizedAmount === null) return false
+    player.stack = clampSafeInteger(readStack(player) + sanitizedAmount)
+    player.data.money = clampSafeInteger(readBankroll(player) + sanitizedAmount)
     return true
 }
 
 const withdrawStackOnly = (player, amount) => {
     if (!player) return false
-    const numericAmount = toInteger(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
-    const sanitizedAmount = clampSafeInteger(numericAmount)
+    const sanitizedAmount = sanitizePositiveAmount(amount)
+    if (sanitizedAmount === null) return false
     const currentStack = readStack(player)
     if (currentStack < sanitizedAmount) return false
     player.stack = clampSafeInteger(currentStack - sanitizedAmount)
@@ -164,17 +168,14 @@ const withdrawStackOnly = (player, amount) => {
 
 const depositStackOnly = (player, amount) => {
     if (!player) return false
-    const numericAmount = toInteger(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return false
-    const sanitizedAmount = clampSafeInteger(numericAmount)
-    const currentStack = readStack(player)
-    player.stack = clampSafeInteger(currentStack + sanitizedAmount)
+    const sanitizedAmount = sanitizePositiveAmount(amount)
+    if (sanitizedAmount === null) return false
+    player.stack = clampSafeInteger(readStack(player) + sanitizedAmount)
     return true
 }
 
 const syncStackToBankroll = (player) => {
-    if (!player) return false
-    if (!player.data) player.data = {}
+    if (!player || !ensurePlayerData(player)) return false
     const currentStack = readStack(player)
     const currentBankroll = readBankroll(player)
     // Add stack back to bankroll (returning table stack to wallet)

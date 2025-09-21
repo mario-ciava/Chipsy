@@ -6,7 +6,7 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const logger = require("../utils/logger")
-const { logAndSuppress } = require("../utils/loggingHelpers")
+const { logAndSuppress } = logger
 const config = require("../../config")
 const {
     renderCardTable,

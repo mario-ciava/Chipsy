@@ -1,7 +1,7 @@
 const { Collection, MessageFlags } = require("discord.js")
 const logger = require("./logger")
-const { logAndSuppress } = require("./loggingHelpers")
-const { stripDeferredEphemeralFlag } = require("./interactionResponse")
+const { logAndSuppress } = logger
+const { sendInteractionResponse } = require("./interactionResponse")
 
 const isAutocompleteInteraction = (interaction) => (
     typeof interaction?.isAutocomplete === "function" && interaction.isAutocomplete()
@@ -126,13 +126,7 @@ class CommandRouter {
      */
     async replyOrFollowUp(interaction, payload = {}) {
         try {
-            if (interaction.deferred && !interaction.replied) {
-                return await interaction.editReply(stripDeferredEphemeralFlag(payload))
-            } else if (!interaction.replied) {
-                return await interaction.reply(payload)
-            } else {
-                return await interaction.followUp(payload)
-            }
+            return await sendInteractionResponse(interaction, payload)
         } catch (error) {
             logger.warn("Failed to send interaction response", {
                 scope: "commandRouter",
@@ -213,6 +207,7 @@ class CommandRouter {
             if (result?.error || !result?.data) {
                 return { ok: false, error: result?.error || { type: "missing-data" } }
             }
+            interaction.user.data = result.data
             return { ok: true, data: result.data }
         } catch (error) {
             return {

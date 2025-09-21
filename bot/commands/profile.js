@@ -11,8 +11,9 @@ const {
     getAllIds: getAllUpgradeIds
 } = upgrades
 const createCommand = require("../utils/createCommand")
+const { sendInteractionResponse } = require("../utils/interactionResponse")
 const logger = require("../utils/logger")
-const { logAndSuppress } = require("../utils/loggingHelpers")
+const { logAndSuppress } = logger
 
 const slashCommand = new SlashCommandBuilder()
     .setName("profile")
@@ -41,15 +42,7 @@ module.exports = createCommand({
                 ...extraMeta
             })
 
-        const respond = async(payload = {}) => {
-            if (interaction.deferred && !interaction.replied) {
-                return interaction.editReply(payload)
-            }
-            if (!interaction.replied) {
-                return interaction.reply(payload)
-            }
-            return interaction.followUp(payload)
-        }
+        const respond = (payload = {}) => sendInteractionResponse(interaction, payload)
 
         const author = interaction.user
         const targetUser = interaction.options.getUser("user") || author
@@ -543,6 +536,7 @@ function buildProfileMessage(author, state = {}) {
     const viewOnly = state.viewOnly === true
     // Don't show interactive components if viewing another player's profile
     const data = normalizeUserExperience(author.data || {})
+    author.data = data
     const avatarURL = author.displayAvatarURL({ extension: "png" })
 
     const now = Date.now()

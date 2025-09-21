@@ -413,22 +413,43 @@ const config = {
         ranks: ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
     },
     progression: {
+        startingLevel: 1,
         classes: [
-            { name: "Bronze III", threshold: 50_000 },
-            { name: "Bronze II", threshold: 100_000 },
-            { name: "Bronze I", threshold: 150_000 },
-            { name: "Silver III", threshold: 250_000 },
-            { name: "Silver II", threshold: 500_000 },
+            { name: "Rookie I", threshold: 0 },
+            { name: "Rookie II", threshold: 25_000 },
+            { name: "Rookie III", threshold: 50_000 },
+
+            { name: "Bronze I", threshold: 100_000 },
+            { name: "Bronze II", threshold: 200_000 },
+            { name: "Bronze III", threshold: 300_000 },
+            { name: "Bronze IV", threshold: 400_000 },
+            { name: "Bronze V", threshold: 500_000 },
+
             { name: "Silver I", threshold: 750_000 },
-            { name: "Gold III", threshold: 1_500_000 },
-            { name: "Gold II", threshold: 5_000_000 },
-            { name: "Gold I", threshold: 20_000_000 },
-            { name: "Platinum III", threshold: 75_000_000 },
-            { name: "Platinum II", threshold: 150_000_000 },
-            { name: "Platinum I", threshold: 300_000_000 },
-            { name: "Diamond III", threshold: 500_000_000 },
-            { name: "Diamond II", threshold: 750_000_000 },
-            { name: "Diamond I", threshold: 1_000_000_000 }
+            { name: "Silver II", threshold: 1_000_000 },
+            { name: "Silver III", threshold: 2_000_000 },
+            { name: "Silver IV", threshold: 3_000_000 },
+            { name: "Silver V", threshold: 5_000_000 },
+
+            { name: "Gold I", threshold: 7_500_000 },
+            { name: "Gold II", threshold: 10_000_000 },
+            { name: "Gold III", threshold: 20_000_000 },
+            { name: "Gold IV", threshold: 30_000_000 },
+            { name: "Gold V", threshold: 50_000_000 },
+
+            { name: "Diamond I", threshold: 75_000_000 },
+            { name: "Diamond II", threshold: 100_000_000 },
+            { name: "Diamond III", threshold: 150_000_000 },
+            { name: "Diamond IV", threshold: 200_000_000 },
+            { name: "Diamond V", threshold: 300_000_000 },
+
+            { name: "Master I", threshold: 500_000_000 },
+            { name: "Master II", threshold: 750_000_000 },
+            { name: "Master III", threshold: 1_000_000_000 },
+            { name: "Master IV", threshold: 2_000_000_000 },
+            { name: "Master V", threshold: 3_000_000_000 },
+
+            { name: "Legend", threshold: 5_000_000_000 }
         ],
         levelReward: {
             base: 5000,

@@ -22,19 +22,17 @@
 
         <div class="card__body">
             <ul class="status-list status-grid">
-                <li>
-                    <span class="status-list__label">Active Discord servers</span>
-                    <span class="status-list__value">{{ status.guildCount || 0 }}</span>
-                </li>
-                <li>
-                    <span class="status-list__label">MySQL</span>
-                    <span class="status-list__value" :class="{ 'status-list__value--error': !mysqlStatus }">
-                        {{ mysqlStatus ? "Online" : "Offline" }}
+                <li v-for="metric in statusMetrics" :key="metric.key">
+                    <span class="status-list__label">{{ metric.label }}</span>
+                    <span
+                        class="status-list__value"
+                        :class="[metric.className, { 'status-list__value--loading': !metric.ready }]"
+                    >
+                        <template v-if="metric.ready">
+                            {{ metric.display }}
+                        </template>
+                        <span v-else class="status-list__placeholder" aria-hidden="true"></span>
                     </span>
-                </li>
-                <li>
-                    <span class="status-list__label">Last update</span>
-                    <span class="status-list__value">{{ formattedUpdatedAt }}</span>
                 </li>
             </ul>
         </div>
@@ -140,29 +138,10 @@
 </template>
 
 <script>
-const readableFormat = (value) => {
-    if (!value) return "N/A"
-    try {
-        const date = new Date(value)
-        const dateFormatter = new Intl.DateTimeFormat("en-US", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric"
-        })
-        const timeFormatter = new Intl.DateTimeFormat("en-US", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-        })
-
-        const formattedDate = dateFormatter.format(date)
-        return `${formattedDate} ${timeFormatter.format(date)}`
-    } catch {
-        return "N/A"
-    }
-}
+import { formatDetailedDateTime } from "../../../utils/formatters"
 
 const COOLDOWN_CIRCUMFERENCE = 2 * Math.PI * 9
+const TOGGLE_HOLD_DURATION_MS = 3000
 
 export default {
     name: "BotStatusCard",
@@ -205,7 +184,7 @@ export default {
                 timeoutId: null,
                 resetTimeout: null
             },
-            holdDuration: 3000
+            holdDuration: TOGGLE_HOLD_DURATION_MS
         }
     },
     watch: {
@@ -265,7 +244,38 @@ export default {
             return Boolean(mysql && mysql.alive)
         },
         formattedUpdatedAt() {
-            return this.statusAvailable ? readableFormat(this.status.updatedAt) : "N/A"
+            if (!this.statusAvailable) return null
+            return formatDetailedDateTime(this.status.updatedAt)
+        },
+        metricsReady() {
+            return this.statusAvailable
+        },
+        statusMetrics() {
+            const ready = this.metricsReady
+            const mysqlAlive = this.mysqlStatus
+            return [
+                {
+                    key: "guilds",
+                    label: "Active Discord servers",
+                    display: ready ? (this.status.guildCount || 0) : null,
+                    className: null,
+                    ready
+                },
+                {
+                    key: "mysql",
+                    label: "MySQL",
+                    display: ready ? (mysqlAlive ? "Online" : "Offline") : null,
+                    className: !mysqlAlive && ready ? "status-list__value--error" : null,
+                    ready
+                },
+                {
+                    key: "updated",
+                    label: "Last update",
+                    display: ready ? this.formattedUpdatedAt : null,
+                    className: null,
+                    ready
+                }
+            ]
         },
         showCooldownIndicator() {
             return this.cooldownActive && this.cooldownDuration > 0

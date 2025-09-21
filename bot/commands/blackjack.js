@@ -3,8 +3,9 @@ const BlackJack = require("../games/blackjackGame.js")
 const features = require("../games/features.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
-const { logAndSuppress } = require("../utils/loggingHelpers")
+const { logAndSuppress } = logger
 const createCommand = require("../utils/createCommand")
+const { sendInteractionResponse } = require("../utils/interactionResponse")
 const bankrollManager = require("../utils/bankrollManager")
 const { registerGame } = require("../utils/gameRegistry")
 const { createLobbySession } = require("../lobbies")
@@ -43,19 +44,11 @@ const buildStopLogHandler = (channelId, reason) => (error) => {
 const runBlackjack = async(interaction, client) => {
     const channel = interaction.channel
 
-    const replyOrEdit = async(payload) => {
-        const finalPayload = { ...payload }
-        if (!finalPayload.allowedMentions) {
-            finalPayload.allowedMentions = { parse: [] }
-        }
-
-        if (interaction.deferred && !interaction.replied) {
-            return await interaction.editReply(finalPayload)
-        } else if (!interaction.replied) {
-            return await interaction.reply(finalPayload)
-        } else {
-            return await interaction.followUp(finalPayload)
-        }
+    const replyOrEdit = (payload = {}) => {
+        const finalPayload = payload.allowedMentions
+            ? payload
+            : { ...payload, allowedMentions: { parse: [] } }
+        return sendInteractionResponse(interaction, finalPayload)
     }
 
     const logLobbyInteraction = (component, message, extra = {}) =>

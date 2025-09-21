@@ -81,9 +81,10 @@ export default {
 }
 
 .app-shell__nav {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
     align-items: center;
-    justify-content: space-between;
+    gap: 24px;
     padding: 16px 32px;
     background: rgba(15, 23, 42, 0.85);
     backdrop-filter: blur(24px);
@@ -102,7 +103,10 @@ export default {
 
 .nav__links {
     display: flex;
+    justify-self: center;
+    justify-content: center;
     gap: 16px;
+    flex-wrap: wrap;
 }
 
 .nav__links a {
@@ -128,6 +132,7 @@ export default {
     display: flex;
     align-items: center;
     gap: 16px;
+    justify-self: flex-end;
 }
 
 .nav__welcome {
@@ -138,6 +143,17 @@ export default {
 .app-shell__content {
     flex: 1;
     padding: 32px;
+}
+
+@media (max-width: 768px) {
+    .app-shell__nav {
+        grid-template-columns: 1fr;
+        text-align: center;
+    }
+
+    .nav__auth {
+        justify-content: center;
+    }
 }
 
 .fade-enter-active,

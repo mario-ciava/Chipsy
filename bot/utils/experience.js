@@ -1,7 +1,9 @@
-const { constants } = require("../../config");
+const config = require("../../config");
+const { constants } = config;
 const features = require("../games/features");
 
 const BASE_REQUIRED_EXP = constants.experience.baseRequiredExp;
+const DEFAULT_PLAYER_LEVEL = config.progression?.startingLevel ?? 1;
 
 const SAFE_INTEGER_MAX = BigInt(Number.MAX_SAFE_INTEGER)
 
@@ -50,7 +52,7 @@ const toSafeInteger = (value, { defaultValue = 0, min = 0, max = Number.MAX_SAFE
 }
 
 const sanitizeLevel = (level) => {
-    const normalized = toSafeInteger(level, { min: 0, defaultValue: 0 })
+    const normalized = toSafeInteger(level, { min: 0, defaultValue: DEFAULT_PLAYER_LEVEL })
     return normalized > 0 ? normalized : 0
 }
 
@@ -68,7 +70,8 @@ const calculateRequiredExp = (level, base = BASE_REQUIRED_EXP) => {
 
 const normalizeUserExperience = (userData = {}) => {
     const normalized = { ...userData }
-    normalized.level = sanitizeLevel(normalized.level)
+    const sanitizedLevel = sanitizeLevel(normalized.level)
+    normalized.level = sanitizedLevel >= DEFAULT_PLAYER_LEVEL ? sanitizedLevel : DEFAULT_PLAYER_LEVEL
 
     const hasCurrentExp = ["number", "string", "bigint"].includes(typeof normalized.current_exp)
     const hasLegacyExp = ["number", "string", "bigint"].includes(typeof normalized.exp)
@@ -124,6 +127,7 @@ const normalizeUserExperience = (userData = {}) => {
 
 module.exports = {
     BASE_REQUIRED_EXP,
+    DEFAULT_PLAYER_LEVEL,
     calculateRequiredExp,
     normalizeUserExperience
 }

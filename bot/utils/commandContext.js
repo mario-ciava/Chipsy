@@ -1,7 +1,7 @@
 const { EmbedBuilder, Colors } = require("discord.js")
 const {
     normalizeInteractionPayload,
-    stripDeferredEphemeralFlag
+    sendInteractionResponse
 } = require("./interactionResponse")
 
 class CommandUserError extends Error {
@@ -35,17 +35,7 @@ const buildCommandContext = ({ commandName, message, interaction, client, logger
      * Handles deferred/replied states automatically.
      */
     const reply = async(payload = {}) => {
-        let response
-        const normalizedPayload = normalizeInteractionPayload(payload)
-
-        if (interaction.deferred && !interaction.replied) {
-            response = await interaction.editReply(stripDeferredEphemeralFlag(normalizedPayload))
-        } else if (!interaction.replied) {
-            response = await interaction.reply(normalizedPayload)
-        } else {
-            response = await interaction.followUp(normalizedPayload)
-        }
-
+        const response = await sendInteractionResponse(interaction, payload)
         responded.value = true
         return response
     }
@@ -74,9 +64,8 @@ const buildCommandContext = ({ commandName, message, interaction, client, logger
      * Edit the initial reply.
      */
     const editReply = async(payload = {}) => {
-        const normalizedPayload = normalizeInteractionPayload(payload)
         responded.value = true
-        return interaction.editReply(stripDeferredEphemeralFlag(normalizedPayload))
+        return sendInteractionResponse(interaction, payload, { forceEdit: true })
     }
 
     const safeInvoke = async(fn, ...params) => {

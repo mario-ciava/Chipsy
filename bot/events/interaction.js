@@ -1,5 +1,5 @@
 const { MessageFlags } = require("discord.js")
-const { logAndSuppress } = require("../utils/loggingHelpers")
+const { logAndSuppress } = require("../utils/logger")
 
 module.exports = async(interaction) => {
     if (!interaction?.client?.commandRouter) return

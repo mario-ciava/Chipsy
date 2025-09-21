@@ -70,6 +70,8 @@ import RemoteActions from "./components/RemoteActions.vue"
 import UserTable from "./components/UserTable.vue"
 import api from "../../services/api"
 
+const TOGGLE_COOLDOWN_MS = 15000
+
 export default {
     name: "DashboardPage",
     components: {
@@ -92,7 +94,7 @@ export default {
             cooldown: {
                 active: false,
                 target: null,
-                duration: 15000,
+                duration: TOGGLE_COOLDOWN_MS,
                 remaining: 0
             },
             cooldownInterval: null,

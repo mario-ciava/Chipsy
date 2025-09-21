@@ -1,5 +1,6 @@
-const { BASE_REQUIRED_EXP } = require("./experience")
+const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp } = require("./experience")
 const { info } = require("./logger")
+const STARTING_REQUIRED_EXP = calculateRequiredExp(DEFAULT_PLAYER_LEVEL)
 
 module.exports = async(pool) => {
     const connection = await pool.getConnection()
@@ -13,8 +14,8 @@ module.exports = async(pool) => {
                     \`money\` BIGINT UNSIGNED NOT NULL DEFAULT '5000',
                     \`gold\` BIGINT UNSIGNED NOT NULL DEFAULT '1',
                     \`current_exp\` INT(10) UNSIGNED NOT NULL DEFAULT '0',
-                    \`required_exp\` INT(10) UNSIGNED NOT NULL DEFAULT '${BASE_REQUIRED_EXP}',
-                    \`level\` INT(5) UNSIGNED NOT NULL DEFAULT '0',
+                    \`required_exp\` INT(10) UNSIGNED NOT NULL DEFAULT '${STARTING_REQUIRED_EXP}',
+                    \`level\` INT(5) UNSIGNED NOT NULL DEFAULT '${DEFAULT_PLAYER_LEVEL}',
                     \`hands_played\` BIGINT UNSIGNED NOT NULL DEFAULT '0',
                     \`hands_won\` BIGINT UNSIGNED NOT NULL DEFAULT '0',
                     \`biggest_won\` BIGINT UNSIGNED NOT NULL DEFAULT '0',

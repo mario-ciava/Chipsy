@@ -6,7 +6,7 @@ const Game = require("./game.js")
 const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
-const { logAndSuppress } = require("../utils/loggingHelpers")
+const { logAndSuppress } = logger
 const { renderTexasTable, createTexasTableState, renderTexasPlayerPanel } = require("../rendering/texasTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
 const config = require("../../config")
@@ -57,6 +57,7 @@ module.exports = class TexasGame extends Game {
         this.actionCursor = -1
         this.currentHandHasInteraction = false
         this.inactiveHands = 0
+        this.holeCardsSent = false
     }
 
     createPlayerSession(user, stackAmount) {
@@ -139,6 +140,7 @@ module.exports = class TexasGame extends Game {
 
     buildPlayerRenderPayload(player, options = {}) {
         if (!player) return null
+        const reveal = Boolean(options.showdown || options.revealCards)
         return {
             id: player.id,
             label: player.tag || player.username,
@@ -154,11 +156,7 @@ module.exports = class TexasGame extends Game {
             allInAmount: player.status?.allIn
                 ? Math.max(player.status?.lastAllInAmount || player.bets?.total || 0, 0)
                 : null,
-            showCards: Boolean(
-                options.showdown ||
-                options.revealCards ||
-                player.showCards
-            )
+            showCards: reveal
         }
     }
 
@@ -174,6 +172,7 @@ module.exports = class TexasGame extends Game {
         const filename = `texas_player_${player?.id || "unknown"}_${Date.now()}.png`
         return {
             filename,
+            buffer,
             attachment: new AttachmentBuilder(buffer, { name: filename, description: payload.label })
         }
     }
@@ -464,6 +463,13 @@ module.exports = class TexasGame extends Game {
         } else {
             this.gameMessage = await this.channel.send(payload)
         }
+
+        if (!this.holeCardsSent) {
+            await this.remindAllPlayersHoleCards()
+            this.holeCardsSent = true
+        } else {
+            await this.sendHoleCardsReminder(player, { force: true })
+        }
     }
 
     async respondEphemeral(interaction, payload = {}) {
@@ -487,18 +493,19 @@ module.exports = class TexasGame extends Game {
         }
     }
     
-    async sendHoleCardsReminder(player) {
+    async sendHoleCardsReminder(player, options = {}) {
         if (!player || !Array.isArray(player.cards) || player.cards.length === 0) return
         if (player.bot) return
-        if (player.status?.lastReminderHand === this.hands) return
+        const force = Boolean(options.force)
+        if (!force && player.status?.lastReminderHand === this.hands) return
 
         const interaction = player.lastInteraction
-        if (!interaction || typeof interaction.followUp !== "function") {
+        const canFollowUp = interaction && typeof interaction.followUp === "function"
+        if (!canFollowUp) {
             logger.debug("No interaction available for player hole cards reminder", {
                 scope: "texasGame",
                 playerId: player?.id
             })
-            return
         }
 
         const panel = await this.createPlayerPanelAttachment(player, { revealCards: true })
@@ -506,45 +513,75 @@ module.exports = class TexasGame extends Game {
         const embed = new EmbedBuilder()
             .setColor(Colors.DarkBlue)
             .setTitle("Le tue hole cards")
-            .setDescription(player.cards.join(" "))
-            .setFooter({ text: `Stack attuale: ${setSeparator(player.stack)}$` })
+            .addFields({ name: "Stack", value: `${setSeparator(player.stack)}$`, inline: true })
 
-        const payload = {
-            embeds: [embed],
-            flags: MessageFlags.Ephemeral
-        }
         if (panel) {
             embed.setImage(`attachment://${panel.filename}`)
-            payload.files = [panel.attachment]
         }
 
-        try {
-            await interaction.followUp(payload)
-            if (player.status) {
-                player.status.lastReminderHand = this.hands
+        const embedsForEphemeral = [embed]
+        const filesForEphemeral = panel ? [panel.attachment] : undefined
+        const dmEmbed = EmbedBuilder.from(embed)
+        const dmAttachment = panel
+            ? new AttachmentBuilder(Buffer.from(panel.buffer), { name: panel.filename, description: embed.data?.title })
+            : null
+
+        const ephemeralPayload = {
+            embeds: embedsForEphemeral,
+            files: filesForEphemeral,
+            flags: MessageFlags.Ephemeral
+        }
+
+        const dmPayload = {
+            content: "Promemoria automatico — queste sono le tue carte attuali:",
+            embeds: [dmEmbed],
+            files: dmAttachment ? [dmAttachment] : undefined
+        }
+
+        let delivered = false
+        if (canFollowUp) {
+            try {
+                await interaction.followUp(ephemeralPayload)
+                delivered = true
+            } catch (error) {
+                logger.debug("Failed to send Texas hole cards reminder via interaction", {
+                    scope: "texasGame",
+                    playerId: player?.id,
+                    error: error?.message
+                })
             }
-        } catch (error) {
-            logger.debug("Failed to send Texas hole cards reminder", {
-                scope: "texasGame",
-                playerId: player?.id,
-                error: error?.message
-            })
+        }
+
+        if (!delivered && player.user && typeof player.user.send === "function") {
+            try {
+                await player.user.send(dmPayload)
+                delivered = true
+            } catch (error) {
+                logger.warn("Failed to DM Texas hole cards reminder fallback", {
+                    scope: "texasGame",
+                    playerId: player?.id,
+                    error: error?.message
+                })
+            }
+        }
+
+        if (delivered && player.status) {
+            player.status.lastReminderHand = this.hands
         }
     }
 
     async remindAllPlayersHoleCards() {
-        await Promise.all(
-            this.players.map((player) =>
-                this.sendHoleCardsReminder(player).catch((error) => {
-                    logger.debug("Failed to send bulk hole card reminder", {
-                        scope: "texasGame",
-                        playerId: player?.id,
-                        error: error?.message
-                    })
-                    return null
+        for (const player of this.players) {
+            try {
+                await this.sendHoleCardsReminder(player, { force: true })
+            } catch (error) {
+                logger.debug("Failed to send hole cards reminder", {
+                    scope: "texasGame",
+                    playerId: player?.id,
+                    error: error?.message
                 })
-            )
-        )
+            }
+        }
     }
 
     async StartGame() {
@@ -580,8 +617,6 @@ module.exports = class TexasGame extends Game {
         if (transitionDelay > 0) {
             await sleep(transitionDelay)
         }
-
-        await this.remindAllPlayersHoleCards()
 
         if (!this.actionCollector) this.CreateOptions()
         const startingPlayer = this.findNextPendingPlayer() || this.inGamePlayers.find(p => !p.status.folded)
@@ -1048,6 +1083,9 @@ module.exports = class TexasGame extends Game {
         this.awaitingPlayerId = null
         this.actionOrder = []
         this.actionCursor = -1
+        this.currentHandHasInteraction = false
+        this.inactiveHands = 0
+        this.holeCardsSent = false
     }
 
     getDisplayedPotValue() {

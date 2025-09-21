@@ -416,6 +416,28 @@ a:hover {
     color: #fca5a5;
 }
 
+.status-list__value--loading {
+    color: transparent;
+}
+
+.status-list__placeholder {
+    position: relative;
+    display: block;
+    width: 96px;
+    height: 0.85rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+    overflow: hidden;
+}
+
+.status-list__placeholder::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    animation: shimmer 1.4s ease-in-out infinite;
+}
+
 .guilds {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

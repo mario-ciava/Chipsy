@@ -32,10 +32,10 @@ const TEXAS_LAYOUT = {
 }
 
 const PLAYER_PANEL_CONFIG = {
-    width: 420,
-    height: 360,
-    topPadding: 24,
-    targetWidth: 240
+    width: 520,
+    height: TEXAS_LAYOUT.playerBlockHeight + 80,
+    topPadding: 30,
+    targetWidth: 260
 }
 
 const sanitizeChips = (value) => {

@@ -1,60 +1,72 @@
 const { MessageFlags } = require("discord.js")
 
-/**
- * Normalize the payload for an interaction response.
- * Supports ergonomic aliases like `ephemeral` and `fetchReply`.
- * @param {Object} payload
- * @returns {Object}
- */
 const normalizeInteractionPayload = (payload = {}) => {
-    if (!payload || typeof payload !== "object") {
-        return payload
-    }
+    if (!payload || typeof payload !== "object") return payload
 
     const next = { ...payload }
 
     if (Object.prototype.hasOwnProperty.call(next, "ephemeral")) {
-        const ephemeral = next.ephemeral
-        delete next.ephemeral
-
-        if (ephemeral === true && next.flags === undefined) {
+        if (next.ephemeral === true && next.flags === undefined) {
             next.flags = MessageFlags.Ephemeral
         }
+        delete next.ephemeral
     }
 
-    if (Object.prototype.hasOwnProperty.call(next, "fetchReply")) {
-        const fetchReply = next.fetchReply
-        delete next.fetchReply
-
-        if (fetchReply === true && next.withResponse === undefined) {
-            next.withResponse = true
-        }
+    if (next.fetchReply === true && next.withResponse === undefined) {
+        next.withResponse = true
     }
 
     return next
 }
 
-/**
- * Discord forbids toggling the ephemeral flag after the initial defer/reply.
- * When editing a deferred interaction we must strip the flag entirely.
- * @param {Object} payload
- * @returns {Object}
- */
-const stripDeferredEphemeralFlag = (payload) => {
-    if (!payload || typeof payload !== "object") {
-        return payload
+const readFlagValue = (flags) => {
+    if (typeof flags === "number" || typeof flags === "bigint") {
+        return Number(flags)
     }
+    if (flags && (typeof flags.bitfield === "number" || typeof flags.bitfield === "bigint")) {
+        return Number(flags.bitfield)
+    }
+    return null
+}
 
-    if (payload.flags !== MessageFlags.Ephemeral) {
-        return payload
-    }
+const stripDeferredEphemeralFlag = (payload) => {
+    if (!payload || typeof payload !== "object") return payload
+    const bitfield = readFlagValue(payload.flags)
+    const ephemeralBit = Number(MessageFlags.Ephemeral ?? (1 << 6))
+    if (bitfield === null || (bitfield & ephemeralBit) === 0) return payload
 
     const next = { ...payload }
-    delete next.flags
+    const remaining = bitfield & ~ephemeralBit
+    if (remaining === 0) delete next.flags
+    else next.flags = remaining
     return next
+}
+
+const sendInteractionResponse = async(interaction, payload = {}, options = {}) => {
+    if (!interaction?.reply) {
+        throw new TypeError("sendInteractionResponse requires a Discord interaction")
+    }
+
+    const normalized = normalizeInteractionPayload(payload)
+    const editReply = () => interaction.editReply(stripDeferredEphemeralFlag(normalized))
+
+    if (options.forceEdit === true || (interaction.deferred && !interaction.replied)) {
+        return editReply()
+    }
+
+    if (!interaction.replied) {
+        return interaction.reply(normalized)
+    }
+
+    if (options.allowFollowUp === false) {
+        return editReply()
+    }
+
+    return interaction.followUp(normalized)
 }
 
 module.exports = {
     normalizeInteractionPayload,
-    stripDeferredEphemeralFlag
+    stripDeferredEphemeralFlag,
+    sendInteractionResponse
 }

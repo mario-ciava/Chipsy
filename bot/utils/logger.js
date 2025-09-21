@@ -100,6 +100,15 @@ const sanitizeMetaValue = (value) => {
     return String(value)
 }
 
+const serializeError = (error) => {
+    if (!error) return "Unknown error"
+    if (error instanceof Error) {
+        return error.message || error.name || "Error"
+    }
+    const value = sanitizeMetaValue(error)
+    return value === undefined ? "Unknown error" : value
+}
+
 const buildMetaSegments = (meta) => {
     if (!meta || typeof meta !== "object") return []
 
@@ -175,6 +184,28 @@ const logWithLevel = (level, message, meta = {}) => {
     return createLogPayload(timestamp, normalizedLevel, effectiveMessage, metaObject)
 }
 
+const logAndSuppress = (message, meta = {}, options = {}) => {
+    const includeStack = options.includeStack !== false
+    const returnValue = Object.prototype.hasOwnProperty.call(options, "returnValue")
+        ? options.returnValue
+        : null
+    const level = options.level || "warn"
+
+    return (error) => {
+        const payload = {
+            ...meta,
+            error: serializeError(error)
+        }
+
+        if (includeStack && error?.stack) {
+            payload.stack = error.stack
+        }
+
+        logWithLevel(level, message, payload)
+        return returnValue
+    }
+}
+
 module.exports = {
     error: (message, meta) => logWithLevel("error", message, meta),
     warn: (message, meta) => logWithLevel("warn", message, meta),
@@ -185,5 +216,6 @@ module.exports = {
     setLevel,
     getLevel,
     isLevelEnabled,
-    formatConsoleMessage
+    formatConsoleMessage,
+    logAndSuppress
 }
