@@ -63,6 +63,7 @@
 
 <script>
 import { mapActions } from "vuex"
+import api from "../../../services/api"
 
 export default {
     name: "RemoteActions",
@@ -122,7 +123,7 @@ export default {
             })
         },
         handleAction(action) {
-            if (action.dangerous) {
+            if (action.dangerous || action.confirmation) {
                 this.pendingAction = action
                 this.confirmStep = 1
                 this.showConfirm = true
@@ -152,16 +153,32 @@ export default {
 
             this.loading = true
             try {
-                this.logCommandEvent("info", action, `Command ${this.formatCommandLabel(action)} requested.`)
                 const descriptor = this.formatCommandLabel(action)
-                this.$emit("action-error", `Action ${descriptor} is not available on the server yet.`)
-                this.logCommandEvent(
-                    "warning",
-                    action,
-                    `Command ${descriptor} skipped: remote endpoint not configured.`
-                )
+                const csrfToken = this.$store.state.session.csrfToken
+                if (!csrfToken) {
+                    throw new Error("Missing authentication token")
+                }
+
+                this.logCommandEvent("info", action, `Command ${descriptor} requested.`)
+                const response = await api.runAdminAction({ csrfToken, actionId: action.id })
+                const message = response?.message || `Action ${descriptor} completed successfully.`
+                this.$emit("action-success", message)
+                this.logCommandEvent("success", action, `Command ${descriptor} completed.`)
+            } catch (error) {
+                const descriptor = this.formatCommandLabel(action)
+                const message =
+                    error?.response?.data?.message ||
+                    error?.message ||
+                    `Action ${descriptor} failed.`
+                this.$emit("action-error", message)
+                this.logCommandEvent("error", action, `Command ${descriptor} failed: ${message}`)
             } finally {
+                if (action === this.pendingAction) {
+                    this.pendingAction = null
+                }
+                this.confirmStep = 0
                 this.loading = false
+                this.showConfirm = false
             }
         }
     }

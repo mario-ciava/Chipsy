@@ -309,9 +309,9 @@ export default {
         },
         holdProgressStyle(target) {
             const progress = this.hold.target === target ? this.hold.progress : 0
-            const translate = 100 - progress * 100
+            const clamped = Math.max(0, Math.min(1, progress))
             return {
-                transform: `translateY(${translate}%)`
+                transform: `scaleX(${clamped})`
             }
         },
         onHoldStart(target, event) {

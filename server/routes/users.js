@@ -1,19 +1,26 @@
 const express = require("express")
+const { ROLES } = require("../services/accessControlService")
 
 const createUsersRouter = (dependencies) => {
     const {
         client,
-        getAccessToken
+        getAccessToken,
+        requireCsrfToken
     } = dependencies
 
     const router = express.Router()
 
-    const ensureAdminWithData = (req, res) => {
+    const ensureAuthenticated = (req, res) => {
         if (!getAccessToken(req)) {
             res.status(400).json({ message: "400: Bad request" })
             return false
         }
-        if (!req.isAdmin) {
+        return true
+    }
+
+    const ensurePanelAccess = (req, res) => {
+        if (!ensureAuthenticated(req, res)) return false
+        if (!req.permissions?.canAccessPanel) {
             res.status(403).json({ message: "403: Forbidden" })
             return false
         }
@@ -22,6 +29,47 @@ const createUsersRouter = (dependencies) => {
             return false
         }
         return true
+    }
+
+    const ensureAccessControl = (res) => {
+        if (!client.accessControl || typeof client.accessControl.getAccessRecord !== "function") {
+            res.status(503).json({ message: "503: Service Unavailable" })
+            return false
+        }
+        return true
+    }
+
+    const ensureRoleManagement = (req, res) => {
+        if (!ensureAuthenticated(req, res)) return false
+        if (!req.permissions?.canManageRoles) {
+            res.status(403).json({ message: "403: Forbidden" })
+            return false
+        }
+        return ensureAccessControl(res)
+    }
+
+    const ensureListManagement = (req, res) => {
+        if (!ensureAuthenticated(req, res)) return false
+        if (!req.permissions?.canManageLists) {
+            res.status(403).json({ message: "403: Forbidden" })
+            return false
+        }
+        return ensureAccessControl(res)
+    }
+
+    const buildAccessPayload = (userId, accessRecord) => {
+        const ownerId = client.config?.ownerid
+        const isOwner = ownerId && userId === ownerId
+
+        const role = accessRecord?.role
+            || (isOwner ? ROLES.MASTER : ROLES.USER)
+
+        return {
+            role,
+            isBlacklisted: Boolean(accessRecord?.isBlacklisted),
+            isWhitelisted: isOwner ? true : Boolean(accessRecord?.isWhitelisted),
+            updatedAt: accessRecord?.updatedAt || null
+        }
     }
 
     const resolveUsername = async(id) => {
@@ -50,11 +98,12 @@ const createUsersRouter = (dependencies) => {
         }
     }
 
-    const toUserSummary = async(user) => {
+    const toUserSummary = async(user, accessRecord) => {
         if (!user) return null
         const handsPlayed = Number(user.hands_played || 0)
         const handsWon = Number(user.hands_won || 0)
         const winRate = handsPlayed > 0 ? Number(((handsWon / handsPlayed) * 100).toFixed(2)) : 0
+        const accessPayload = buildAccessPayload(user.id, accessRecord)
 
         return {
             id: user.id,
@@ -73,12 +122,14 @@ const createUsersRouter = (dependencies) => {
             rewardAmountUpgrade: user.reward_amount_upgrade,
             rewardTimeUpgrade: user.reward_time_upgrade,
             nextReward: user.next_reward,
-            lastPlayed: user.last_played
+            lastPlayed: user.last_played,
+            panelRole: accessPayload.role,
+            access: accessPayload
         }
     }
 
     router.get("/", async(req, res, next) => {
-        if (!ensureAdminWithData(req, res)) return
+        if (!ensurePanelAccess(req, res)) return
         const { page, pageSize, search } = req.query || {}
 
         try {
@@ -88,8 +139,14 @@ const createUsersRouter = (dependencies) => {
                 search
             })
 
+            const ids = result.items.map((item) => item.id).filter(Boolean)
+            let accessMap = new Map()
+            if (ids.length && client.accessControl?.getAccessRecords) {
+                accessMap = await client.accessControl.getAccessRecords(ids)
+            }
+
             res.status(200).json({
-                items: await Promise.all(result.items.map((item) => toUserSummary(item))),
+                items: await Promise.all(result.items.map((item) => toUserSummary(item, accessMap.get(item.id)))),
                 pagination: result.pagination
             })
         } catch (error) {
@@ -98,7 +155,7 @@ const createUsersRouter = (dependencies) => {
     })
 
     router.get("/:id", async(req, res, next) => {
-        if (!ensureAdminWithData(req, res)) return
+        if (!ensurePanelAccess(req, res)) return
         const userId = req.params.id
 
         if (!userId) {
@@ -111,9 +168,79 @@ const createUsersRouter = (dependencies) => {
                 return res.status(404).json({ message: "404: User not found" })
             }
 
-            res.status(200).json(await toUserSummary(user))
+            let accessRecord = null
+            if (client.accessControl?.getAccessRecord) {
+                accessRecord = await client.accessControl.getAccessRecord(userId)
+            }
+
+            res.status(200).json(await toUserSummary(user, accessRecord))
         } catch (error) {
             next(error)
+        }
+    })
+
+    router.patch("/:id/role", requireCsrfToken, async(req, res, next) => {
+        if (!ensureRoleManagement(req, res)) return
+        const userId = req.params.id
+        const desiredRole = req.body?.role
+
+        if (!userId || typeof desiredRole !== "string") {
+            return res.status(400).json({ message: "400: Bad request" })
+        }
+
+        try {
+            const updated = await client.accessControl.setRole({
+                actorId: req.user?.id,
+                actorRole: req.user?.role,
+                targetId: userId,
+                nextRole: desiredRole
+            })
+
+            const access = buildAccessPayload(userId, updated)
+            res.status(200).json({
+                role: access.role,
+                access
+            })
+        } catch (error) {
+            if (error.status) {
+                return res.status(error.status).json({ message: `${error.status}: ${error.message}` })
+            }
+            return next(error)
+        }
+    })
+
+    router.patch("/:id/lists", requireCsrfToken, async(req, res, next) => {
+        if (!ensureListManagement(req, res)) return
+        const userId = req.params.id
+        if (!userId) {
+            return res.status(400).json({ message: "400: Bad request" })
+        }
+
+        const { isBlacklisted, isWhitelisted } = req.body || {}
+
+        if (
+            typeof isBlacklisted !== "boolean"
+            && typeof isWhitelisted !== "boolean"
+        ) {
+            return res.status(400).json({ message: "400: Bad request" })
+        }
+
+        try {
+            const updated = await client.accessControl.updateLists({
+                actorId: req.user?.id,
+                actorRole: req.user?.role,
+                targetId: userId,
+                isBlacklisted,
+                isWhitelisted
+            })
+
+            const access = buildAccessPayload(userId, updated)
+            res.status(200).json(access)
+        } catch (error) {
+            if (error.status) {
+                return res.status(error.status).json({ message: `${error.status}: ${error.message}` })
+            }
+            return next(error)
         }
     })
 

@@ -8,5 +8,3 @@ const STANDARD_DECK = Object.freeze(
 );
 
 module.exports = STANDARD_DECK;
-module.exports.SUITS = SUITS;
-module.exports.RANKS = RANKS;

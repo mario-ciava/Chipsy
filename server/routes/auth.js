@@ -1,5 +1,6 @@
 const express = require("express")
 const { constants } = require("../../config")
+const { buildPermissionMatrix, ROLES } = require("../services/accessControlService")
 
 const createAuthRouter = (dependencies) => {
     const {
@@ -116,9 +117,37 @@ const createAuthRouter = (dependencies) => {
             })
 
             const user = response.data
-            const isAdmin = user.id === client.config.ownerid
+            let accessRecord = null
+
+            if (client.accessControl?.getAccessRecord) {
+                accessRecord = await client.accessControl.getAccessRecord(user.id)
+            }
+
+            const ownerId = client.config.ownerid
+            const derivedRole = (() => {
+                if (accessRecord?.role) return accessRecord.role
+                if (user.id === ownerId) return ROLES.MASTER
+                return ROLES.USER
+            })()
+
+            if (accessRecord?.isBlacklisted) {
+                return res.status(403).json({ message: "403: Forbidden" })
+            }
+
+            const permissions = buildPermissionMatrix(derivedRole)
             const csrfToken = ensureCsrfToken ? ensureCsrfToken(req) : null
-            const enrichedUser = { ...user, isAdmin }
+            const accessPayload = {
+                isBlacklisted: Boolean(accessRecord?.isBlacklisted),
+                isWhitelisted: Boolean(accessRecord?.isWhitelisted)
+            }
+            const enrichedUser = {
+                ...user,
+                role: permissions.role,
+                isAdmin: permissions.canAccessPanel,
+                isModerator: permissions.isModerator,
+                permissions,
+                access: accessPayload
+            }
             if (csrfToken) {
                 enrichedUser.csrfToken = csrfToken
             }
@@ -132,8 +161,12 @@ const createAuthRouter = (dependencies) => {
             req.session.oauth = { ...(req.session.oauth || {}), accessToken: token }
             tokenCache.set(token, cachedUser)
 
-            if (isAdmin) {
+            req.permissions = permissions
+            if (permissions.canAccessPanel) {
                 req.isAdmin = true
+            }
+            if (permissions.canViewLogs) {
+                req.isModerator = true
             }
 
             return res.status(200).json(enrichedUser)

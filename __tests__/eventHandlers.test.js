@@ -1,93 +1,71 @@
 const { MessageFlags } = require("discord.js")
-const handleMessage = require("../events/msg")
-const handleInteraction = require("../events/interaction")
+const handleInteraction = require("../bot/events/interaction")
 
-describe("event handlers respect bot enabled flag", () => {
+describe("interaction event handler", () => {
     const disabledNotice = "The bot is currently disabled by the administrators. Please try again later."
 
-    describe("message handler", () => {
-        it("ignores legacy messages when the bot is disabled", async() => {
-            const send = jest.fn().mockResolvedValue()
-            const handleMessageSpy = jest.fn().mockResolvedValue()
+    const createInteraction = (overrides = {}) => {
+        const router = {
+            handleInteraction: jest.fn().mockResolvedValue(undefined)
+        }
 
-            const msg = {
-                content: "!ping",
-                author: { bot: false },
-                client: {
-                    config: { prefix: "!", enabled: false },
-                    commandRouter: { handleMessage: handleMessageSpy }
-                },
-                channel: { send }
-            }
+        return {
+            id: "interaction-123",
+            client: {
+                config: { enabled: true, ...(overrides.client?.config || {}) },
+                commandRouter: overrides.client?.commandRouter || router
+            },
+            replied: overrides.replied ?? false,
+            deferred: overrides.deferred ?? false,
+            reply: overrides.reply || jest.fn().mockResolvedValue(undefined),
+            followUp: overrides.followUp || jest.fn().mockResolvedValue(undefined),
+            respond: overrides.respond || jest.fn().mockResolvedValue(undefined),
+            isAutocomplete: overrides.isAutocomplete || (() => false)
+        }
+    }
 
-            await handleMessage(msg)
-
-            expect(send).not.toHaveBeenCalled()
-            expect(handleMessageSpy).not.toHaveBeenCalled()
+    test("short-circuits when the bot is disabled (regular command)", async() => {
+        const reply = jest.fn().mockResolvedValue(undefined)
+        const interaction = createInteraction({
+            reply,
+            client: { config: { enabled: false } }
         })
 
-        it("ignores legacy messages even when the bot is enabled", async() => {
-            const send = jest.fn()
-            const handleMessageSpy = jest.fn().mockResolvedValue()
+        await handleInteraction(interaction)
 
-            const msg = {
-                content: "!ping",
-                author: { bot: false },
-                client: {
-                    config: { prefix: "!", enabled: true },
-                    commandRouter: { handleMessage: handleMessageSpy }
-                },
-                channel: { send }
-            }
-
-            await handleMessage(msg)
-
-            expect(send).not.toHaveBeenCalled()
-            expect(handleMessageSpy).not.toHaveBeenCalled()
-            expect(msg.command).toBeUndefined()
-        })
+        expect(reply).toHaveBeenCalledWith({ content: disabledNotice, flags: MessageFlags.Ephemeral })
+        expect(interaction.client.commandRouter.handleInteraction).not.toHaveBeenCalled()
     })
 
-    describe("interaction handler", () => {
-        it("replies with a disabled notice when the bot is disabled", async() => {
-            const reply = jest.fn().mockResolvedValue()
-            const followUp = jest.fn().mockResolvedValue()
-            const handleInteractionSpy = jest.fn()
-
-            const interaction = {
-                client: {
-                    config: { enabled: false },
-                    commandRouter: { handleInteraction: handleInteractionSpy }
-                },
-                deferred: false,
-                replied: false,
-                reply,
-                followUp
-            }
-
-            await handleInteraction(interaction)
-
-            expect(reply).toHaveBeenCalledWith({ content: disabledNotice, flags: MessageFlags.Ephemeral })
-            expect(followUp).not.toHaveBeenCalled()
-            expect(handleInteractionSpy).not.toHaveBeenCalled()
+    test("responds with an empty list for disabled autocomplete interactions", async() => {
+        const respond = jest.fn().mockResolvedValue(undefined)
+        const interaction = createInteraction({
+            respond,
+            client: { config: { enabled: false } },
+            isAutocomplete: () => true
         })
 
-        it("routes interactions when the bot is enabled", async() => {
-            const handleInteractionSpy = jest.fn().mockResolvedValue()
+        await handleInteraction(interaction)
 
-            const interaction = {
-                client: {
-                    config: { enabled: true },
-                    commandRouter: { handleInteraction: handleInteractionSpy }
-                },
-                deferred: false,
-                replied: false
-            }
+        expect(respond).toHaveBeenCalledWith([])
+        expect(interaction.client.commandRouter.handleInteraction).not.toHaveBeenCalled()
+    })
 
-            await handleInteraction(interaction)
+    test("hands interactions off to the command router when enabled", async() => {
+        const interaction = createInteraction()
 
-            expect(handleInteractionSpy).toHaveBeenCalledTimes(1)
-            expect(handleInteractionSpy).toHaveBeenCalledWith(interaction)
-        })
+        await handleInteraction(interaction)
+
+        expect(interaction.client.commandRouter.handleInteraction).toHaveBeenCalledTimes(1)
+        expect(interaction.client.commandRouter.handleInteraction).toHaveBeenCalledWith(interaction)
+    })
+
+    test("ignores already handled interactions", async() => {
+        const interaction = createInteraction({ replied: true })
+
+        await handleInteraction(interaction)
+
+        expect(interaction.client.commandRouter.handleInteraction).not.toHaveBeenCalled()
+        expect(interaction.reply).not.toHaveBeenCalled()
     })
 })

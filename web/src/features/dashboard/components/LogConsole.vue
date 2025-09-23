@@ -1,7 +1,7 @@
 <template>
-    <div class="card log-console">
+    <div class="card log-console" :style="consoleStyle">
         <div class="card__header log-console__header">
-            <div>
+            <div class="log-console__titles">
                 <h3 class="card__title">{{ title }}</h3>
                 <p class="card__subtitle">
                     {{ subtitle }}
@@ -35,16 +35,6 @@
                 <p v-if="!logs.length" class="log-console__empty">No events logged right now.</p>
             </div>
         </div>
-        <div class="log-console__footer">
-            <div class="log-console__hint">
-                <strong>Remote shell</strong>
-                <span>Remote command submission stays disabled here for everyone's sanity.</span>
-            </div>
-            <div class="log-console__input">
-                <input type="text" placeholder="Remote commands disabled" disabled />
-                <button class="button button--secondary" disabled>Send</button>
-            </div>
-        </div>
     </div>
 </template>
 
@@ -63,6 +53,22 @@ const LEVEL_LABELS = {
     error: "ERR",
     debug: "DBG",
     system: "SYS"
+}
+
+const resolveTimestamp = (value) => {
+    if (value instanceof Date) {
+        return value
+    }
+    if (!value) {
+        return new Date()
+    }
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed
+}
+
+const timestampValue = (entry) => {
+    if (!entry) return 0
+    return resolveTimestamp(entry.timestamp).getTime()
 }
 
 export default {
@@ -87,16 +93,34 @@ export default {
         recordingEnabled: {
             type: Boolean,
             default: false
+        },
+        fixedHeight: {
+            type: [String, Number],
+            default: null
         }
     },
     computed: {
         formattedLogs() {
-            return this.logs.map((entry) => ({
-                ...entry,
-                level: entry.level || "info",
-                levelLabel: LEVEL_LABELS[entry.level] || (entry.level || "INFO").toUpperCase(),
-                time: formatter.format(entry.timestamp || Date.now())
-            }))
+            const sorted = [...this.logs].sort((a, b) => timestampValue(a) - timestampValue(b))
+            return sorted.map((entry) => {
+                const timestamp = resolveTimestamp(entry?.timestamp)
+                const level = entry?.level || "info"
+                return {
+                    ...entry,
+                    level,
+                    levelLabel: LEVEL_LABELS[level] || level.toUpperCase(),
+                    time: formatter.format(timestamp)
+                }
+            })
+        },
+        consoleStyle() {
+            if (!this.fixedHeight) return null
+            const value = typeof this.fixedHeight === "number" ? `${this.fixedHeight}px` : String(this.fixedHeight)
+            return {
+                height: value,
+                maxHeight: value,
+                overflow: "hidden"
+            }
         }
     },
     watch: {
@@ -121,46 +145,48 @@ export default {
         rgba(15, 23, 42, 0.72);
     border: 1px solid rgba(148, 163, 184, 0.18);
     backdrop-filter: blur(6px);
-    min-height: 100%;
-    height: 100%;
+    min-height: 420px;
+    height: auto;
 }
-
 
 .log-console__header {
+    position: relative;
     display: flex;
+    flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
-    flex-wrap: wrap;
+    gap: 12px;
+    padding-right: clamp(0px, 18vw, 180px);
 }
 
-.log-console__header > div:first-child {
+.log-console__titles {
     flex: 1 1 auto;
 }
 
 .log-console__toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 14px;
+    padding: 6px 16px;
     border-radius: 999px;
     border: 1px solid rgba(148, 163, 184, 0.28);
-    background: rgba(15, 23, 42, 0.38);
+    background: rgba(15, 23, 42, 0.5);
     box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
-    margin-left: auto;
-    align-self: flex-start;
 }
 
 .log-console__toggle-label {
     color: var(--fg-secondary);
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-size: 0.85rem;
+    font-weight: 600;
 }
 
 .toggle-switch {
     position: relative;
     display: inline-block;
-    width: 56px;
-    height: 30px;
+    width: 48px;
+    height: 26px;
 }
 
 .toggle-switch input {
@@ -182,10 +208,10 @@ export default {
 .toggle-switch__slider:before {
     position: absolute;
     content: "";
-    height: 20px;
-    width: 20px;
+    height: 18px;
+    width: 18px;
     left: 4px;
-    bottom: 4px;
+    bottom: 3px;
     background: white;
     transition: 0.3s;
     border-radius: 50%;
@@ -198,7 +224,7 @@ export default {
 }
 
 .toggle-switch input:checked + .toggle-switch__slider:before {
-    transform: translateX(24px);
+    transform: translateX(20px);
 }
 
 .log-console__body {
@@ -216,7 +242,7 @@ export default {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
-    padding: 16px 12px;
+    padding: 16px 12px 18px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 0.88rem;
     color: #e2e8f0;
@@ -294,49 +320,6 @@ export default {
     padding: 12px 0;
 }
 
-.log-console__footer {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding-top: 4px;
-    margin-top: auto;
-}
-
-.log-console__hint {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    color: rgba(148, 163, 184, 0.9);
-    font-size: 0.85rem;
-}
-
-.log-console__hint strong {
-    color: rgba(226, 232, 240, 0.95);
-}
-
-.log-console__input {
-    display: flex;
-    gap: 12px;
-}
-
-.log-console__input input {
-    flex: 1;
-    background: rgba(15, 23, 42, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 8px;
-    padding: 10px 12px;
-    color: rgba(148, 163, 184, 0.7);
-}
-
-.log-console__input input::placeholder {
-    color: rgba(148, 163, 184, 0.45);
-}
-
-.log-console__input button {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
 .log-entry-enter-active {
     transition: transform 0.25s ease, opacity 0.25s ease;
 }
@@ -355,13 +338,28 @@ export default {
 }
 
 @media (max-width: 1024px) {
-    .log-console__body {
-        max-height: 200px;
-    }
-
     .log-console__line {
         grid-template-columns: 60px 48px 1fr;
         font-size: 0.82rem;
+    }
+}
+
+@media (max-width: 720px) {
+    .log-console__header {
+        padding-right: 0;
+    }
+
+    .log-console__toggle {
+        position: static;
+        margin-left: auto;
+    }
+
+    .log-console__titles {
+        width: 100%;
+    }
+
+    .log-console__body {
+        max-height: none;
     }
 }
 </style>

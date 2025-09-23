@@ -21,7 +21,7 @@ class CommandRouter {
      * Register a command.
      * @param {Object} command - Command object with config and execute function
      */
-    register(command) {
+    register(command, { replace = true } = {}) {
         const config = command.config
         if (!config?.name) {
             throw new Error("Command registration failed: missing name")
@@ -33,7 +33,21 @@ class CommandRouter {
             throw new Error(`Command '${config.name}' missing execute function`)
         }
 
-        this.commands.set(config.name.toLowerCase(), command)
+        const key = config.name.toLowerCase()
+        const existing = this.commands.get(key)
+        if (existing && !replace) {
+            throw new Error(`Command '${config.name}' already registered`)
+        }
+
+        this.commands.set(key, command)
+        return command
+    }
+
+    unregister(name) {
+        if (!name) return false
+        const key = typeof name === "string" ? name.toLowerCase() : name
+        if (!key) return false
+        return this.commands.delete(key)
     }
 
     /**

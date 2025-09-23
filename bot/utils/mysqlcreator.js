@@ -1,6 +1,8 @@
 const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp } = require("./experience")
 const { info } = require("./logger")
+const config = require("../../config")
 const STARTING_REQUIRED_EXP = calculateRequiredExp(DEFAULT_PLAYER_LEVEL)
+const MASTER_USER_ID = config?.discord?.ownerId || null
 
 module.exports = async(pool) => {
     const connection = await pool.getConnection()
@@ -124,6 +126,57 @@ module.exports = async(pool) => {
             } catch (error) {
                 // Index might not exist, ignore
             }
+        }
+
+        const [accessTables] = await connection.query("SHOW TABLES LIKE ?", ["user_access"])
+
+        if (!accessTables || accessTables.length === 0) {
+            await connection.query(
+                `CREATE TABLE \`user_access\` (
+                    \`user_id\` VARCHAR(25) NOT NULL,
+                    \`role\` ENUM('MASTER','ADMIN','MODERATOR','USER') NOT NULL DEFAULT 'USER',
+                    \`is_blacklisted\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                    \`is_whitelisted\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                    \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (\`user_id\`)
+                )`
+            )
+            info("user_access table created", { scope: "mysql" })
+        } else {
+            const ensureColumn = async(column, definition) => {
+                try {
+                    const [columns] = await connection.query("SHOW COLUMNS FROM `user_access` LIKE ?", [column])
+                    if (!columns || columns.length === 0) {
+                        await connection.query(`ALTER TABLE \`user_access\` ADD COLUMN ${definition}`)
+                        info(`Added ${column} column to user_access table`, { scope: "mysql" })
+                    }
+                } catch (error) {
+                    info(`${column} column already exists or failed to add`, { scope: "mysql" })
+                }
+            }
+
+            await ensureColumn("role", "`role` ENUM('MASTER','ADMIN','MODERATOR','USER') NOT NULL DEFAULT 'USER'")
+            await ensureColumn("is_blacklisted", "`is_blacklisted` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0")
+            await ensureColumn("is_whitelisted", "`is_whitelisted` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0")
+            await ensureColumn(
+                "created_at",
+                "`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+            )
+            await ensureColumn(
+                "updated_at",
+                "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+            )
+        }
+
+        if (MASTER_USER_ID) {
+            await connection.query(
+                `INSERT INTO \`user_access\` (\`user_id\`, \`role\`, \`is_whitelisted\`, \`is_blacklisted\`)
+                VALUES (?, 'MASTER', 1, 0)
+                ON DUPLICATE KEY UPDATE \`role\` = 'MASTER', \`is_whitelisted\` = 1, \`is_blacklisted\` = 0`,
+                [MASTER_USER_ID]
+            )
+            info("Ensured master record exists in user_access table", { scope: "mysql" })
         }
     } finally {
         connection.release()

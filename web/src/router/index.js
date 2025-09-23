@@ -43,7 +43,7 @@ const router = new Router({
             component: DashboardPage,
             meta: {
                 requiresAuth: true,
-                requiresAdmin: true
+                requiresPanel: true
             }
         },
         {
@@ -52,7 +52,7 @@ const router = new Router({
             component: LogsPage,
             meta: {
                 requiresAuth: true,
-                requiresAdmin: true
+                requiresLogs: true
             }
         },
         {
@@ -61,7 +61,7 @@ const router = new Router({
             component: UserDetailPage,
             meta: {
                 requiresAuth: true,
-                requiresAdmin: true
+                requiresPanel: true
             }
         }
     ]
@@ -78,7 +78,8 @@ router.beforeEach(async(to, from, next) => {
     }
 
     const isAuthenticated = store.getters["session/isAuthenticated"]
-    const isAdmin = store.getters["session/isAdmin"]
+    const hasPanelAccess = store.getters["session/isAdmin"]
+    const canViewLogs = store.getters["session/canViewLogs"]
 
     if (to.query.code && to.name !== "Home" && to.query.state !== "controlPanelInvite") {
         return next({
@@ -98,7 +99,11 @@ router.beforeEach(async(to, from, next) => {
         return next({ name: "ControlPanel" })
     }
 
-    if (to.matched.some((route) => route.meta && route.meta.requiresAdmin) && !isAdmin) {
+    if (to.matched.some((route) => route.meta && route.meta.requiresPanel) && !hasPanelAccess) {
+        return next({ name: "Home" })
+    }
+
+    if (to.matched.some((route) => route.meta && route.meta.requiresLogs) && !canViewLogs) {
         return next({ name: "Home" })
     }
 

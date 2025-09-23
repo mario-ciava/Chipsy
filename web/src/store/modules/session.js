@@ -2,10 +2,25 @@ import api from "../../services/api"
 
 let bootstrapPromise = null
 
+const defaultPermissions = () => ({
+    role: "USER",
+    isMaster: false,
+    isAdmin: false,
+    isModerator: false,
+    canAccessPanel: false,
+    canViewLogs: false,
+    canManageRoles: false,
+    canAssignAdmin: false,
+    canAssignModerator: false,
+    canManageLists: false,
+    canWriteLogs: false
+})
+
 const initialState = () => ({
     user: null,
     csrfToken: null,
     clientConfig: null,
+    permissions: defaultPermissions(),
     loading: false,
     error: null,
     initialized: false
@@ -16,9 +31,18 @@ export default {
     state: initialState,
     getters: {
         isAuthenticated: (state) => Boolean(state.user),
-        isAdmin: (state) => Boolean(state.user && state.user.isAdmin),
+        isAdmin: (state) => Boolean(state.permissions?.canAccessPanel),
+        isModerator: (state) => Boolean(state.permissions?.canViewLogs),
         csrfToken: (state) => state.csrfToken,
-        user: (state) => state.user
+        user: (state) => state.user,
+        role: (state) => state.user?.role || state.permissions.role,
+        permissions: (state) => state.permissions,
+        canViewLogs: (state) => Boolean(state.permissions?.canViewLogs),
+        canManageRoles: (state) => Boolean(state.permissions?.canManageRoles),
+        canManageLists: (state) => Boolean(state.permissions?.canManageLists),
+        canWriteLogs: (state) => Boolean(state.permissions?.canWriteLogs),
+        canAssignAdmin: (state) => Boolean(state.permissions?.canAssignAdmin),
+        canAssignModerator: (state) => Boolean(state.permissions?.canAssignModerator)
     },
     mutations: {
         SET_USER(state, user) {
@@ -29,6 +53,12 @@ export default {
         },
         SET_CLIENT_CONFIG(state, config) {
             state.clientConfig = config
+        },
+        SET_PERMISSIONS(state, permissions) {
+            state.permissions = {
+                ...defaultPermissions(),
+                ...(permissions || {})
+            }
         },
         SET_LOADING(state, loading) {
             state.loading = loading
@@ -88,7 +118,15 @@ export default {
                 const user = await api.getCurrentUser()
                 let clientConfig = null
 
-                if (user && user.isAdmin) {
+                const permissions = user?.permissions || defaultPermissions()
+
+                if (user) {
+                    commit("SET_PERMISSIONS", permissions)
+                } else {
+                    commit("SET_PERMISSIONS", defaultPermissions())
+                }
+
+                if (user && permissions.canAccessPanel) {
                     try {
                         clientConfig = await api.getClientConfig()
                     } catch (error) {
@@ -109,6 +147,7 @@ export default {
                     commit("SET_USER", null)
                     commit("SET_CLIENT_CONFIG", null)
                     commit("SET_CSRF_TOKEN", null)
+                    commit("SET_PERMISSIONS", defaultPermissions())
                     return null
                 }
 

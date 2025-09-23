@@ -17,6 +17,7 @@ const createHealthRouter = require("./routes/health")
 const createEnhancedAdminRouter = require("./routes/adminEnhanced")
 const createStatusWebSocketServer = require("./websocket/statusServer")
 const createTokenCache = require("./utils/tokenCache")
+const { buildPermissionMatrix } = require("./services/accessControlService")
 
 const buildDiscordError = (error, fallbackMessage) => {
     const status = error.status || error.response?.status || 500
@@ -217,6 +218,14 @@ module.exports = (client, webSocket, options = {}) => {
         next()
     })
 
+    const resolvePermissions = (user) => {
+        if (!user) return null
+        if (user.permissions && user.permissions.role === user.role) {
+            return user.permissions
+        }
+        return buildPermissionMatrix(user.role)
+    }
+
     app.use((req, res, next) => {
         const sessionUser = req.session?.user
 
@@ -229,8 +238,21 @@ module.exports = (client, webSocket, options = {}) => {
             }
         }
 
-        if (req.user?.isAdmin) {
-            req.isAdmin = true
+        if (req.user) {
+            const permissions = resolvePermissions(req.user)
+            if (permissions) {
+                req.permissions = permissions
+                req.user.permissions = permissions
+                req.user.role = permissions.role
+
+                if (permissions.canAccessPanel) {
+                    req.isAdmin = true
+                }
+
+                if (permissions.canViewLogs) {
+                    req.isModerator = true
+                }
+            }
         }
 
         next()
@@ -306,7 +328,8 @@ module.exports = (client, webSocket, options = {}) => {
 
     const usersRouter = createUsersRouter({
         client,
-        getAccessToken
+        getAccessToken,
+        requireCsrfToken
     })
 
     v1Router.use("/users", usersRouter)

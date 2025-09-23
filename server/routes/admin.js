@@ -41,12 +41,26 @@ const createAdminRouter = (dependencies) => {
         logger
     })
 
-    const ensureAuthenticatedAdmin = (req, res) => {
+    const ensureAuthenticated = (req, res) => {
         if (!getAccessToken(req)) {
             res.status(400).json({ message: "400: Bad request" })
             return false
         }
-        if (!req.isAdmin) {
+        return true
+    }
+
+    const ensurePanelAdmin = (req, res) => {
+        if (!ensureAuthenticated(req, res)) return false
+        if (!req.permissions?.canAccessPanel) {
+            res.status(403).json({ message: "403: Forbidden" })
+            return false
+        }
+        return true
+    }
+
+    const ensureLogsAccess = (req, res) => {
+        if (!ensureAuthenticated(req, res)) return false
+        if (!req.permissions?.canViewLogs) {
             res.status(403).json({ message: "403: Forbidden" })
             return false
         }
@@ -54,7 +68,7 @@ const createAdminRouter = (dependencies) => {
     }
 
     const handleGetStatus = async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         try {
             const status = await adminService.getStatus({ reason: "admin:get-status", actor: req.user?.id })
             res.status(200).json(status)
@@ -64,7 +78,7 @@ const createAdminRouter = (dependencies) => {
     }
 
     const handleBotStateChange = async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         const { enabled } = req.body || {}
         if (typeof enabled !== "boolean") {
             return res.status(400).json({ message: "400: Bad request" })
@@ -79,7 +93,7 @@ const createAdminRouter = (dependencies) => {
     }
 
     const handleGetClient = (req, res) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         const csrfToken = ensureCsrfToken(req)
         const payload = adminService.getClientConfig()
         if (csrfToken) {
@@ -89,7 +103,7 @@ const createAdminRouter = (dependencies) => {
     }
 
     const handleGetGuild = async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         const guildId = req.query?.id
         if (!guildId) {
             return res.status(400).json({ message: "400: Bad request" })
@@ -104,7 +118,7 @@ const createAdminRouter = (dependencies) => {
     }
 
     const handleTurnOff = async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         try {
             const status = await adminService.setBotEnabled(false, { actor: req.user?.id, reason: "admin:turnoff" })
             res.status(200).json({ message: "200: OK", status })
@@ -114,7 +128,7 @@ const createAdminRouter = (dependencies) => {
     }
 
     const handleTurnOn = async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         try {
             const status = await adminService.setBotEnabled(true, { actor: req.user?.id, reason: "admin:turnon" })
             res.status(200).json({ message: "200: OK", status })
@@ -131,7 +145,7 @@ const createAdminRouter = (dependencies) => {
     router.post("/turnon", requireCsrfToken, handleTurnOn)
 
     router.post("/guild/leave", requireCsrfToken, async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         const { id: guildId } = req.body
         try {
             await adminService.leaveGuild(guildId, { actor: req.user?.id })
@@ -142,7 +156,7 @@ const createAdminRouter = (dependencies) => {
     })
 
     router.post("/guild/invite/complete", requireCsrfToken, async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         const { code, guildId } = req.body
 
         try {
@@ -153,13 +167,32 @@ const createAdminRouter = (dependencies) => {
         }
     })
 
+    const handleExecuteAction = async(req, res, next) => {
+        if (!ensurePanelAdmin(req, res)) return
+        const actionId = req.params?.actionId || req.body?.actionId
+        if (!actionId) {
+            return res.status(400).json({ message: "400: Bad request" })
+        }
+
+        try {
+            const result = await adminService.executeAction(actionId, {
+                actor: req.user?.id,
+                reason: `admin:${actionId}`
+            })
+            return res.status(200).json(result)
+        } catch (error) {
+            return respondWithServiceError(error, res, next)
+        }
+    }
+
     router.get("/actions", (req, res) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         res.status(200).json(adminService.listActions())
     })
+    router.post("/actions/:actionId", requireCsrfToken, handleExecuteAction)
 
     router.post("/kill", requireCsrfToken, async(req, res) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
 
         res.status(200).json({ message: "200: Bot process terminating" })
 
@@ -174,8 +207,11 @@ const createAdminRouter = (dependencies) => {
     })
 
     router.post("/logs", requireCsrfToken, async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
         const { level, message, logType, userId } = req.body
+        if (!req.permissions?.canWriteLogs) {
+            return res.status(403).json({ message: "403: Forbidden" })
+        }
 
         try {
             await adminService.createLog({ level, message, logType, userId })
@@ -186,7 +222,7 @@ const createAdminRouter = (dependencies) => {
     })
 
     router.get("/logs", async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensureLogsAccess(req, res)) return
         const { type: logType, limit, cursor } = req.query
 
         try {
@@ -198,7 +234,7 @@ const createAdminRouter = (dependencies) => {
     })
 
     router.delete("/logs/cleanup", requireCsrfToken, async(req, res, next) => {
-        if (!ensureAuthenticatedAdmin(req, res)) return
+        if (!ensurePanelAdmin(req, res)) return
 
         try {
             const result = await adminService.cleanupLogs()

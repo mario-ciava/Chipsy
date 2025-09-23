@@ -435,9 +435,9 @@ async function renderTexasTable(params = {}) {
 
     const wantsSVG = requestedFormat === "svg"
     const scale = wantsSVG ? 1 : (Number.isFinite(CONFIG.outputScale) && CONFIG.outputScale > 0 ? CONFIG.outputScale : 1)
-    const totalPlayers = Math.max(1, normalized.players.length)
+    const totalPlayers = normalized.players.length
     const maxPerRow = TEXAS_LAYOUT.maxPlayersPerRow
-    const totalRows = Math.ceil(totalPlayers / maxPerRow)
+    const totalRows = totalPlayers > 0 ? Math.ceil(totalPlayers / maxPerRow) : 0
     const additionalRows = Math.max(0, totalRows - (CONFIG.layout.basePlayerRows || 1))
     const canvasHeight = CONFIG.canvasHeight + additionalRows * (CONFIG.layout.rowHeightIncrement || 320)
 
@@ -474,6 +474,10 @@ async function renderTexasTable(params = {}) {
         let rowBottom = rowTop
         for (let slotIndex = 0; slotIndex < slotsThisRow && playerIndex < totalPlayers; slotIndex++) {
             const player = normalized.players[playerIndex]
+            if (!player) {
+                playerIndex += 1
+                continue
+            }
             const slotLeft = slotWidth * slotIndex
             const handBottom = drawTexasPlayer(ctx, player, {
                 slotLeft,

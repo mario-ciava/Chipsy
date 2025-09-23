@@ -15,6 +15,17 @@ const DETAILED_DATE_TIME_OPTIONS = {
     second: "2-digit"
 }
 
+const FRIENDLY_DATE_OPTIONS = {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+}
+
+const FRIENDLY_TIME_OPTIONS = {
+    hour: "2-digit",
+    minute: "2-digit"
+}
+
 export const formatCurrency = (value, { locale = DEFAULT_LOCALE, currencySymbol = DEFAULT_CURRENCY_SYMBOL } = {}) => {
     const amount = Number(value) || 0
     return `${amount.toLocaleString(locale)} ${currencySymbol}`
@@ -44,4 +55,16 @@ export const formatDateTime = (value, options = DEFAULT_DATE_TIME_OPTIONS, local
 
 export const formatDetailedDateTime = (value, locale = DEFAULT_LOCALE) => {
     return formatDateTime(value, DETAILED_DATE_TIME_OPTIONS, locale)
+}
+
+export const formatFriendlyDateTime = (value, locale = DEFAULT_LOCALE) => {
+    if (!value) return "N/A"
+    try {
+        const date = new Date(value)
+        const dateFormatter = new Intl.DateTimeFormat(locale, FRIENDLY_DATE_OPTIONS)
+        const timeFormatter = new Intl.DateTimeFormat(locale, FRIENDLY_TIME_OPTIONS)
+        return `${dateFormatter.format(date)} at ${timeFormatter.format(date)}`
+    } catch (_error) {
+        return "N/A"
+    }
 }

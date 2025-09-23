@@ -12,9 +12,10 @@ const { createLobbySession } = require("../lobbies")
 const config = require("../../config")
 
 const testerProvisionConfig = {
-    testerUserId: process.env.TEXAS_TEST_USER_ID,
+    testerUserId: config.testing?.texas?.testerUserId,
     bankrollEnvKey: "TEXAS_TEST_BANKROLL",
-    defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL
+    defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL,
+    bankrollAmount: config.testing?.texas?.bankroll
 }
 
 const buildTexasCommandLog = (interaction, message, extraMeta = {}) =>
@@ -221,7 +222,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 await game.Run()
             } catch (error) {
                 logger.error("Failed to start Texas Hold'em game", { scope: "commands", command: "texas", error })
-                await game.Stop({ reason: "error", notify: false }).catch((stopError) => {
+                await game.Stop({ reason: "error" }).catch((stopError) => {
                     logger.warn("Failed to stop Texas game after run error", {
                         scope: "commands.texas",
                         channelId: channel.id,
@@ -257,9 +258,15 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 )
                 return
             }
-            
-            await bankrollManager.ensureTesterProvision({ user: i.user, client, ...testerProvisionConfig })
-            
+            await bankrollManager.ensureTesterProvision({
+                user: i.user,
+                client,
+                testerUserId: testerProvisionConfig.testerUserId,
+                bankrollEnvKey: testerProvisionConfig.bankrollEnvKey,
+                defaultBankroll: testerProvisionConfig.defaultBankroll,
+                bankrollAmount: testerProvisionConfig.bankrollAmount
+            })
+
             if (game.players.length >= game.maxPlayers) return i.reply({ content: "⚠️ This table is full.", flags: MessageFlags.Ephemeral })
             if (game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are already at this table.", flags: MessageFlags.Ephemeral })
 
@@ -367,12 +374,12 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
 
             game.rememberPlayerInteraction(i.user.id, i)
             await i.deferUpdate()
-            await game.Stop({ reason: "canceled", notify: false })
+            await game.Stop({ reason: "canceled" })
         })
 
         lobbySession.on("end", async ({ reason }) => {
             if (reason !== "started") {
-                await game.Stop({ reason: "canceled", notify: false }).catch(
+                await game.Stop({ reason: "canceled" }).catch(
                     buildTexasStopLogger(channel.id, reason || "lobby-end")
                 )
             }
@@ -380,7 +387,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
 
     } catch (error) {
         logger.error("Texas command failed", { scope: "commands", command: "texas", error })
-        if (game) await game.Stop({ notify: false }).catch(buildTexasStopLogger(channel?.id, "command-error"))
+        if (game) await game.Stop({ reason: "error" }).catch(buildTexasStopLogger(channel?.id, "command-error"))
         await replyOrEdit({ content: "❌ An error occurred. Please try again.", flags: MessageFlags.Ephemeral })
     } finally {
         if (channel) {

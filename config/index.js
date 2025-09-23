@@ -20,7 +20,11 @@ const envSchema = z.object({
     MYSQL_USER: z.string().optional(),
     MYSQL_PASSWORD: z.string().optional(),
     FRONTEND_REDIRECT_ORIGIN: z.string().optional(),
-    BOT_DISPLAY_NAME: z.string().optional()
+    BOT_DISPLAY_NAME: z.string().optional(),
+    BLACKJACK_TEST_USER_ID: z.string().optional(),
+    BLACKJACK_TEST_BANKROLL: z.coerce.number().int().positive().optional(),
+    TEXAS_TEST_USER_ID: z.string().optional(),
+    TEXAS_TEST_BANKROLL: z.coerce.number().int().positive().optional()
 })
 
 const parsedEnv = envSchema.safeParse(process.env)
@@ -288,7 +292,23 @@ const config = {
     bot: {
         prefix: env.COMMAND_PREFIX,
         enabled: true,
-        displayName: env.BOT_DISPLAY_NAME || "Chipsy"
+        displayName: env.BOT_DISPLAY_NAME || "Chipsy",
+        commands: {
+            watch: true,
+            reloadDebounceMs: 750,
+            syncOnChange: true,
+            syncDebounceMs: 4000
+        }
+    },
+    testing: {
+        blackjack: {
+            testerUserId: env.BLACKJACK_TEST_USER_ID || null,
+            bankroll: env.BLACKJACK_TEST_BANKROLL ?? null
+        },
+        texas: {
+            testerUserId: env.TEXAS_TEST_USER_ID || null,
+            bankroll: env.TEXAS_TEST_BANKROLL ?? null
+        }
     },
     mysql: {
         host: env.MYSQL_HOST,

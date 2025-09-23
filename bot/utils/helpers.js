@@ -1,9 +1,5 @@
-/** Misc helper utilities — nothing glorious, just plumbing. */
-
-/** Promise-based sleep; apparently timers needed a wrapper. */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** Relative time formatter for people who hate timestamps. */
 const formatRelativeTime = (date) => {
     if (!date) return "Never"
 
@@ -30,7 +26,6 @@ const formatRelativeTime = (date) => {
     return `${years} year${years !== 1 ? 's' : ''} ago`
 }
 
-/** Countdown formatter so UX can shout "2h 30m" instead of thinking. */
 const formatTimeUntil = (targetDate) => {
     if (!targetDate) return "Available now"
 
@@ -64,7 +59,6 @@ const formatTimeUntil = (targetDate) => {
     return `${seconds}s`
 }
 
-/** Fake progress bar because emoji apparently count as UI. */
 const progressBar = (current, max, length = 10) => {
     const ratio = Math.min(Math.max(current / max, 0), 1)
     const filled = Math.round(ratio * length)
@@ -76,7 +70,6 @@ const progressBar = (current, max, length = 10) => {
 
 module.exports = {
     sleep,
-    delay: sleep, // Legacy alias some caller still expects
     formatRelativeTime,
     formatTimeUntil,
     progressBar

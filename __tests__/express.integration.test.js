@@ -120,6 +120,15 @@ describe("Express API integration", () => {
             registerBroadcaster: jest.fn()
         }
 
+        const accessRecordFactory = (id) => ({
+            userId: id,
+            role: id === "owner-id" ? "MASTER" : "USER",
+            isBlacklisted: false,
+            isWhitelisted: id === "owner-id",
+            updatedAt: null,
+            persisted: id === "owner-id"
+        })
+
         client = {
             config: {
                 id: "client-id",
@@ -189,6 +198,26 @@ describe("Express API integration", () => {
             logger: {
                 info: jest.fn(),
                 error: jest.fn()
+            },
+            accessControl: {
+                getAccessRecord: jest.fn((id) => Promise.resolve(accessRecordFactory(id))),
+                getAccessRecords: jest.fn((ids = []) => {
+                    const map = new Map()
+                    ids.forEach((id) => map.set(id, accessRecordFactory(id)))
+                    return Promise.resolve(map)
+                }),
+                setRole: jest.fn().mockResolvedValue({
+                    userId: "user-1",
+                    role: "MODERATOR",
+                    isBlacklisted: false,
+                    isWhitelisted: false
+                }),
+                updateLists: jest.fn().mockResolvedValue({
+                    userId: "user-1",
+                    role: "USER",
+                    isBlacklisted: true,
+                    isWhitelisted: false
+                })
             }
         }
 
@@ -266,7 +295,12 @@ describe("Express API integration", () => {
         )
         expect(body).toMatchObject({
             id: "owner-id",
-            isAdmin: true
+            isAdmin: true,
+            role: "MASTER",
+            permissions: expect.objectContaining({
+                canAccessPanel: true,
+                canViewLogs: true
+            })
         })
 
         const clientConfig = await agent.requestJson("/api/client", {
@@ -473,7 +507,11 @@ describe("Express API integration", () => {
         expect(listResponse.body.items[0]).toMatchObject({
             id: "user-1",
             level: 3,
-            winRate: 40
+            winRate: 40,
+            panelRole: "USER",
+            access: expect.objectContaining({
+                role: "USER"
+            })
         })
         expect(client.dataHandler.listUsers).toHaveBeenCalledWith(expect.objectContaining({
             page: "2",
@@ -503,7 +541,11 @@ describe("Express API integration", () => {
         expect(userResponse.response.status).toBe(200)
         expect(userResponse.body).toMatchObject({
             id: "user-1",
-            winRate: 40
+            winRate: 40,
+            panelRole: "USER",
+            access: expect.objectContaining({
+                role: "USER"
+            })
         })
 
         const missingResponse = await agent.requestJson("/api/users/unknown", {
@@ -512,6 +554,101 @@ describe("Express API integration", () => {
         })
 
         expect(missingResponse.response.status).toBe(404)
+    })
+
+    test("PATCH /api/users/:id/role updates the access role", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientConfig = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        client.accessControl.setRole.mockResolvedValueOnce({
+            userId: "user-1",
+            role: "MODERATOR",
+            isBlacklisted: false,
+            isWhitelisted: false
+        })
+
+        const response = await agent.requestJson("/api/users/user-1/role", {
+            method: "PATCH",
+            headers: {
+                token: "access-token",
+                "content-type": "application/json",
+                "x-csrf-token": clientConfig.body.csrfToken
+            },
+            body: JSON.stringify({ role: "MODERATOR" })
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            role: "MODERATOR",
+            access: expect.objectContaining({
+                role: "MODERATOR"
+            })
+        })
+        expect(client.accessControl.setRole).toHaveBeenCalledWith(expect.objectContaining({
+            targetId: "user-1",
+            nextRole: "MODERATOR"
+        }))
+    })
+
+    test("PATCH /api/users/:id/lists toggles blacklist/whitelist flags", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientConfig = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        client.accessControl.updateLists.mockResolvedValueOnce({
+            userId: "user-1",
+            role: "USER",
+            isBlacklisted: true,
+            isWhitelisted: false
+        })
+
+        const response = await agent.requestJson("/api/users/user-1/lists", {
+            method: "PATCH",
+            headers: {
+                token: "access-token",
+                "content-type": "application/json",
+                "x-csrf-token": clientConfig.body.csrfToken
+            },
+            body: JSON.stringify({ isBlacklisted: true })
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            role: "USER",
+            isBlacklisted: true,
+            isWhitelisted: false
+        })
+        expect(client.accessControl.updateLists).toHaveBeenCalledWith(expect.objectContaining({
+            targetId: "user-1",
+            isBlacklisted: true
+        }))
     })
 
     test("GET /api/admin/actions exposes available remote commands", async() => {

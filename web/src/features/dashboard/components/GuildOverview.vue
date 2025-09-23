@@ -1,21 +1,30 @@
 <template>
-    <div class="card">
-        <div class="card__header">
+    <section class="guilds-panel">
+        <header class="guilds-panel__header">
             <div>
-                <h3 class="card__title">Connected Discord servers</h3>
-                <p class="card__subtitle">
+                <h3 class="guilds-panel__title">Connected Discord servers</h3>
+                <p class="guilds-panel__subtitle">
                     Track where the bot already lives and where you still can invite it.
                 </p>
             </div>
-        </div>
+        </header>
 
-        <div class="card__body guilds">
-            <div class="guilds__column">
-                <h4 class="guilds__title">Active</h4>
+        <div class="guilds-panel__body guilds">
+            <article class="guilds__column">
+                <div class="guilds__column-header">
+                    <div>
+                        <h4 class="guilds__title">Active</h4>
+                        <p class="guilds__subtitle">Currently connected</p>
+                    </div>
+                    <span class="guilds__badge">{{ addedGuilds.length }}</span>
+                </div>
                 <p v-if="!hasAdded" class="guilds__empty">The bot is not active on any managed server.</p>
                 <ul v-else class="guilds__list">
-                    <li v-for="guild in addedGuilds" :key="guild.id">
-                        <span class="guilds__name">{{ guild.name }}</span>
+                    <li v-for="guild in addedGuilds" :key="guild.id" class="guilds__item">
+                        <div class="guilds__info">
+                            <span class="guilds__name">{{ guild.name }}</span>
+                            <span class="guilds__descriptor">Live</span>
+                        </div>
                         <div class="guilds__actions">
                             <button
                                 type="button"
@@ -30,15 +39,24 @@
                         </div>
                     </li>
                 </ul>
-            </div>
-            <div class="guilds__column">
-                <h4 class="guilds__title">Available</h4>
+            </article>
+            <article class="guilds__column">
+                <div class="guilds__column-header">
+                    <div>
+                        <h4 class="guilds__title">Available</h4>
+                        <p class="guilds__subtitle">Invite-ready servers</p>
+                    </div>
+                    <span class="guilds__badge">{{ availableGuilds.length }}</span>
+                </div>
                 <p v-if="!hasAvailable" class="guilds__empty">
                     No other servers grant you enough permissions.
                 </p>
                 <ul v-else class="guilds__list">
-                    <li v-for="guild in availableGuilds" :key="guild.id">
-                        <span class="guilds__name">{{ guild.name }}</span>
+                    <li v-for="guild in availableGuilds" :key="guild.id" class="guilds__item">
+                        <div class="guilds__info">
+                            <span class="guilds__name">{{ guild.name }}</span>
+                            <span class="guilds__descriptor guilds__descriptor--available">Invite-ready</span>
+                        </div>
                         <div class="guilds__actions">
                             <button
                                 type="button"
@@ -53,9 +71,9 @@
                         </div>
                     </li>
                 </ul>
-            </div>
+            </article>
         </div>
-    </div>
+    </section>
 </template>
 
 <script>

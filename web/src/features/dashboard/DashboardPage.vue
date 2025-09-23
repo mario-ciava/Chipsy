@@ -8,8 +8,8 @@
                 </p>
             </div>
             <div class="dashboard__meta" v-if="user">
-                <span class="dashboard__meta-label">Administrator:</span>
-                <span class="dashboard__meta-value">{{ user.username }}</span>
+                <span class="dashboard__meta-label">Access level:</span>
+                <span class="dashboard__meta-value">{{ roleLabel }}</span>
             </div>
         </header>
 
@@ -23,24 +23,28 @@
             </div>
         </transition>
 
-        <section class="dashboard__grid">
-            <BotStatusCard
-                :status="botStatus"
-                :loading="botLoading"
-                :cooldown-active="cooldown.active"
-                :cooldown-target="cooldown.target"
-                :cooldown-remaining="cooldown.remaining"
-                :cooldown-duration="cooldown.duration"
-                :kill-loading="botKillPending"
-                @toggle="toggleBot"
-                @kill="handleKillRequest"
-            />
-            <GuildOverview :guilds="guilds" @leave="leaveGuild" />
-            <RemoteActions
-                :actions="actions"
-                @action-success="handleActionSuccess"
-                @action-error="handleActionError"
-            />
+        <section class="dashboard__layout">
+            <div class="dashboard__col dashboard__col--main">
+                <BotStatusCard
+                    :status="botStatus"
+                    :loading="botLoading"
+                    :cooldown-active="cooldown.active"
+                    :cooldown-target="cooldown.target"
+                    :cooldown-remaining="cooldown.remaining"
+                    :cooldown-duration="cooldown.duration"
+                    :kill-loading="botKillPending"
+                    @toggle="toggleBot"
+                    @kill="handleKillRequest"
+                />
+                <RemoteActions
+                    :actions="actions"
+                    @action-success="handleActionSuccess"
+                    @action-error="handleActionError"
+                />
+            </div>
+            <aside class="dashboard__col dashboard__col--side">
+                <GuildOverview :guilds="guilds" @leave="leaveGuild" />
+            </aside>
         </section>
 
         <section class="dashboard__section">
@@ -64,6 +68,7 @@
 
 <script>
 import { mapActions, mapGetters, mapState } from "vuex"
+import { getRoleLabel } from "../../constants/roles"
 import BotStatusCard from "./components/BotStatusCard.vue"
 import GuildOverview from "./components/GuildOverview.vue"
 import RemoteActions from "./components/RemoteActions.vue"
@@ -115,7 +120,10 @@ export default {
             pagination: (state) => state.pagination,
             usersLoading: (state) => state.loading,
             usersSearch: (state) => state.search
-        })
+        }),
+        roleLabel() {
+            return getRoleLabel(this.user?.role)
+        }
     },
     watch: {
         botStatus: {

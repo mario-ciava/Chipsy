@@ -9,13 +9,6 @@ const CLASS_TIERS = Object.freeze(
         .sort((a, b) => a.threshold - b.threshold)
 );
 
-const classes = Object.freeze(
-    CLASS_TIERS.reduce((acc, tier) => {
-        acc[tier.name] = tier.threshold;
-        return acc;
-    }, {})
-);
-
 function getUserClass(balance) {
     if (CLASS_TIERS.length === 0) {
         return "NONE";
@@ -35,7 +28,5 @@ function getUserClass(balance) {
 }
 
 module.exports = {
-    classes,
-    getUserClass,
-    CLASS_TIERS
+    getUserClass
 };

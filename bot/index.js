@@ -9,11 +9,14 @@ const createSetData = require("./utils/createSetData")
 const logger = require("./utils/logger")
 const createCacheClient = require("./utils/createCacheClient")
 const createStatusService = require("../server/services/statusService")
+const createCommandSync = require("./utils/commandSync")
+const { createAccessControlService } = require("../server/services/accessControlService")
 
 class WebSocketBridge extends EventEmitter {}
 const webSocket = new WebSocketBridge()
 
 const client = createClient(config)
+client.commandSync = createCommandSync({ client, config })
 
 let bootstrapPromise = null
 
@@ -37,6 +40,13 @@ const bootstrap = async() => {
             const dataHandler = createDataHandler(pool)
             client.dataHandler = dataHandler
             client.SetData = createSetData(dataHandler)
+
+            client.accessControl = createAccessControlService({
+                pool,
+                ownerId: config.discord.ownerId,
+                logger
+            })
+
             client.healthChecks = { mysql: healthCheck }
             client.mysqlShutdown = shutdown // Salva la funzione di shutdown per graceful shutdown
 

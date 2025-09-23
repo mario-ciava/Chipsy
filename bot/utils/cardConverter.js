@@ -196,7 +196,5 @@ module.exports = {
     gamesToImages,
     imagesToGames,
     isValidGameCard,
-    isValidImageCard,
-    RANK_MAP,
-    SUIT_MAP
+    isValidImageCard
 };

@@ -36,9 +36,23 @@ const readStack = (player) => clampSafeInteger(toInteger(player?.stack))
 
 const readBankroll = (player) => clampSafeInteger(toInteger(player?.data?.money))
 
-const resolveTesterBankroll = ({ bankrollEnvKey = "BLACKJACK_TEST_BANKROLL", defaultBankroll = DEFAULT_TESTER_BANKROLL } = {}) => {
-    const configured = toInteger(process.env[bankrollEnvKey])
-    if (Number.isFinite(configured) && configured > 0) return clampSafeInteger(configured)
+const resolveTesterBankroll = ({
+    bankrollEnvKey = "BLACKJACK_TEST_BANKROLL",
+    defaultBankroll = DEFAULT_TESTER_BANKROLL,
+    configuredAmount
+} = {}) => {
+    const resolvedConfigured = toInteger(configuredAmount)
+    if (Number.isFinite(resolvedConfigured) && resolvedConfigured > 0) {
+        return clampSafeInteger(resolvedConfigured)
+    }
+
+    if (bankrollEnvKey) {
+        const envConfigured = toInteger(process.env[bankrollEnvKey])
+        if (Number.isFinite(envConfigured) && envConfigured > 0) {
+            return clampSafeInteger(envConfigured)
+        }
+    }
+
     return clampSafeInteger(defaultBankroll)
 }
 
@@ -65,10 +79,22 @@ const syncPersistentBalance = async(dataHandler, player, context = {}) => {
     }
 }
 
-const ensureTesterProvision = async({ user, client, testerUserId = process.env.BLACKJACK_TEST_USER_ID, bankrollEnvKey = "BLACKJACK_TEST_BANKROLL", defaultBankroll = DEFAULT_TESTER_BANKROLL } = {}) => {
-    if (!user || !client || !testerUserId || user.id !== testerUserId) return
+const ensureTesterProvision = async({
+    user,
+    client,
+    testerUserId,
+    bankrollEnvKey = "BLACKJACK_TEST_BANKROLL",
+    defaultBankroll = DEFAULT_TESTER_BANKROLL,
+    bankrollAmount
+} = {}) => {
+    const targetTesterId = testerUserId || process.env.BLACKJACK_TEST_USER_ID
+    if (!user || !client || !targetTesterId || user.id !== targetTesterId) return
     if (!user.data) return
-    const minimumBalance = resolveTesterBankroll({ bankrollEnvKey, defaultBankroll })
+    const minimumBalance = resolveTesterBankroll({
+        bankrollEnvKey,
+        defaultBankroll,
+        configuredAmount: bankrollAmount
+    })
     if (readBankroll(user) >= minimumBalance) return
     user.data.money = minimumBalance
     await syncPersistentBalance(client.dataHandler, user, {
@@ -119,41 +145,11 @@ const normalizeBuyIn = ({ requested, minBuyIn, maxBuyIn, bankroll }) => {
     return { ok: true, amount, min: safeMin, max: safeMax, bankroll: availableBankroll }
 }
 
-const canAfford = (player, amount, { includeStack = true, includeBankroll = true } = {}) => {
-    if (!player) return false
-    const sanitizedAmount = sanitizePositiveAmount(amount)
-    if (sanitizedAmount === null) return false
-    const stack = readStack(player)
-    const bankroll = readBankroll(player)
-    if (includeStack && stack < sanitizedAmount) return false
-    if (includeBankroll && bankroll < sanitizedAmount) return false
-    return true
-}
-
 const canAffordStack = (player, amount) => {
     if (!player) return false
     const sanitizedAmount = sanitizePositiveAmount(amount)
     if (sanitizedAmount === null) return false
     return readStack(player) >= sanitizedAmount
-}
-
-const withdraw = (player, amount) => {
-    if (!player || !ensurePlayerData(player)) return false
-    const sanitizedAmount = sanitizePositiveAmount(amount)
-    if (sanitizedAmount === null) return false
-    if (!canAfford(player, sanitizedAmount)) return false
-    player.stack = clampSafeInteger(readStack(player) - sanitizedAmount)
-    player.data.money = clampSafeInteger(readBankroll(player) - sanitizedAmount)
-    return true
-}
-
-const deposit = (player, amount) => {
-    if (!player || !ensurePlayerData(player)) return false
-    const sanitizedAmount = sanitizePositiveAmount(amount)
-    if (sanitizedAmount === null) return false
-    player.stack = clampSafeInteger(readStack(player) + sanitizedAmount)
-    player.data.money = clampSafeInteger(readBankroll(player) + sanitizedAmount)
-    return true
 }
 
 const withdrawStackOnly = (player, amount) => {
@@ -186,17 +182,11 @@ const syncStackToBankroll = (player) => {
 
 module.exports = {
     DEFAULT_TESTER_BANKROLL,
-    resolveTesterBankroll,
     ensureTesterProvision,
     normalizeBuyIn,
-    canAfford,
     canAffordStack,
-    withdraw,
-    deposit,
     withdrawStackOnly,
     depositStackOnly,
     syncStackToBankroll,
-    syncPersistentBalance,
-    getStack: readStack,
     getBankroll: readBankroll
 }

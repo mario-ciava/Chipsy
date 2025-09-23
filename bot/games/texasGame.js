@@ -200,7 +200,7 @@ module.exports = class TexasGame extends Game {
                 })
                 return null
             })
-            await this.Stop({ reason: "inactivity", notify: false })
+            await this.Stop({ reason: "inactivity" })
             return true
         }
         return false
@@ -283,7 +283,8 @@ module.exports = class TexasGame extends Game {
         return true
     }
 
-    async SendMessage(type, player, info) {
+    async SendMessage(type) {
+        if (type !== "handEnded") return
         const channel = this.channel
         const sendEmbed = async (embed, components = []) => {
             try {
@@ -294,50 +295,39 @@ module.exports = class TexasGame extends Game {
             }
         }
 
-        switch (type) {
-            case 'playerAdded':
-            case 'playerRemoved':
-                // Handled by lobby, no message needed here
-                break
-            case 'noMoney':
-                await sendEmbed(new EmbedBuilder().setColor(Colors.Red).setFooter({ text: `${player.tag} was removed: no money left.`, iconURL: player.displayAvatarURL({ extension: "png" }) }))
-                break
-            case 'handEnded':
-                const totalPotValue = this.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
-                const winnersSections = this.bets.pots.map((pot, index) => {
-                    const name = pot.winners?.length > 1 ? `Pot #${index + 1}` : "Pot"
-                    const winnerLines = (pot.winners || []).map(({ player: winner, amount }) => {
-                        const payout = this.GetNetValue(amount, winner)
-                        return `${winner} wins ${setSeparator(payout)}$`
-                    })
-                    return `**${name}**\n${winnerLines.join('\n')}`
-                }).filter(Boolean)
-                const winnersText = [
-                    winnersSections.length ? winnersSections.join('\n\n') : "No winners",
-                    totalPotValue > 0 ? `_Total pot: ${setSeparator(totalPotValue)}$_` : null
-                ].filter(Boolean).join('\n\n')
+        const totalPotValue = this.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
+        const winnersSections = this.bets.pots.map((pot, index) => {
+            const name = pot.winners?.length > 1 ? `Pot #${index + 1}` : "Pot"
+            const winnerLines = (pot.winners || []).map(({ player: winner, amount }) => {
+                const payout = this.GetNetValue(amount, winner)
+                return `${winner} wins ${setSeparator(payout)}$`
+            })
+            return `**${name}**\n${winnerLines.join('\n')}`
+        }).filter(Boolean)
+        const winnersText = [
+            winnersSections.length ? winnersSections.join('\n\n') : "No winners",
+            totalPotValue > 0 ? `_Total pot: ${setSeparator(totalPotValue)}$_` : null
+        ].filter(Boolean).join('\n\n')
 
-                const participantSummary = this.players.map((p) => {
-                    if (p.hand) return `${p} - ${p.hand.name}`
-                    if (p.status?.folded) return `${p} - Folded`
-                    return `${p} - Cards hidden`
-                }).join('\n') || "No active players"
+        const participantSummary = this.players.map((p) => {
+            if (p.hand) return `${p} - ${p.hand.name}`
+            if (p.status?.folded) return `${p} - Folded`
+            return `${p} - Cards hidden`
+        }).join('\n') || "No active players"
 
-                const embed = new EmbedBuilder()
-                    .setColor(Colors.Gold)
-                    .setTitle(`Hand #${this.hands} Ended`)
-                    .setDescription(participantSummary)
-                    .addFields({ name: "Winner(s)", value: winnersText })
-                    .setFooter({ text: "Showdown complete" })
+        const embed = new EmbedBuilder()
+            .setColor(Colors.Gold)
+            .setTitle(`Hand #${this.hands} Ended`)
+            .setDescription(participantSummary)
+            .addFields({ name: "Winner(s)", value: winnersText })
+            .setFooter({ text: "Showdown complete" })
 
-                const snapshot = await this.captureTableRender({ title: "Showdown", showdown: true })
-                if (snapshot) {
-                    embed.setImage(`attachment://${snapshot.filename}`)
-                    await channel.send({ embeds: [embed], files: [snapshot.attachment] })
-                } else {
-                    await sendEmbed(embed)
-                }
-                break
+        const snapshot = await this.captureTableRender({ title: "Showdown", showdown: true })
+        if (snapshot) {
+            embed.setImage(`attachment://${snapshot.filename}`)
+            await channel.send({ embeds: [embed], files: [snapshot.attachment] })
+        } else {
+            await sendEmbed(embed)
         }
     }
 
@@ -513,7 +503,6 @@ module.exports = class TexasGame extends Game {
         const embed = new EmbedBuilder()
             .setColor(Colors.DarkBlue)
             .setTitle("Le tue hole cards")
-            .addFields({ name: "Stack", value: `${setSeparator(player.stack)}$`, inline: true })
 
         if (panel) {
             embed.setImage(`attachment://${panel.filename}`)
@@ -1220,6 +1209,8 @@ module.exports = class TexasGame extends Game {
     }
 
     async Stop(options = {}) {
+        this.refundOutstandingBets();
+
         this.playing = false;
         this.inactiveHands = 0;
         this.currentHandHasInteraction = false;
@@ -1229,13 +1220,41 @@ module.exports = class TexasGame extends Game {
         this.awaitingPlayerId = null;
         if (this.client.activeGames) this.client.activeGames.delete(this);
 
-        if (options.reason === "notEnoughPlayers" || options.reason === "canceled") {
+        if (options.skipRefund !== true) {
             await this.refundPlayers();
         }
+    }
 
-        if (options.notify) {
-            this.SendMessage("minPlayersDelete");
+    refundOutstandingBets() {
+        if (!this.bets || this.bets.total <= 0) {
+            return 0;
         }
+
+        let refunded = 0;
+        for (const player of this.players) {
+            if (!player) continue;
+            if (!player.bets) {
+                player.bets = { current: 0, total: 0 };
+            }
+            const contribution = Math.max(0, player.bets.total || 0);
+            if (contribution <= 0) continue;
+
+            player.stack = Math.max(0, (player.stack || 0) + contribution);
+            player.bets.current = 0;
+            player.bets.total = 0;
+            if (player.status) {
+                player.status.allIn = false;
+                player.status.lastAllInAmount = 0;
+                player.status.movedone = false;
+            }
+            refunded += contribution;
+        }
+
+        this.bets.total = 0;
+        this.bets.currentMax = 0;
+        this.bets.minRaise = this.getTableMinBet();
+        this.bets.pots = [];
+        return refunded;
     }
 
     async refundPlayers() {
@@ -1257,7 +1276,7 @@ module.exports = class TexasGame extends Game {
     }
 
     async Run() {
-        if (this.players.length < this.getMinimumPlayers()) return this.Stop({ notify: true })
+        if (this.players.length < this.getMinimumPlayers()) return this.Stop({ reason: "notEnoughPlayers" })
         this.playing = true
         await this.NextHand()
     }

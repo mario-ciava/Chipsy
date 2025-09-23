@@ -64,34 +64,50 @@ jest.mock("discord.js", () => {
         }
     }
 
-    const Colors = {
-        Red: "#ff0000",
-        Green: "#00ff00",
-        Gold: "#ffd700",
-        Aqua: "#00ffff",
-        Orange: "#ffa500"
+    class MockModalBuilder {
+        constructor() {
+            this.setTitle = jest.fn(() => this)
+            this.setCustomId = jest.fn(() => this)
+            this.addComponents = jest.fn(() => this)
+        }
     }
 
-    const ButtonStyle = {
-        Primary: 1,
-        Secondary: 2,
-        Success: 3,
-        Danger: 4
-    }
-
-    const MessageFlags = {
-        Ephemeral: 1 << 6
+    class MockTextInputBuilder {
+        constructor() {
+            this.setCustomId = jest.fn(() => this)
+            this.setLabel = jest.fn(() => this)
+            this.setPlaceholder = jest.fn(() => this)
+            this.setStyle = jest.fn(() => this)
+            this.setRequired = jest.fn(() => this)
+            this.setMaxLength = jest.fn(() => this)
+            this.setMinLength = jest.fn(() => this)
+        }
     }
 
     return {
         EmbedBuilder: MockEmbed,
         SlashCommandBuilder: MockSlashCommandBuilder,
-        MessageFlags,
         ButtonBuilder: MockButtonBuilder,
-        ButtonStyle,
         ActionRowBuilder: MockActionRowBuilder,
         StringSelectMenuBuilder: MockStringSelectMenuBuilder,
-        Colors
+        ModalBuilder: MockModalBuilder,
+        TextInputBuilder: MockTextInputBuilder,
+        TextInputStyle: { Short: 1, Paragraph: 2 },
+        MessageFlags: { Ephemeral: 1 << 6 },
+        ButtonStyle: {
+            Primary: 1,
+            Secondary: 2,
+            Success: 3,
+            Danger: 4
+        },
+        Colors: {
+            Red: "#ff0000",
+            Green: "#00ff00",
+            Gold: "#ffd700",
+            Aqua: "#00ffff",
+            Orange: "#ffa500",
+            Purple: "#800080"
+        }
     }
 })
 
@@ -105,104 +121,125 @@ jest.mock("../bot/games/features.js", () => ({
     getCosts: jest.fn(() => ["100"])
 }))
 
-const rewardCommand = require("../bot/commands/reward")
-const profileCommand = require("../bot/commands/profile")
-const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp } = require("../bot/utils/experience")
+const rewardCommand = require("../commands/reward")
+const profileCommand = require("../commands/profile")
 
-const createCollectorStub = () => {
-    const collector = {
-        ended: false,
-        on: jest.fn().mockReturnThis(),
-        stop: jest.fn(() => {
-            collector.ended = true
-        })
-    }
-    return collector
-}
-
-const createResponseMessageStub = () => ({
-    createMessageComponentCollector: jest.fn(() => createCollectorStub())
+const createDefaultProfile = () => ({
+    money: 5000,
+    gold: 1,
+    current_exp: 0,
+    required_exp: 100,
+    level: 0,
+    hands_played: 0,
+    hands_won: 0,
+    biggest_won: 0,
+    biggest_bet: 0,
+    withholding_upgrade: 0,
+    reward_amount_upgrade: 0,
+    reward_time_upgrade: 0,
+    next_reward: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    last_played: new Date().toISOString()
 })
 
+const createResponseMessageStub = () => {
+    const message = {
+        id: `message-${Math.random().toString(16).slice(2)}`,
+        embeds: [],
+        components: [],
+        edit: jest.fn().mockResolvedValue(null),
+        createMessageComponentCollector: jest.fn(() => ({
+            stop: jest.fn(),
+            on: jest.fn()
+        }))
+    }
+    return message
+}
+
 const createMockInteraction = (overrides = {}) => {
-    const { data: overrideUserData, ...userOverrides } = overrides.user || {}
+    const responseMessage = createResponseMessageStub()
 
-    const userData = {
-        money: 5000,
-        gold: 1,
-        current_exp: 0,
-        required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
-        level: DEFAULT_PLAYER_LEVEL,
-        hands_played: 0,
-        hands_won: 0,
-        biggest_won: 0,
-        biggest_bet: 0,
-        withholding_upgrade: 0,
-        reward_amount_upgrade: 0,
-        reward_time_upgrade: 0,
-        next_reward: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-        last_played: new Date().toISOString(),
-        ...(overrideUserData || {})
-    }
-
+    const userOverrides = overrides.user || {}
     const user = {
-        id: "user-123",
-        username: "Tester",
-        tag: "Tester#0001",
-        displayAvatarURL: jest.fn().mockReturnValue("https://avatar"),
-        ...userOverrides,
-        data: userData
+        id: userOverrides.id || "user-123",
+        tag: userOverrides.tag || "Tester#0001",
+        username: userOverrides.username || "Tester",
+        toString: userOverrides.toString || (() => `<@${userOverrides.id || "user-123"}>`),
+        displayAvatarURL: userOverrides.displayAvatarURL || jest.fn(() => "https://avatar"),
+        data: { ...createDefaultProfile(), ...(userOverrides.data || {}) },
+        ...(userOverrides || {})
     }
+
+    const dataHandler =
+        overrides.client?.dataHandler || {
+            updateUserData: jest.fn().mockResolvedValue(undefined),
+            resolveDBUser: jest.fn(() => ({
+                money: user.data.money,
+                gold: user.data.gold
+            }))
+        }
 
     const client = {
-        dataHandler: {
-            updateUserData: jest.fn().mockResolvedValue(undefined),
-            resolveDBUser: jest.fn((targetUser) => ({
-                money: targetUser.data.money,
-                gold: targetUser.data.gold
-            }))
-        },
+        dataHandler,
+        SetData: jest.fn().mockResolvedValue({ error: null }),
         ...(overrides.client || {})
     }
 
-    const responseMessage = createResponseMessageStub()
+    const options = {
+        getUser: jest.fn(() => overrides.targetUser ?? null),
+        ...(overrides.options || {})
+    }
 
     const interaction = {
+        id: "interaction-1",
         user,
         client,
         channel: { id: "channel-123", ...(overrides.channel || {}) },
         deferred: false,
         replied: false,
-        options: {
-            getUser: jest.fn(() => overrides.targetUser ?? null)
-        },
-        reply: jest.fn(async() => responseMessage),
-        editReply: jest.fn(async() => responseMessage),
-        followUp: jest.fn(async() => responseMessage)
+        reply: jest.fn().mockResolvedValue(responseMessage),
+        editReply: jest.fn().mockResolvedValue(responseMessage),
+        followUp: jest.fn().mockResolvedValue(responseMessage),
+        deleteReply: jest.fn().mockResolvedValue(undefined),
+        options,
+        ...(overrides.interaction || {})
     }
 
-    return { interaction, user, client }
+    return { interaction, user, client, responseMessage }
 }
 
 describe("reward command", () => {
-    test("updates balance and persists the change", async() => {
+    test("updates balance, schedules the next reward, and persists the change", async() => {
         const { interaction, user, client } = createMockInteraction()
 
         await rewardCommand.execute(interaction, client)
 
         expect(user.data.money).toBe(6500)
-        expect(client.dataHandler.resolveDBUser).toHaveBeenCalledWith(user)
-        expect(client.dataHandler.updateUserData).toHaveBeenCalledWith(
-            user.id,
-            { money: 6500, gold: 1 }
-        )
         expect(user.data.next_reward).toBeInstanceOf(Date)
+        expect(client.dataHandler.resolveDBUser).toHaveBeenCalledWith(user)
+        expect(client.dataHandler.updateUserData).toHaveBeenCalledWith(user.id, {
+            money: user.data.money,
+            gold: user.data.gold
+        })
         expect(interaction.reply).toHaveBeenCalledTimes(1)
+    })
+
+    test("rejects redemption if reward is still on cooldown", async() => {
+        const nextReward = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+        const { interaction, client } = createMockInteraction({
+            user: { data: { next_reward: nextReward } }
+        })
+
+        await rewardCommand.execute(interaction, client)
+
+        expect(client.dataHandler.updateUserData).not.toHaveBeenCalled()
+        expect(interaction.reply).toHaveBeenCalledTimes(1)
+        const replyPayload = interaction.reply.mock.calls[0][0]
+        expect(replyPayload.embeds).toHaveLength(1)
     })
 })
 
 describe("profile command", () => {
-    test("normalizes string based BIGINT fields before rendering", async() => {
+    test("normalizes BIGINT-compatible string fields before rendering the profile", async() => {
         const { interaction, user, client } = createMockInteraction({
             user: {
                 data: {

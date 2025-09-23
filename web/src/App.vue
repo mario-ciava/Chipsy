@@ -6,12 +6,12 @@
             </div>
             <nav class="nav__links">
                 <router-link exact to="/">Home</router-link>
-                <router-link v-if="isAdmin" to="/control_panel">Pannello</router-link>
-                <router-link v-if="isAdmin" to="/logs">Log</router-link>
+                <router-link v-if="isAdmin" to="/control_panel">Panel</router-link>
+                <router-link v-if="canViewLogs" to="/logs">Logs</router-link>
             </nav>
             <div class="nav__auth">
                 <span v-if="isAuthenticated" class="nav__welcome">
-                    Benvenuto {{ userName }}
+                    Welcome {{ userName }}
                 </span>
                 <router-link
                     v-if="!isAuthenticated"
@@ -37,6 +37,12 @@
                 </transition>
             </router-view>
         </main>
+
+        <transition name="toast-fade">
+            <div v-if="toast.visible" class="app-toast">
+                {{ toast.message }}
+            </div>
+        </transition>
     </div>
 </template>
 
@@ -45,17 +51,32 @@ import { mapGetters } from "vuex"
 
 export default {
     name: "App",
+    data() {
+        return {
+            toast: {
+                message: "",
+                visible: false,
+                timeoutId: null
+            }
+        }
+    },
     computed: {
-        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user"]),
+        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs"]),
         userName() {
             return this.user && this.user.username ? this.user.username : ""
         }
     },
     mounted() {
         window.addEventListener("session-expired", this.handleSessionExpired)
+        window.addEventListener("chipsy-toast", this.handleToastEvent)
     },
     beforeDestroy() {
         window.removeEventListener("session-expired", this.handleSessionExpired)
+        window.removeEventListener("chipsy-toast", this.handleToastEvent)
+        if (this.toast.timeoutId) {
+            clearTimeout(this.toast.timeoutId)
+            this.toast.timeoutId = null
+        }
     },
     methods: {
         handleSessionExpired() {
@@ -68,6 +89,20 @@ export default {
                     query: { expired: "true", redirect: currentRoute }
                 })
             }
+        },
+        handleToastEvent(event) {
+            const message = event?.detail?.message
+            if (!message) return
+            if (this.toast.timeoutId) {
+                clearTimeout(this.toast.timeoutId)
+                this.toast.timeoutId = null
+            }
+            this.toast.message = message
+            this.toast.visible = true
+            this.toast.timeoutId = setTimeout(() => {
+                this.toast.visible = false
+                this.toast.timeoutId = null
+            }, 2200)
         }
     }
 }
@@ -85,6 +120,7 @@ export default {
     grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 24px;
+    justify-items: center;
     padding: 16px 32px;
     background: rgba(15, 23, 42, 0.85);
     backdrop-filter: blur(24px);
@@ -92,6 +128,7 @@ export default {
     position: sticky;
     top: 0;
     z-index: 10;
+    text-align: center;
 }
 
 .nav__brand a {
@@ -132,7 +169,9 @@ export default {
     display: flex;
     align-items: center;
     gap: 16px;
-    justify-self: flex-end;
+    justify-self: center;
+    justify-content: center;
+    flex-wrap: wrap;
 }
 
 .nav__welcome {
@@ -143,6 +182,31 @@ export default {
 .app-shell__content {
     flex: 1;
     padding: 32px;
+}
+
+.app-toast {
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: var(--radius-lg);
+    padding: 12px 18px;
+    color: #f8fafc;
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.65);
+    z-index: 50;
+    font-size: 0.95rem;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+    opacity: 0;
+    transform: translateY(8px);
 }
 
 @media (max-width: 768px) {

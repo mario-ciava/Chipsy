@@ -32,6 +32,17 @@
                         </router-link>
                     </div>
                 </template>
+                <template v-else-if="canViewLogs">
+                    <h2 class="card__title">Hello {{ userName }}</h2>
+                    <p class="card__body">
+                        Your current role ({{ roleLabel }}) unlocks the log console. Keep an eye on live activity and let admins know if anything looks off.
+                    </p>
+                    <div class="home__cta">
+                        <router-link to="/logs" class="button button--primary home__cta-button">
+                            Open the log console
+                        </router-link>
+                    </div>
+                </template>
                 <template v-else>
                     <h2 class="card__title">Access granted</h2>
                     <p class="card__body">
@@ -70,6 +81,7 @@
 
 <script>
 import { mapGetters } from "vuex"
+import { getRoleLabel } from "../../constants/roles"
 
 export default {
     name: "HomePage",
@@ -80,7 +92,7 @@ export default {
         }
     },
     computed: {
-        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user"]),
+        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "role"]),
         loginState() {
             return this.$route.query.state || null
         },
@@ -92,6 +104,9 @@ export default {
         },
         userName() {
             return this.user && this.user.username ? this.user.username : ""
+        },
+        roleLabel() {
+            return getRoleLabel(this.role)
         }
     },
     watch: {
@@ -115,6 +130,8 @@ export default {
         onAuthenticated() {
             if (this.isAdmin) {
                 this.$router.replace({ name: "ControlPanel" }).catch(() => {})
+            } else if (this.canViewLogs) {
+                this.$router.replace({ name: "Logs" }).catch(() => {})
             }
         },
         async handleOAuthCode(code) {

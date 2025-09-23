@@ -1,6 +1,32 @@
 import api from "../../services/api"
 
 const MAX_LOG_ENTRIES = 60
+const COMMAND_RECORDING_STORAGE_KEY = "chipsy:command-recording"
+
+const hasStorage = () => {
+    return typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+}
+
+const readCommandRecordingPreference = () => {
+    if (!hasStorage()) return false
+    try {
+        const stored = window.localStorage.getItem(COMMAND_RECORDING_STORAGE_KEY)
+        if (stored === null) return false
+        return stored === "true"
+    } catch (error) {
+        console.warn("Failed to read command recording preference:", error)
+        return false
+    }
+}
+
+const persistCommandRecordingPreference = (enabled) => {
+    if (!hasStorage()) return
+    try {
+        window.localStorage.setItem(COMMAND_RECORDING_STORAGE_KEY, enabled ? "true" : "false")
+    } catch (error) {
+        console.warn("Failed to persist command recording preference:", error)
+    }
+}
 
 const normalizeMessage = (message) => {
     if (message == null) return ""
@@ -16,17 +42,14 @@ const createEntry = ({ level = "info", message, logType = "general", timestamp =
     userId: userId ?? null
 })
 
-const shouldSaveToDatabase = (level, logType) => {
-    if (logType === "command") return true
-    return ["error", "warning", "success"].includes(level)
-}
+const shouldSaveToDatabase = () => true
 
 export default {
     namespaced: true,
     state: () => ({
         entries: [],
         commandEntries: [],
-        commandRecordingEnabled: false,
+        commandRecordingEnabled: readCommandRecordingPreference(),
         loading: false
     }),
     getters: {
@@ -62,6 +85,7 @@ export default {
         },
         SET_COMMAND_RECORDING(state, enabled) {
             state.commandRecordingEnabled = enabled
+            persistCommandRecordingPreference(Boolean(enabled))
         },
         SET_LOADING(state, loading) {
             state.loading = loading
@@ -83,7 +107,8 @@ export default {
 
             commit("ADD_ENTRY", entry)
 
-            if (shouldSaveToDatabase(entry.level, logType)) {
+            const canPersist = rootState.session?.permissions?.canWriteLogs
+            if (shouldSaveToDatabase(entry.level, logType) && canPersist) {
                 try {
                     const csrfToken = rootState.session?.csrfToken
                     if (csrfToken) {

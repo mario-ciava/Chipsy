@@ -9,6 +9,10 @@ const createHttpError = (status, message) => {
     return error
 }
 
+const ACTION_IDS = {
+    SYNC_COMMANDS: "bot-sync-commands"
+}
+
 const createAdminService = ({
     client,
     webSocket,
@@ -289,8 +293,36 @@ const createAdminService = ({
         return statusLayer.refreshStatus({ reason: "admin:invite-complete", guildId, ...meta })
     }
 
+    const getCommandRegistry = () => {
+        const registry = client?.commandRegistry
+        if (!registry || typeof registry.reloadAll !== "function") {
+            return null
+        }
+        return registry
+    }
+
+    const requireCommandRegistry = () => {
+        const registry = getCommandRegistry()
+        if (!registry) {
+            throw createHttpError(503, "Command registry unavailable")
+        }
+        return registry
+    }
+
     const listActions = () => ({
         actions: [
+            {
+                id: ACTION_IDS.SYNC_COMMANDS,
+                label: "Sincronizza comandi slash",
+                description: "Ricarica le definizioni locali e aggiorna Discord senza riavviare il bot.",
+                type: getCommandRegistry() ? "command" : "concept",
+                badge: getCommandRegistry() ? "Live" : "Idea",
+                pendingLabel: getCommandRegistry() ? undefined : "In attesa di registro comandi",
+                confirmation: {
+                    stepOne: "Questo avvierà un reload soft delle definizioni dei comandi.",
+                    stepTwo: "Assicurati che gli slash command stiano funzionando prima di proseguire."
+                }
+            },
             {
                 id: "bot-reload-config",
                 label: "Ricarica configurazioni",
@@ -298,13 +330,6 @@ const createAdminService = ({
                 type: "concept",
                 badge: "Idea",
                 pendingLabel: "In progettazione"
-            },
-            {
-                id: "bot-sync-commands",
-                label: "Sincronizza comandi slash",
-                description: "Aggiorna i comandi di Discord su tutti i server connessi.",
-                type: "concept",
-                badge: "Idea"
             },
             {
                 id: "bot-diagnostics",
@@ -392,6 +417,53 @@ const createAdminService = ({
         }
     }
 
+    const executeAction = async(actionId, meta = {}) => {
+        if (!actionId) {
+            throw createHttpError(400, "Missing action id")
+        }
+
+        switch (actionId) {
+            case ACTION_IDS.SYNC_COMMANDS: {
+                const registry = requireCommandRegistry()
+                const startedAt = Date.now()
+                const reason = meta.reason || "admin:sync-commands"
+
+                logger.info("Admin requested slash command reload", {
+                    scope: "admin",
+                    actionId,
+                    actor: meta.actor || "unknown"
+                })
+
+                try {
+                    const stats = await registry.reloadAll({ reason, sync: true })
+                    const duration = Date.now() - startedAt
+                    return {
+                        actionId,
+                        status: "ok",
+                        message: "Slash commands reloaded and synchronized.",
+                        stats,
+                        syncedAt: stats?.lastSyncAt ?? registry.lastSyncAt,
+                        durationMs: duration
+                    }
+                } catch (error) {
+                    logger.error("Slash command reload failed", {
+                        scope: "admin",
+                        actionId,
+                        error: error?.message,
+                        details: error?.details
+                    })
+                    const failure = createHttpError(500, "Unable to reload slash commands")
+                    if (error?.details) {
+                        failure.details = error.details
+                    }
+                    throw failure
+                }
+            }
+            default:
+                throw createHttpError(404, "Action not found")
+        }
+    }
+
     return {
         getStatus,
         setBotEnabled,
@@ -400,6 +472,7 @@ const createAdminService = ({
         leaveGuild,
         completeInvite,
         listActions,
+        executeAction,
         createLog,
         getLogs,
         cleanupLogs

@@ -28,13 +28,13 @@
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>ID</th>
                         <th>User</th>
+                        <th>ID</th>
+                        <th>Role</th>
                         <th>Balance</th>
                         <th>Level</th>
-                        <th>Win rate</th>
-                        <th>Biggest win</th>
                         <th>Last activity</th>
+                        <th class="table-actions-column">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -47,38 +47,49 @@
                         </td>
                     </tr>
                     <tr v-else v-for="user in formattedUsers" :key="user.id">
-                        <td class="data-table__cell data-table__cell--mono">
-                            <div class="user-table__id">
-                                <button
-                                    type="button"
-                                    class="button button--ghost user-table__copy"
-                                    title="Copy ID"
-                                    @click="copyId(user.id)"
-                                >
-                                    <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                        <path d="M8 2a2 2 0 00-2 2v9h1V4a1 1 0 011-1h8a1 1 0 011 1v10a1 1 0 01-1 1H9v1h8a2 2 0 002-2V4a2 2 0 00-2-2H8z" />
-                                        <path d="M3 6a2 2 0 012-2h6a2 2 0 012 2v11a1 1 0 01-1 1H4a1 1 0 01-1-1V6z" />
-                                    </svg>
-                                </button>
-                                <span>{{ user.id }}</span>
-                                <button
-                                    type="button"
-                                    class="button button--ghost data-table__details"
-                                    @click="openDetails(user.id)"
-                                >
-                                    Details
-                                </button>
+                        <td>
+                            <div class="user-table__name">
+                                <div class="user-table__name-meta">
+                                    <span class="user-table__username">{{ user.username }}</span>
+                                    <span v-if="user.tag" class="user-table__tag">{{ user.tag }}</span>
+                                </div>
                             </div>
                         </td>
-                        <td>{{ user.username }}</td>
+                        <td class="data-table__cell data-table__cell--mono">
+                            <span class="user-table__id-value">{{ user.id }}</span>
+                        </td>
+                        <td>
+                            <span class="role-pill" :class="user.roleClass">
+                                {{ user.roleLabel }}
+                            </span>
+                        </td>
                         <td>{{ user.balance }}</td>
                         <td>
                             <span class="data-table__accent">{{ user.level }}</span>
                             <small class="data-table__meta">{{ user.exp }}</small>
                         </td>
-                        <td>{{ user.winRate }}</td>
-                        <td>{{ user.biggestWon }}</td>
                         <td>{{ user.lastPlayed }}</td>
+                        <td class="table-actions">
+                            <button
+                                type="button"
+                                class="button button--ghost button--icon user-table__copy"
+                                title="Copy ID"
+                                @click="copyId(user.id)"
+                            >
+                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                    <rect x="6" y="6" width="9" height="9" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+                                    <rect x="3" y="3" width="9" height="9" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5" />
+                                </svg>
+                                <span class="sr-only">Copy ID</span>
+                            </button>
+                            <button
+                                type="button"
+                                class="button button--ghost data-table__details"
+                                @click="openDetails(user.id)"
+                            >
+                                Details
+                            </button>
+                        </td>
                     </tr>
                 </tbody>
             </table>
@@ -112,7 +123,9 @@
 </template>
 
 <script>
-import { formatCurrency, formatPercentage, formatExpRange, formatDateTime } from "../../../utils/formatters"
+import { formatCurrency, formatPercentage, formatExpRange, formatFriendlyDateTime } from "../../../utils/formatters"
+import { getRoleLabel } from "../../../constants/roles"
+import { showToast } from "../../../utils/toast"
 
 export default {
     name: "UserTable",
@@ -146,19 +159,32 @@ export default {
     },
     computed: {
         formattedUsers() {
-            return this.users.map((user) => ({
-                id: user.id,
-                balance: formatCurrency(user.money),
-                level: user.level,
-                exp: formatExpRange(
-                    Number(user.current_exp !== undefined ? user.current_exp : user.currentExp),
-                    Number(user.required_exp !== undefined ? user.required_exp : user.requiredExp)
-                ),
-                winRate: formatPercentage(user.winRate),
-                biggestWon: formatCurrency(user.biggest_won !== undefined ? user.biggest_won : user.biggestWon),
-                lastPlayed: formatDateTime(user.last_played !== undefined ? user.last_played : user.lastPlayed),
-                username: user.username || "N/A"
-            }))
+            return this.users.map((user) => {
+                const rawUsername = user.username || "N/A"
+                let tag = user.tag || null
+                let baseName = rawUsername
+                if (!tag && rawUsername.includes("#")) {
+                    const [namePart, discriminator] = rawUsername.split("#")
+                    if (namePart) baseName = namePart
+                    if (discriminator) tag = `#${discriminator}`
+                }
+                return {
+                    id: user.id,
+                    balance: formatCurrency(user.money),
+                    level: user.level,
+                    exp: formatExpRange(
+                        Number(user.current_exp !== undefined ? user.current_exp : user.currentExp),
+                        Number(user.required_exp !== undefined ? user.required_exp : user.requiredExp)
+                    ),
+                    winRate: formatPercentage(user.winRate),
+                    biggestWon: formatCurrency(user.biggest_won !== undefined ? user.biggest_won : user.biggestWon),
+                    lastPlayed: formatFriendlyDateTime(user.last_played !== undefined ? user.last_played : user.lastPlayed),
+                    username: baseName || "N/A",
+                    tag,
+                    roleLabel: getRoleLabel(user.panelRole || user.access?.role),
+                    roleClass: `role-pill--${(user.panelRole || user.access?.role || "USER").toLowerCase()}`
+                }
+            })
         }
     },
     watch: {
@@ -186,9 +212,11 @@ export default {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(id)
                 }
+                showToast("User ID copied to clipboard.")
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.warn("Unable to copy user id", error)
+                showToast("Unable to copy the ID.")
             }
         }
     }

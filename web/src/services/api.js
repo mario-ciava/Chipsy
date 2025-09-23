@@ -86,9 +86,56 @@ const api = {
         const response = await http.get(`/users/${id}`)
         return response.data
     },
+    async updateUserRole({ csrfToken, userId, role }) {
+        if (!userId || !role) {
+            throw new Error("Missing role update parameters")
+        }
+        const response = await http.patch(
+            `/users/${userId}/role`,
+            { role },
+            {
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
+            }
+        )
+        return response.data
+    },
+    async updateUserLists({ csrfToken, userId, isBlacklisted, isWhitelisted }) {
+        if (!userId) {
+            throw new Error("Missing user id for list update")
+        }
+        const payload = {}
+        if (typeof isBlacklisted === "boolean") {
+            payload.isBlacklisted = isBlacklisted
+        }
+        if (typeof isWhitelisted === "boolean") {
+            payload.isWhitelisted = isWhitelisted
+        }
+        const response = await http.patch(
+            `/users/${userId}/lists`,
+            payload,
+            {
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
+            }
+        )
+        return response.data
+    },
 
     async getAdminActions() {
         const response = await http.get("/admin/actions")
+        return response.data
+    },
+
+    async runAdminAction({ csrfToken, actionId }) {
+        if (!actionId) {
+            throw new Error("Missing action id")
+        }
+        const response = await http.post(
+            `/admin/actions/${actionId}`,
+            {},
+            {
+                headers: withCsrf(csrfToken)
+            }
+        )
         return response.data
     },
 
