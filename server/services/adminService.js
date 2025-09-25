@@ -2,6 +2,8 @@ const { EmbedBuilder, Colors } = require("discord.js")
 const { getActiveGames } = require("../../bot/utils/gameRegistry")
 const { analyzeQuery } = require("../../bot/utils/db/queryAnalyzer")
 const { logger: defaultLogger } = require("../middleware/structuredLogger")
+const createRuntimeConfigService = require("./runtimeConfigService")
+const createDiagnosticsService = require("./diagnosticsService")
 
 const createHttpError = (status, message) => {
     const error = new Error(message)
@@ -9,8 +11,18 @@ const createHttpError = (status, message) => {
     return error
 }
 
+const formatTypeLabel = (name = "Game") => {
+    const withoutSuffix = name.replace(/Game$/i, "")
+    return withoutSuffix
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .trim()
+        || "Table"
+}
+
 const ACTION_IDS = {
-    SYNC_COMMANDS: "bot-sync-commands"
+    SYNC_COMMANDS: "bot-sync-commands",
+    RELOAD_CONFIG: "bot-reload-config",
+    RUN_DIAGNOSTICS: "bot-diagnostics"
 }
 
 const createAdminService = ({
@@ -26,6 +38,15 @@ const createAdminService = ({
     if (!client) {
         throw new Error("Discord client is required to create the admin service")
     }
+
+    const runtimeConfigService = createRuntimeConfigService({ client, logger })
+    const diagnosticsService = createDiagnosticsService({
+        client,
+        cache: client.cache,
+        healthChecks,
+        statusService,
+        logger
+    })
 
     const encodeCursor = (row) => {
         if (!row) return null
@@ -52,6 +73,184 @@ const createAdminService = ({
             return { id, createdAt: createdAtDate }
         } catch (error) {
             return null
+        }
+    }
+
+    const collectActiveGames = () => {
+        const trackedGames = new Set(getActiveGames(client))
+        const channels = client?.channels?.cache
+        if (channels) {
+            for (const channel of channels.values()) {
+                const game = channel?.game
+                if (game) {
+                    trackedGames.add(game)
+                }
+            }
+        }
+        return Array.from(trackedGames)
+    }
+
+    const findGameByTableId = (tableId) => {
+        if (!tableId) return null
+        return collectActiveGames().find((game) => {
+            const remote = typeof game.getRemoteState === "function"
+                ? game.getRemoteState()
+                : (game.remoteControl || {})
+            if (remote?.id === tableId) {
+                return true
+            }
+            return false
+        }) || null
+    }
+
+    const formatPlayerTag = (player, index = 0) => {
+        if (!player) return `Seat ${index + 1}`
+        return player.tag
+            || player.username
+            || player.user?.tag
+            || (typeof player.toString === "function" ? player.toString() : null)
+            || `Seat ${index + 1}`
+    }
+
+    const derivePlayerState = (player = {}) => {
+        const status = player.status || {}
+        if (status.removed) return "removed"
+        if (status.folded) return "folded"
+        if (status.allIn) return "all-in"
+        if (status.current) return "acting"
+        if (Array.isArray(player.hands) && player.hands.some((hand) => hand?.busted)) {
+            return "busted"
+        }
+        if (status.out) return "out"
+        return "active"
+    }
+
+    const derivePhase = (game, type) => {
+        if (!game) return null
+        if (type === "texas") {
+            const cards = Array.isArray(game.tableCards) ? game.tableCards.length : 0
+            if (cards === 0) return "pre-flop"
+            if (cards === 3) return "flop"
+            if (cards === 4) return "turn"
+            if (cards >= 5) return "river"
+            return "dealing"
+        }
+        if (type === "blackjack") {
+            if (game.isBettingPhaseOpen) return "betting"
+            if (game.dealer?.value) return "dealer"
+            return "playing"
+        }
+        return null
+    }
+
+    const computeActions = (game, remoteState = {}) => {
+        const canStop = typeof game?.Stop === "function"
+        const canStart = typeof game?.Run === "function"
+        const canPause = typeof game?.handleRemotePause === "function"
+        const canResume = typeof game?.handleRemoteResume === "function"
+        return {
+            start: !game?.playing && canStart,
+            pause: Boolean(game?.playing) && !remoteState.paused && canPause,
+            resume: Boolean(remoteState.paused) && canResume,
+            stop: canStop
+        }
+    }
+
+    const buildTableSnapshot = (game) => {
+        if (!game) return null
+        const remoteState = typeof game.getRemoteState === "function"
+            ? game.getRemoteState()
+            : (game.remoteControl || {})
+        const channel = game.channel
+        const guild = channel?.guild
+        const typeName = (remoteState.type || game.constructor?.name || "game").replace(/Game$/i, "").toLowerCase()
+        const id = remoteState.id || channel?.id
+        if (!id) return null
+
+        const players = Array.isArray(game.players)
+            ? game.players.map((player, index) => ({
+                id: player?.id || null,
+                tag: formatPlayerTag(player, index),
+                stack: Number.isFinite(player?.stack) ? player.stack : 0,
+                bet: player?.bets?.current ?? 0,
+                totalBet: player?.bets?.total ?? 0,
+                state: derivePlayerState(player),
+                isHost: remoteState.host?.id ? remoteState.host.id === player?.id : false
+            }))
+            : []
+
+        const awaitingId = game.awaitingPlayerId
+            || remoteState.awaitingPlayerId
+            || remoteState.currentPlayerId
+            || null
+        const awaitingPlayer = awaitingId
+            ? players.find((player) => player.id === awaitingId)
+            : null
+
+        const guildPayload = guild
+            ? {
+                id: guild.id,
+                name: guild.name,
+                icon: typeof guild.iconURL === "function"
+                    ? guild.iconURL({ extension: "png", size: 64 })
+                    : null
+            }
+            : remoteState.guildId
+                ? { id: remoteState.guildId, name: remoteState.guildName || null }
+                : null
+
+        const channelPayload = channel
+            ? {
+                id: channel.id,
+                name: channel.name,
+                mention: typeof channel.toString === "function" ? channel.toString() : null
+            }
+            : remoteState.channelId
+                ? { id: remoteState.channelId, name: remoteState.channelName || null }
+                : null
+
+        const status = remoteState.paused
+            ? "paused"
+            : (game.playing ? "running" : "lobby")
+
+        return {
+            id,
+            type: typeName,
+            label: remoteState.label || formatTypeLabel(game.constructor?.name || "Game"),
+            status,
+            paused: Boolean(remoteState.paused),
+            host: remoteState.host || null,
+            guild: guildPayload,
+            channel: channelPayload,
+            players,
+            seats: {
+                occupied: players.length,
+                total: Number.isFinite(game.maxPlayers) ? game.maxPlayers : null
+            },
+            awaitingPlayer,
+            stats: {
+                handsPlayed: Number(game.hands) || 0,
+                minBet: Number(game.getTableMinBet?.() ?? game.minBet ?? null),
+                maxBuyIn: Number(game.maxBuyIn) || null,
+                turnTimeoutMs: remoteState.turnTimeoutMs || game.actionTimeoutMs || null,
+                potValue: typeof game.getDisplayedPotValue === "function" ? game.getDisplayedPotValue() : null,
+                stage: derivePhase(game, typeName),
+                communityCards: Array.isArray(game.tableCards) ? game.tableCards.length : null
+            },
+            actions: computeActions(game, remoteState),
+            meta: {
+                createdAt: remoteState.createdAt || null,
+                startedAt: remoteState.startedAt || null,
+                updatedAt: new Date().toISOString(),
+                origin: remoteState.origin || null,
+                lobby: game.lobbySession
+                    ? {
+                        status: game.lobbySession.state?.status || null,
+                        closed: game.lobbySession.isClosed
+                    }
+                    : null,
+                pause: remoteState.pauseMeta || null
+            }
         }
     }
 
@@ -309,37 +508,40 @@ const createAdminService = ({
         return registry
     }
 
-    const listActions = () => ({
-        actions: [
-            {
-                id: ACTION_IDS.SYNC_COMMANDS,
-                label: "Sincronizza comandi slash",
-                description: "Ricarica le definizioni locali e aggiorna Discord senza riavviare il bot.",
-                type: getCommandRegistry() ? "command" : "concept",
-                badge: getCommandRegistry() ? "Live" : "Idea",
-                pendingLabel: getCommandRegistry() ? undefined : "In attesa di registro comandi",
-                confirmation: {
-                    stepOne: "Questo avvierà un reload soft delle definizioni dei comandi.",
-                    stepTwo: "Assicurati che gli slash command stiano funzionando prima di proseguire."
+    const listActions = () => {
+        const registryAvailable = Boolean(getCommandRegistry())
+        return {
+            actions: [
+                {
+                    id: ACTION_IDS.SYNC_COMMANDS,
+                    label: "Sincronizza comandi slash",
+                    description: "Ricarica le definizioni locali e aggiorna Discord senza riavviare il bot.",
+                    type: registryAvailable ? "command" : "concept",
+                    pendingLabel: registryAvailable ? undefined : "In attesa di registro comandi",
+                    confirmation: {
+                        stepOne: "Questo avvierà un reload soft delle definizioni dei comandi.",
+                        stepTwo: "Assicurati che gli slash command stiano funzionando prima di proseguire."
+                    }
+                },
+                {
+                    id: ACTION_IDS.RELOAD_CONFIG,
+                    label: "Ricarica configurazioni",
+                    description: "Rilegge il file di configurazione e aggiorna i servizi senza riavviare il processo.",
+                    type: "command",
+                    confirmation: {
+                        stepOne: "Le variabili d'ambiente saranno ricaricate. Procedi solo se il file è aggiornato.",
+                        stepTwo: "Questa operazione non riavvia il bot ma potrebbe aggiornare token e permessi."
+                    }
+                },
+                {
+                    id: ACTION_IDS.RUN_DIAGNOSTICS,
+                    label: "Esegui diagnostica servizi",
+                    description: "Verifica lo stato di Discord, MySQL, cache e health check integrati.",
+                    type: "command"
                 }
-            },
-            {
-                id: "bot-reload-config",
-                label: "Ricarica configurazioni",
-                description: "Applica da remoto le nuove impostazioni senza riavviare il processo.",
-                type: "concept",
-                badge: "Idea",
-                pendingLabel: "In progettazione"
-            },
-            {
-                id: "bot-diagnostics",
-                label: "Esegui diagnostica servizi",
-                description: "Avvia una scansione rapida di database e integrazioni esterne per verificarne lo stato.",
-                type: "concept",
-                badge: "Idea"
-            }
-        ]
-    })
+            ]
+        }
+    }
 
     const requireConnection = () => {
         const connection = client?.connection
@@ -417,6 +619,152 @@ const createAdminService = ({
         }
     }
 
+    const listActiveTables = () => {
+        const tables = collectActiveGames()
+            .map((game) => {
+                try {
+                    return buildTableSnapshot(game)
+                } catch (error) {
+                    logger.warn("Failed to build table snapshot", {
+                        scope: "admin",
+                        game: game?.constructor?.name,
+                        error: error?.message
+                    })
+                    return null
+                }
+            })
+            .filter(Boolean)
+        const ordered = tables.sort((a, b) => {
+            const toTs = (value) => {
+                const date = value ? new Date(value) : null
+                return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0
+            }
+            return toTs(b?.meta?.startedAt || b?.meta?.createdAt) - toTs(a?.meta?.startedAt || a?.meta?.createdAt)
+        })
+        return {
+            tables: ordered,
+            fetchedAt: new Date().toISOString(),
+            count: ordered.length
+        }
+    }
+
+    const controlTable = async({ tableId, action, actor }) => {
+        if (!tableId || !action) {
+            throw createHttpError(400, "Missing table action parameters")
+        }
+
+        const normalizedAction = String(action).toLowerCase()
+        const game = findGameByTableId(tableId)
+        if (!game) {
+            throw createHttpError(404, "Table not found")
+        }
+
+        const actorMeta = {
+            actor: actor?.id || actor?.actor || null,
+            actorTag: actor?.tag || actor?.actorTag || null,
+            actorLabel: actor?.label || null
+        }
+
+        const remoteState = typeof game.getRemoteState === "function"
+            ? game.getRemoteState()
+            : (game.remoteControl || {})
+
+        const ensureLobbyClosed = async() => {
+            if (game.lobbySession && typeof game.lobbySession.close === "function" && !game.lobbySession.isClosed) {
+                try {
+                    await game.lobbySession.close({ status: "starting", reason: "remote" })
+                } catch (error) {
+                    logger.warn("Failed to close lobby before remote start", {
+                        scope: "admin",
+                        channelId: game.channel?.id,
+                        error: error?.message
+                    })
+                }
+            }
+        }
+
+        const ensureCanPause = () => {
+            if (!game.playing) {
+                throw createHttpError(409, "Game is not running")
+            }
+            if (remoteState.paused) {
+                throw createHttpError(409, "Game already paused")
+            }
+            if (typeof game.handleRemotePause !== "function") {
+                throw createHttpError(503, "Game cannot be paused remotely")
+            }
+        }
+
+        const ensureCanResume = () => {
+            if (!remoteState.paused) {
+                throw createHttpError(409, "Game is not paused")
+            }
+            if (typeof game.handleRemoteResume !== "function") {
+                throw createHttpError(503, "Game cannot resume remotely")
+            }
+        }
+
+        const ensureCanStart = () => {
+            if (game.playing && !remoteState.paused) {
+                throw createHttpError(409, "Game already running")
+            }
+            if (typeof game.Run !== "function") {
+                throw createHttpError(503, "Game cannot be started remotely")
+            }
+            const minPlayers = typeof game.getMinimumPlayers === "function"
+                ? game.getMinimumPlayers()
+                : 1
+            const players = Array.isArray(game.players) ? game.players.length : 0
+            if (players < minPlayers) {
+                throw createHttpError(409, `At least ${minPlayers} players are required to start`)
+            }
+        }
+
+        try {
+            if (normalizedAction === "pause") {
+                ensureCanPause()
+                await game.handleRemotePause(actorMeta)
+            } else if (normalizedAction === "resume") {
+                ensureCanResume()
+                await game.handleRemoteResume(actorMeta)
+            } else if (normalizedAction === "start") {
+                if (remoteState.paused) {
+                    ensureCanResume()
+                    await game.handleRemoteResume(actorMeta)
+                } else {
+                    ensureCanStart()
+                    await ensureLobbyClosed()
+                    await game.Run()
+                }
+            } else if (normalizedAction === "stop") {
+                if (typeof game.Stop !== "function") {
+                    throw createHttpError(503, "Game cannot be stopped remotely")
+                }
+                await game.Stop({ reason: "remoteControl", notify: true })
+            } else {
+                throw createHttpError(400, "Unsupported table action")
+            }
+        } catch (error) {
+            if (error.status) {
+                throw error
+            }
+            logger.error("Remote table control failed", {
+                scope: "admin",
+                tableId,
+                action: normalizedAction,
+                error: error?.message
+            })
+            throw createHttpError(500, "Unable to execute table action")
+        }
+
+        const snapshot = buildTableSnapshot(game)
+        return {
+            action: normalizedAction,
+            status: "ok",
+            table: snapshot
+        }
+    }
+
     const executeAction = async(actionId, meta = {}) => {
         if (!actionId) {
             throw createHttpError(400, "Missing action id")
@@ -459,6 +807,50 @@ const createAdminService = ({
                     throw failure
                 }
             }
+            case ACTION_IDS.RELOAD_CONFIG: {
+                try {
+                    const result = await runtimeConfigService.reload({ actor: meta.actor, reason: meta.reason })
+                    const changed = result.diff?.total ?? 0
+                    const entryWord = changed === 1 ? "voce" : "voci"
+                    const adjective = changed === 1 ? "aggiornata" : "aggiornate"
+                    return {
+                        actionId,
+                        status: "ok",
+                        message: changed
+                            ? `Configurazione ricaricata (${changed} ${entryWord} ${adjective}).`
+                            : "Configurazione ricaricata senza differenze rilevate.",
+                        diff: result.diff,
+                        updatedAt: result.updatedAt
+                    }
+                } catch (error) {
+                    logger.error("Runtime configuration reload failed", {
+                        scope: "admin",
+                        actionId,
+                        error: error?.message
+                    })
+                    throw createHttpError(500, "Unable to reload configuration")
+                }
+            }
+            case ACTION_IDS.RUN_DIAGNOSTICS: {
+                try {
+                    const report = await diagnosticsService.run({ actor: meta.actor, reason: meta.reason })
+                    return {
+                        actionId,
+                        status: report.healthy ? "ok" : "degraded",
+                        message: report.healthy
+                            ? "Diagnostica completata: tutti i servizi rispondono correttamente."
+                            : "Diagnostica completata con segnalazioni: controlla il report per i dettagli.",
+                        report
+                    }
+                } catch (error) {
+                    logger.error("Diagnostics execution failed", {
+                        scope: "admin",
+                        actionId,
+                        error: error?.message
+                    })
+                    throw createHttpError(500, "Unable to run diagnostics")
+                }
+            }
             default:
                 throw createHttpError(404, "Action not found")
         }
@@ -475,7 +867,9 @@ const createAdminService = ({
         executeAction,
         createLog,
         getLogs,
-        cleanupLogs
+        cleanupLogs,
+        listTables: listActiveTables,
+        controlTable
     }
 }
 

@@ -64,6 +64,18 @@ const adminSchemas = {
                     return false
                 }
             }, { message: "Invalid cursor token" })
+    }),
+
+    tableAction: z.object({
+        action: z.enum(["start", "pause", "resume", "stop"], {
+            required_error: "Action is required"
+        })
+    }),
+
+    tableActionParams: z.object({
+        tableId: z.string()
+            .min(4, "Invalid table id")
+            .max(150, "Invalid table id")
     })
 }
 

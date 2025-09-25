@@ -14,7 +14,6 @@
                     <div>
                         <h4 class="actions__title">
                             {{ action.label }}
-                            <span v-if="action.badge" class="actions__badge">{{ action.badge }}</span>
                         </h4>
                         <p class="actions__description">{{ action.description }}</p>
                     </div>
@@ -62,7 +61,6 @@
 </template>
 
 <script>
-import { mapActions } from "vuex"
 import api from "../../../services/api"
 
 export default {
@@ -103,24 +101,11 @@ export default {
         }
     },
     methods: {
-        ...mapActions("logs", { addLogEntry: "add" }),
-        formatCommandLabel(action) {
+        formatActionLabel(action) {
             if (!action) return "unknown command"
             const label = action.label || action.id || "command"
             const identifier = action.id && action.id !== label ? ` [${action.id}]` : ""
             return `'${label}'${identifier}`
-        },
-        logCommandEvent(level, action, message) {
-            if (!action || action.type !== "command") return
-            const descriptor = this.formatCommandLabel(action)
-            const finalMessage = message || `Command ${descriptor}.`
-            const userId = this.$store.state.session.user?.id || null
-            this.addLogEntry({
-                level,
-                message: finalMessage,
-                logType: "command",
-                userId
-            })
         },
         handleAction(action) {
             if (action.dangerous || action.confirmation) {
@@ -153,25 +138,22 @@ export default {
 
             this.loading = true
             try {
-                const descriptor = this.formatCommandLabel(action)
+                const descriptor = this.formatActionLabel(action)
                 const csrfToken = this.$store.state.session.csrfToken
                 if (!csrfToken) {
                     throw new Error("Missing authentication token")
                 }
 
-                this.logCommandEvent("info", action, `Command ${descriptor} requested.`)
                 const response = await api.runAdminAction({ csrfToken, actionId: action.id })
                 const message = response?.message || `Action ${descriptor} completed successfully.`
                 this.$emit("action-success", message)
-                this.logCommandEvent("success", action, `Command ${descriptor} completed.`)
             } catch (error) {
-                const descriptor = this.formatCommandLabel(action)
+                const descriptor = this.formatActionLabel(action)
                 const message =
                     error?.response?.data?.message ||
                     error?.message ||
                     `Action ${descriptor} failed.`
                 this.$emit("action-error", message)
-                this.logCommandEvent("error", action, `Command ${descriptor} failed: ${message}`)
             } finally {
                 if (action === this.pendingAction) {
                     this.pendingAction = null

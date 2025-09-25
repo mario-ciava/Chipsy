@@ -3,11 +3,16 @@ const createSetData = require("../bot/utils/createSetData")
 const Game = require("../bot/games/game")
 const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
 
-const createMockConnection = (initialRows = []) => {
+const createMockConnection = (initialRows = [], initialAccessRows = []) => {
     const startingRequiredExp = calculateRequiredExp(DEFAULT_PLAYER_LEVEL)
     const data = new Map()
     initialRows.forEach((row) => {
         data.set(row.id, { ...row })
+    })
+
+    const accessData = new Map()
+    initialAccessRows.forEach((row) => {
+        accessData.set(row.user_id, { ...row })
     })
 
     const executeQuery = async(sql, params = []) => {
@@ -49,6 +54,18 @@ const createMockConnection = (initialRows = []) => {
             return [{ affectedRows: 1 }]
         }
 
+        if (sql.startsWith("DELETE FROM `users` WHERE `id` = ?")) {
+            const [id] = parameters
+            data.delete(id)
+            return [{ affectedRows: 1 }]
+        }
+
+        if (sql.startsWith("DELETE FROM `user_access` WHERE `user_id` = ?")) {
+            const [id] = parameters
+            accessData.delete(id)
+            return [{ affectedRows: 1 }]
+        }
+
         throw new Error(`Unsupported query in mock: ${sql}`)
     }
 
@@ -64,7 +81,7 @@ const createMockConnection = (initialRows = []) => {
 
     const getConnection = jest.fn(async() => createConnection())
 
-    return { query, getConnection, data }
+    return { query, getConnection, data, accessData }
 }
 
 describe("data handler experience persistence", () => {
@@ -275,4 +292,5 @@ describe("createSetData error handling", () => {
         expect(createUserData).toHaveBeenCalledTimes(2)
         expect(getUserData).toHaveBeenCalledTimes(3)
     })
+
 })

@@ -77,7 +77,7 @@
 </template>
 
 <script>
-import { getRuntimeOrigin, getControlPanelRedirect } from "../../../utils/runtime"
+import { getControlPanelRedirect } from "../../../utils/runtime"
 
 const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
 export default {

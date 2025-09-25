@@ -178,6 +178,26 @@ module.exports = async(pool) => {
             )
             info("Ensured master record exists in user_access table", { scope: "mysql" })
         }
+
+        const [policiesTables] = await connection.query("SHOW TABLES LIKE ?", ["access_policies"])
+
+        if (!policiesTables || policiesTables.length === 0) {
+            await connection.query(
+                `CREATE TABLE \`access_policies\` (
+                    \`id\` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+                    \`enforce_whitelist\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                    \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (\`id\`)
+                )`
+            )
+            info("access_policies table created", { scope: "mysql" })
+        }
+
+        await connection.query(
+            `INSERT IGNORE INTO \`access_policies\` (\`id\`, \`enforce_whitelist\`)
+            VALUES (1, 0)`
+        )
+        info("Ensured default access policy row exists", { scope: "mysql" })
     } finally {
         connection.release()
     }

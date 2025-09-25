@@ -124,6 +124,27 @@ const runTexas = async(interaction, client) => {
 
         const hostId = interaction.user.id
         const hostMention = `<@${hostId}>`
+        if (typeof game.setRemoteMeta === "function") {
+            const hostAvatar = typeof interaction.user.displayAvatarURL === "function"
+                ? interaction.user.displayAvatarURL({ extension: "png", size: 64 })
+                : null
+            game.setRemoteMeta({
+                label: "Texas Hold'em",
+                type: "texas",
+                origin: "command:texas",
+                host: {
+                    id: hostId,
+                    tag: interaction.user.tag,
+                    username: interaction.user.username,
+                    avatar: hostAvatar
+                },
+                channelId: channel.id,
+                channelName: channel.name,
+                guildId: channel.guild?.id,
+                guildName: channel.guild?.name,
+                turnTimeoutMs: game.actionTimeoutMs || null
+            })
+        }
 
         const formatPlayers = () => {
             const players = game?.players || []
@@ -208,6 +229,7 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
             collectorOptions: { time: 5 * 60 * 1000 },
             render: renderLobbyView
         })
+        game.lobbySession = lobbySession
 
         lobbySession.updateState({ status: "waiting" })
         await lobbySession.open()

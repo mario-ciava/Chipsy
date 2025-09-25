@@ -36,6 +36,14 @@ const buildPermissionMatrix = (role) => {
     }
 }
 
+const POLICY_DEFAULT = Object.freeze({
+    enforceWhitelist: false,
+    updatedAt: null
+})
+
+const POLICY_ROW_ID = 1
+const POLICY_CACHE_TTL_MS = 10_000
+
 const createAccessControlService = ({
     pool,
     ownerId,
@@ -62,6 +70,14 @@ const createAccessControlService = ({
         }
     }
 
+    const ensurePolicyRow = async() => {
+        await runQuery(
+            "INSERT IGNORE INTO `access_policies` (`id`, `enforce_whitelist`) VALUES (?, 0)",
+            [POLICY_ROW_ID],
+            { operation: "ensurePolicyRow" }
+        )
+    }
+
     const ensureMasterRecord = async() => {
         if (!ownerId) return null
         return runQuery(
@@ -83,6 +99,14 @@ const createAccessControlService = ({
             createdAt: row.created_at,
             updatedAt: row.updated_at,
             persisted: true
+        }
+    }
+
+    const mapPolicyRow = (row) => {
+        if (!row) return { ...POLICY_DEFAULT }
+        return {
+            enforceWhitelist: Boolean(row.enforce_whitelist),
+            updatedAt: row.updated_at || null
         }
     }
 
@@ -297,13 +321,85 @@ const createAccessControlService = ({
         return getAccessRecord(targetId)
     }
 
+    let cachedPolicy = null
+    let cachedPolicyExpiry = 0
+
+    const getAccessPolicy = async({ forceRefresh = false } = {}) => {
+        const now = Date.now()
+        if (!forceRefresh && cachedPolicy && cachedPolicyExpiry > now) {
+            return cachedPolicy
+        }
+
+        await ensurePolicyRow()
+        const rows = await runQuery(
+            "SELECT * FROM `access_policies` WHERE `id` = ? LIMIT 1",
+            [POLICY_ROW_ID],
+            { operation: "getAccessPolicy" }
+        )
+
+        const policy = mapPolicyRow(rows?.[0])
+        cachedPolicy = policy
+        cachedPolicyExpiry = now + POLICY_CACHE_TTL_MS
+        return policy
+    }
+
+    const setWhitelistEnforcement = async(enforceWhitelist) => {
+        const normalized = enforceWhitelist ? 1 : 0
+        await ensurePolicyRow()
+        await runQuery(
+            "UPDATE `access_policies` SET `enforce_whitelist` = ? WHERE `id` = ?",
+            [normalized, POLICY_ROW_ID],
+            { operation: "setWhitelistEnforcement" }
+        )
+        cachedPolicy = null
+        cachedPolicyExpiry = 0
+        return getAccessPolicy({ forceRefresh: true })
+    }
+
+    const evaluateBotAccess = async(userId) => {
+        const record = await getAccessRecord(userId)
+        const policy = await getAccessPolicy()
+        const permissions = buildPermissionMatrix(record?.role)
+
+        if (record?.isBlacklisted && record.userId !== ownerId) {
+            return {
+                allowed: false,
+                reason: "blacklisted",
+                record,
+                policy
+            }
+        }
+
+        if (
+            policy.enforceWhitelist
+            && !record?.isWhitelisted
+            && !permissions.canAccessPanel
+        ) {
+            return {
+                allowed: false,
+                reason: "whitelist",
+                record,
+                policy
+            }
+        }
+
+        return {
+            allowed: true,
+            record,
+            policy
+        }
+    }
+
     return {
         getAccessRecord,
         getAccessRecords,
         setRole,
         updateLists,
         buildDefaultRecord,
-        ensureMasterRecord
+        ensureMasterRecord,
+        getAccessPolicy,
+        setWhitelistEnforcement,
+        evaluateBotAccess
     }
 }
 

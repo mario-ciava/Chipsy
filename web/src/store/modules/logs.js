@@ -1,32 +1,6 @@
 import api from "../../services/api"
 
 const MAX_LOG_ENTRIES = 60
-const COMMAND_RECORDING_STORAGE_KEY = "chipsy:command-recording"
-
-const hasStorage = () => {
-    return typeof window !== "undefined" && typeof window.localStorage !== "undefined"
-}
-
-const readCommandRecordingPreference = () => {
-    if (!hasStorage()) return false
-    try {
-        const stored = window.localStorage.getItem(COMMAND_RECORDING_STORAGE_KEY)
-        if (stored === null) return false
-        return stored === "true"
-    } catch (error) {
-        console.warn("Failed to read command recording preference:", error)
-        return false
-    }
-}
-
-const persistCommandRecordingPreference = (enabled) => {
-    if (!hasStorage()) return
-    try {
-        window.localStorage.setItem(COMMAND_RECORDING_STORAGE_KEY, enabled ? "true" : "false")
-    } catch (error) {
-        console.warn("Failed to persist command recording preference:", error)
-    }
-}
 
 const normalizeMessage = (message) => {
     if (message == null) return ""
@@ -49,13 +23,11 @@ export default {
     state: () => ({
         entries: [],
         commandEntries: [],
-        commandRecordingEnabled: readCommandRecordingPreference(),
         loading: false
     }),
     getters: {
         list: (state) => state.entries,
-        commandList: (state) => state.commandEntries,
-        isCommandRecordingEnabled: (state) => state.commandRecordingEnabled
+        commandList: (state) => state.commandEntries
     },
     mutations: {
         ADD_ENTRY(state, entry) {
@@ -83,10 +55,6 @@ export default {
                 state.entries = []
             }
         },
-        SET_COMMAND_RECORDING(state, enabled) {
-            state.commandRecordingEnabled = enabled
-            persistCommandRecordingPreference(Boolean(enabled))
-        },
         SET_LOADING(state, loading) {
             state.loading = loading
         }
@@ -96,10 +64,6 @@ export default {
             if (!payload) return null
 
             const logType = payload.logType || "general"
-
-            if (logType === "command" && !state.commandRecordingEnabled) {
-                return null
-            }
 
             const userId = payload?.userId ?? rootState.session?.user?.id ?? null
             const entry = createEntry({ ...payload, logType, userId })
@@ -149,10 +113,6 @@ export default {
 
         clear({ commit }, logType = "general") {
             commit("CLEAR", logType)
-        },
-
-        setCommandRecording({ commit }, enabled) {
-            commit("SET_COMMAND_RECORDING", enabled)
         }
     }
 }

@@ -114,6 +114,34 @@ describe("CommandRouter.handleInteraction", () => {
         })
         expect(router.commands.get("test").execute).not.toHaveBeenCalled()
     })
+
+    test("denies execution when user access is blocked", async() => {
+        const evaluateBotAccess = jest.fn().mockResolvedValue({ allowed: false, reason: "blacklisted" })
+        const { router, client } = createRouter({
+            client: {
+                accessControl: { evaluateBotAccess },
+                SetData: jest.fn()
+            }
+        })
+
+        const execute = jest.fn()
+        router.register({
+            config: {
+                name: "test",
+                slashCommand: createSlashBuilder()
+            },
+            execute
+        })
+
+        const interaction = createInteraction({ client })
+        await router.handleInteraction(interaction)
+
+        expect(execute).not.toHaveBeenCalled()
+        expect(mockSendInteractionResponse).toHaveBeenCalledWith(interaction, {
+            content: "🚫 You are blacklisted and cannot use Chipsy.",
+            flags: MessageFlags.Ephemeral
+        })
+    })
 })
 
 describe("CommandRouter.handleAutocomplete", () => {
@@ -156,5 +184,35 @@ describe("CommandRouter.handleAutocomplete", () => {
         expect(interaction.user.data).toEqual({ money: 1000 })
         expect(autocomplete).toHaveBeenCalledWith(interaction, client)
         expect(respond).toHaveBeenCalledWith([{ name: "Option", value: "opt" }])
+    })
+
+    test("returns empty autocomplete when access is denied", async() => {
+        const evaluateBotAccess = jest.fn().mockResolvedValue({ allowed: false, reason: "whitelist" })
+        const respond = jest.fn().mockResolvedValue(undefined)
+        const { router, client } = createRouter({
+            client: {
+                accessControl: { evaluateBotAccess }
+            }
+        })
+        router.register({
+            config: {
+                name: "foo",
+                slashCommand: createSlashBuilder()
+            },
+            execute: jest.fn(),
+            autocomplete: jest.fn()
+        })
+
+        const interaction = createInteraction({
+            commandName: "foo",
+            client,
+            isAutocomplete: () => true,
+            respond
+        })
+
+        await router.handleInteraction(interaction)
+
+        expect(respond).toHaveBeenCalledWith([])
+        expect(evaluateBotAccess).toHaveBeenCalled()
     })
 })

@@ -77,7 +77,20 @@ const api = {
         return response.data
     },
 
-    async listUsers({ params }) {
+    async listUsers({ page, pageSize, search } = {}) {
+        const params = {}
+        if (typeof page !== "undefined") {
+            params.page = page
+        }
+        if (typeof pageSize !== "undefined") {
+            params.pageSize = pageSize
+        }
+        if (typeof search === "string") {
+            const trimmed = search.trim()
+            if (trimmed.length > 0) {
+                params.search = trimmed
+            }
+        }
         const response = await http.get("/users", { params })
         return response.data
     },
@@ -120,8 +133,46 @@ const api = {
         return response.data
     },
 
+    async getAccessPolicy() {
+        const response = await http.get("/users/policy")
+        return response.data
+    },
+
+    async updateAccessPolicy({ csrfToken, enforceWhitelist }) {
+        if (typeof enforceWhitelist !== "boolean") {
+            throw new Error("Missing enforceWhitelist flag")
+        }
+        const response = await http.patch(
+            "/users/policy",
+            { enforceWhitelist },
+            {
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
+            }
+        )
+        return response.data
+    },
+
     async getAdminActions() {
         const response = await http.get("/admin/actions")
+        return response.data
+    },
+
+    async getActiveTables() {
+        const response = await http.get("/admin/tables")
+        return response.data
+    },
+
+    async controlTable({ csrfToken, tableId, action }) {
+        if (!tableId || !action) {
+            throw new Error("Missing table action parameters")
+        }
+        const response = await http.post(
+            `/admin/tables/${encodeURIComponent(tableId)}/actions`,
+            { action },
+            {
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
+            }
+        )
         return response.data
     },
 

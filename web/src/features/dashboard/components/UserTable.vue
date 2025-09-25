@@ -126,6 +126,7 @@
 import { formatCurrency, formatPercentage, formatExpRange, formatFriendlyDateTime } from "../../../utils/formatters"
 import { getRoleLabel } from "../../../constants/roles"
 import { showToast } from "../../../utils/toast"
+import { copyToClipboard } from "../../../utils/clipboard"
 
 export default {
     name: "UserTable",
@@ -208,10 +209,12 @@ export default {
             this.$emit("open-details", id)
         },
         async copyId(id) {
+            if (!id) {
+                showToast("Unable to copy the ID.")
+                return
+            }
             try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(id)
-                }
+                await copyToClipboard(id)
                 showToast("User ID copied to clipboard.")
             } catch (error) {
                 // eslint-disable-next-line no-console

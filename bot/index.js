@@ -11,6 +11,7 @@ const createCacheClient = require("./utils/createCacheClient")
 const createStatusService = require("../server/services/statusService")
 const createCommandSync = require("./utils/commandSync")
 const { createAccessControlService } = require("../server/services/accessControlService")
+const createCommandUsageLogger = require("./utils/commandUsageLogger")
 
 class WebSocketBridge extends EventEmitter {}
 const webSocket = new WebSocketBridge()
@@ -40,6 +41,7 @@ const bootstrap = async() => {
             const dataHandler = createDataHandler(pool)
             client.dataHandler = dataHandler
             client.SetData = createSetData(dataHandler)
+            client.commandLogger = createCommandUsageLogger({ pool, logger })
 
             client.accessControl = createAccessControlService({
                 pool,

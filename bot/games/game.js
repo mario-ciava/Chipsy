@@ -25,6 +25,11 @@ module.exports = class Game {
         this.hands = 0
         this.timeRun = 0
         this.cards = [...cards]
+        this.remoteControl = {
+            paused: false,
+            createdAt: new Date().toISOString(),
+            type: (this.constructor?.name || "game").replace(/Game$/i, "").toLowerCase()
+        }
     }
 
     async Rotate(item, n) {
@@ -89,6 +94,42 @@ module.exports = class Game {
     GetPlayer(id) {
         return this.players.find((player) => {
             return player.id == id
+        })
+    }
+
+    setRemoteMeta(meta = {}) {
+        if (!this.remoteControl || typeof this.remoteControl !== "object") {
+            this.remoteControl = {}
+        }
+        Object.assign(this.remoteControl, meta)
+        return this.remoteControl
+    }
+
+    getRemoteState() {
+        return this.remoteControl || {}
+    }
+
+    isRemotePauseActive() {
+        return Boolean(this.remoteControl?.paused)
+    }
+
+    async handleRemotePause(meta = {}) {
+        this.setRemoteMeta({
+            paused: true,
+            pauseMeta: {
+                ...meta,
+                timestamp: new Date().toISOString()
+            }
+        })
+    }
+
+    async handleRemoteResume(meta = {}) {
+        this.setRemoteMeta({
+            paused: false,
+            pauseMeta: {
+                ...meta,
+                timestamp: new Date().toISOString()
+            }
         })
     }
 

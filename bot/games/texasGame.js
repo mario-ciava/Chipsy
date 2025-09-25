@@ -112,6 +112,65 @@ module.exports = class TexasGame extends Game {
         }
     }
 
+    getRemoteActorLabel(meta = {}) {
+        if (meta.actorLabel) return meta.actorLabel
+        if (meta.actorTag) return meta.actorTag
+        if (meta.actor) return `<@${meta.actor}>`
+        return "dal pannello"
+    }
+
+    async sendRemoteControlNotice(kind, meta = {}) {
+        if (!this.channel || typeof this.channel.send !== "function") return
+        const label = this.getRemoteActorLabel(meta)
+        let description = null
+        let color = Colors.DarkGrey
+        if (kind === "pause") {
+            description = `⏸️ Tavolo messo in pausa ${label}.`
+            color = Colors.Orange
+        } else if (kind === "resume") {
+            description = `▶️ Tavolo riattivato ${label}.`
+            color = Colors.Green
+        }
+        if (!description) return
+        await this.channel.send({
+            embeds: [new EmbedBuilder().setColor(color).setDescription(description)],
+            allowedMentions: { parse: [] }
+        }).catch((error) => {
+            logger.warn("Failed to send remote control notice", {
+                scope: "texasGame",
+                kind,
+                error: error?.message
+            })
+        })
+    }
+
+    async handleRemotePause(meta = {}) {
+        await super.handleRemotePause(meta)
+        if (this.timer) {
+            clearTimeout(this.timer)
+            this.timer = null
+        }
+        await this.sendRemoteControlNotice("pause", meta)
+        if (this.awaitingPlayerId) {
+            const player = this.GetPlayer(this.awaitingPlayerId)
+            if (player) {
+                await this.updateGameMessage(player, { remotePaused: true, hideActions: true })
+            }
+        }
+    }
+
+    async handleRemoteResume(meta = {}) {
+        await super.handleRemoteResume(meta)
+        await this.sendRemoteControlNotice("resume", meta)
+        if (!this.playing) return
+        const target = this.awaitingPlayerId ? this.GetPlayer(this.awaitingPlayerId) : null
+        if (target) {
+            await this.NextPlayer(target)
+        } else {
+            await this.advanceHand()
+        }
+    }
+
     updateActionTimeout(durationMs) {
         const { min, max } = this.getActionTimeoutLimits()
         const numeric = Number(durationMs)
@@ -120,6 +179,9 @@ module.exports = class TexasGame extends Game {
         }
         const clamped = Math.max(min, Math.min(max, Math.floor(numeric)))
         this.actionTimeoutMs = clamped
+        if (typeof this.setRemoteMeta === "function") {
+            this.setRemoteMeta({ turnTimeoutMs: clamped })
+        }
         return { ok: true, value: clamped, clamped: clamped !== numeric }
     }
 
@@ -389,8 +451,9 @@ module.exports = class TexasGame extends Game {
         const availableOptions = Array.isArray(options.availableOptions)
             ? options.availableOptions
             : await this.GetAvailableOptions(player)
+        const paused = Boolean(options.remotePaused || (this.isRemotePauseActive && this.isRemotePauseActive()))
         const components = []
-        if (!options.hideActions) {
+        if (!options.hideActions && !paused) {
             const row = new ActionRowBuilder()
             if (availableOptions.includes("fold")) {
                 row.addComponents(new ButtonBuilder().setCustomId(`tx_action:fold:${player.id}`).setLabel("Fold").setStyle(ButtonStyle.Danger))
@@ -429,10 +492,17 @@ module.exports = class TexasGame extends Game {
             `Round #${this.hands}`,
             `${Math.round(this.actionTimeoutMs / 1000)}s per turno`
         ]
+        if (paused) {
+            footerParts.push("Pausa remota attiva")
+        }
         if (this.inactiveHands >= 1 && !this.currentHandHasInteraction) {
             footerParts.push("⚠️ Nessuna azione: chiusura imminente")
         }
         embed.setFooter({ text: footerParts.join(" • ") })
+        if (paused) {
+            embed.setColor(Colors.DarkGrey)
+            embed.setDescription("⏸️ Tavolo messo in pausa dagli admin. Attendi istruzioni.")
+        }
 
         const payload = { embeds: [embed], components, files: [], attachments: [] }
         if (snapshot) {
@@ -724,6 +794,12 @@ module.exports = class TexasGame extends Game {
         this.actionCollector.on("collect", async (interaction) => {
             const [, action, playerId] = interaction.customId.split(':')
             const player = this.GetPlayer(playerId)
+            if (this.isRemotePauseActive && this.isRemotePauseActive()) {
+                await this.respondEphemeral(interaction, {
+                    content: "⏸️ Tavolo in pausa dagli admin. Attendi la ripresa."
+                })
+                return
+            }
             if (!player) {
                 await this.respondEphemeral(interaction, { content: "⚠️ You are not seated at this table." })
                 return
@@ -985,6 +1061,10 @@ module.exports = class TexasGame extends Game {
         }
 
         this.awaitingPlayerId = player.id
+        if (this.isRemotePauseActive && this.isRemotePauseActive()) {
+            await this.updateGameMessage(player, { availableOptions, remotePaused: true })
+            return
+        }
         await this.updateGameMessage(player, { availableOptions })
 
         this.timer = setTimeout(async () => {
@@ -1210,6 +1290,9 @@ module.exports = class TexasGame extends Game {
 
     async Stop(options = {}) {
         this.refundOutstandingBets();
+        if (typeof this.setRemoteMeta === "function") {
+            this.setRemoteMeta({ paused: false, stoppedAt: new Date().toISOString() })
+        }
 
         this.playing = false;
         this.inactiveHands = 0;
@@ -1277,6 +1360,9 @@ module.exports = class TexasGame extends Game {
 
     async Run() {
         if (this.players.length < this.getMinimumPlayers()) return this.Stop({ reason: "notEnoughPlayers" })
+        if (typeof this.setRemoteMeta === "function") {
+            this.setRemoteMeta({ startedAt: new Date().toISOString(), paused: false })
+        }
         this.playing = true
         await this.NextHand()
     }

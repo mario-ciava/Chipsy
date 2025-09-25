@@ -47,10 +47,19 @@ module.exports = createCommand({
         const author = interaction.user
         const targetUser = interaction.options.getUser("user") || author
         const isViewingOther = targetUser.id !== author.id
+        const targetIsBot = targetUser?.bot || targetUser?.system
 
         if (!author) {
             await respond({
                 content: "❌ Unable to resolve your Discord account details.",
+                flags: MessageFlags.Ephemeral
+            })
+            return
+        }
+
+        if (targetIsBot) {
+            await respond({
+                content: "⚠️ Non è possibile mostrare il profilo di un bot.",
                 flags: MessageFlags.Ephemeral
             })
             return

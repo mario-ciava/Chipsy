@@ -151,6 +151,7 @@ module.exports = class BlackJack extends Game {
         this.isBettingPhaseOpen = false
         this.betsPanelVersion = 0
         this.playersLeftDuringBets = []
+        this.awaitingPlayerId = null
     }
 
     appendDealerTimeline(entry) {
@@ -1372,6 +1373,14 @@ module.exports = class BlackJack extends Game {
             currentPlayer.status.currentHand = 0
         }
         currentPlayer.availableOptions = await this.GetAvailableOptions(currentPlayer, currentPlayer.status.currentHand)
+        this.awaitingPlayerId = currentPlayer?.id || null
+        if (this.remoteControl) {
+            this.remoteControl.currentPlayerId = this.awaitingPlayerId
+        }
+        if (this.isRemotePauseActive && this.isRemotePauseActive()) {
+            await this.updateRoundProgressEmbed(currentPlayer, false, { paused: true })
+            return
+        }
         this.timer = setTimeout(() => {
             this.Action("stand", currentPlayer, currentPlayer.status.currentHand)
         }, config.blackjack.actionTimeout.default)
@@ -1573,6 +1582,16 @@ module.exports = class BlackJack extends Game {
                 player.autobet = null
                 await interaction.reply({ content: "✅ Autobet disabled.", flags: MessageFlags.Ephemeral }).catch(
                     logCollectorError("Failed to confirm autobet disable")
+                )
+                return
+            }
+
+            if (this.isRemotePauseActive && this.isRemotePauseActive()) {
+                await interaction.reply({
+                    content: "⏸️ Il tavolo è in pausa dagli admin. Attendi la ripresa.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logCollectorError("Failed to notify player about paused table")
                 )
                 return
             }
@@ -1896,6 +1915,7 @@ module.exports = class BlackJack extends Game {
 
     async updateRoundProgressEmbed(player, autoStanding = false, renderOptions = {}) {
         try {
+            const paused = Boolean(renderOptions?.paused || (this.isRemotePauseActive && this.isRemotePauseActive()))
             const handSummary = player.hands.map((hand, idx) => {
                 const isCurrent = idx === player.status.currentHand
                 const statusParts = [Number.isFinite(hand.value) ? `${hand.value}` : "??"]
@@ -1910,18 +1930,20 @@ module.exports = class BlackJack extends Game {
             const timelineText = this.buildDealerTimelineDescription() ?? EMPTY_TIMELINE_TEXT
 
             const embed = new EmbedBuilder()
-                .setColor(Colors.Gold)
+                .setColor(paused ? Colors.DarkGrey : Colors.Gold)
                 .setTitle(`${player.tag}'s turn`)
-                .setDescription(timelineText)
+                .setDescription(paused
+                    ? `⏸️ Tavolo in pausa dagli admin.\n\n${timelineText}`
+                    : timelineText)
 
             const components = []
-            if (!autoStanding) {
+            if (!autoStanding && !paused) {
                 const actionRow = buildActionButtons(player.id, player.availableOptions)
                 if (actionRow) components.push(actionRow)
             }
 
             // Add disable autobet button if player has active autobet
-            if (player.autobet && player.autobet.remaining > 0) {
+            if (!paused && player.autobet && player.autobet.remaining > 0) {
                 const autobetRow = new ActionRowBuilder()
                 autobetRow.addComponents(
                     new ButtonBuilder()
@@ -2054,6 +2076,65 @@ module.exports = class BlackJack extends Game {
             })
         }
     }
+
+    getRemoteActorLabel(meta = {}) {
+        if (meta.actorLabel) return meta.actorLabel
+        if (meta.actorTag) return meta.actorTag
+        if (meta.actor) return `<@${meta.actor}>`
+        return "dal pannello"
+    }
+
+    async sendRemoteControlNotice(kind, meta = {}) {
+        if (!this.channel || typeof this.channel.send !== "function") return
+        const label = this.getRemoteActorLabel(meta)
+        let description = null
+        let color = Colors.DarkGrey
+        if (kind === "pause") {
+            description = `⏸️ Blackjack in pausa ${label}.`
+            color = Colors.Orange
+        } else if (kind === "resume") {
+            description = `▶️ Blackjack riattivato ${label}.`
+            color = Colors.Green
+        }
+        if (!description) return
+        await this.channel.send({
+            embeds: [new EmbedBuilder().setColor(color).setDescription(description)],
+            allowedMentions: { parse: [] }
+        }).catch((error) => {
+            logger.warn("Failed to send blackjack remote control notice", {
+                scope: "blackjackGame",
+                kind,
+                error: error?.message
+            })
+        })
+    }
+
+    async handleRemotePause(meta = {}) {
+        await super.handleRemotePause(meta)
+        if (this.timer) {
+            clearTimeout(this.timer)
+            this.timer = null
+        }
+        await this.sendRemoteControlNotice("pause", meta)
+        const active = this.inGamePlayers?.find((player) => player.status?.current)
+            || this.players?.find((player) => player.status?.current)
+        if (active) {
+            await this.updateRoundProgressEmbed(active, false, { paused: true })
+        }
+    }
+
+    async handleRemoteResume(meta = {}) {
+        await super.handleRemoteResume(meta)
+        await this.sendRemoteControlNotice("resume", meta)
+        if (!this.playing) return
+        const target = this.awaitingPlayerId ? this.GetPlayer(this.awaitingPlayerId) : null
+        if (target) {
+            await this.NextPlayer(target)
+        } else if (this.inGamePlayers?.length) {
+            await this.NextPlayer(this.inGamePlayers[0])
+        }
+    }
+
 
     async DealerAction() {
         await this.ComputeHandsValue(null, this.dealer)
@@ -2323,6 +2404,9 @@ module.exports = class BlackJack extends Game {
             return null
         }
         this.__stopping = true
+        if (typeof this.setRemoteMeta === "function") {
+            this.setRemoteMeta({ paused: false, stoppedAt: new Date().toISOString() })
+        }
         this.isBettingPhaseOpen = false
         const notify = Object.prototype.hasOwnProperty.call(options || {}, "notify") ? options.notify : true
         const reason = options.reason || "allPlayersLeft"
@@ -2424,6 +2508,9 @@ module.exports = class BlackJack extends Game {
                     stack: error.stack
                 })
             }
+        }
+        if (typeof this.setRemoteMeta === "function") {
+            this.setRemoteMeta({ startedAt: new Date().toISOString(), paused: false })
         }
         this.playing = true
         try {

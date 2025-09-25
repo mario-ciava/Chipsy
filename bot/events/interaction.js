@@ -3,6 +3,14 @@ const { logAndSuppress } = require("../utils/logger")
 
 module.exports = async(interaction) => {
     if (!interaction?.client?.commandRouter) return
+    if (interaction?.user?.bot || interaction?.user?.system) {
+        logAndSuppress("Ignoring interaction triggered by a bot/system user", {
+            scope: "interactionEvent",
+            interactionId: interaction?.id,
+            userId: interaction?.user?.id
+        })
+        return
+    }
 
     const isAutocompleteInteraction = typeof interaction.isAutocomplete === "function" && interaction.isAutocomplete()
 

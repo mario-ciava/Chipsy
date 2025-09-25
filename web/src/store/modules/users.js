@@ -12,7 +12,10 @@ const initialState = () => ({
     pagination: initialPagination(),
     search: "",
     loading: false,
-    error: null
+    error: null,
+    policy: null,
+    policyLoading: false,
+    policyError: null
 })
 
 export default {
@@ -21,7 +24,9 @@ export default {
     getters: {
         items: (state) => state.items,
         pagination: (state) => state.pagination,
-        search: (state) => state.search
+        search: (state) => state.search,
+        policy: (state) => state.policy,
+        isPolicyLoading: (state) => state.policyLoading
     },
     mutations: {
         SET_ITEMS(state, items) {
@@ -41,6 +46,15 @@ export default {
         },
         SET_ERROR(state, error) {
             state.error = error
+        },
+        SET_POLICY(state, policy) {
+            state.policy = policy || null
+        },
+        SET_POLICY_LOADING(state, loading) {
+            state.policyLoading = loading
+        },
+        SET_POLICY_ERROR(state, error) {
+            state.policyError = error || null
         }
     },
     actions: {
@@ -51,15 +65,16 @@ export default {
 
             const page = typeof payload.page !== "undefined" ? payload.page : state.pagination.page
             const pageSize = typeof payload.pageSize !== "undefined" ? payload.pageSize : state.pagination.pageSize
-            const search = typeof payload.search !== "undefined" ? payload.search : state.search
+            let search = typeof payload.search !== "undefined" ? payload.search : state.search
+            if (typeof search === "string") {
+                search = search.trim()
+            }
 
             commit("SET_LOADING", true)
             commit("SET_ERROR", null)
 
             try {
-                const response = await api.listUsers({
-                    params: { page, pageSize, search }
-                })
+                const response = await api.listUsers({ page, pageSize, search })
 
                 commit("SET_ITEMS", response.items || [])
                 commit("SET_PAGINATION", response.pagination || initialPagination())
@@ -79,6 +94,37 @@ export default {
                 pageSize: state.pagination.pageSize,
                 search: state.search
             })
+        },
+        async fetchPolicy({ commit }) {
+            commit("SET_POLICY_LOADING", true)
+            commit("SET_POLICY_ERROR", null)
+            try {
+                const policy = await api.getAccessPolicy()
+                commit("SET_POLICY", policy)
+                return policy
+            } catch (error) {
+                commit("SET_POLICY_ERROR", error)
+                throw error
+            } finally {
+                commit("SET_POLICY_LOADING", false)
+            }
+        },
+        async updatePolicy({ commit }, { csrfToken, enforceWhitelist }) {
+            if (typeof enforceWhitelist !== "boolean") {
+                throw new Error("Missing enforceWhitelist flag")
+            }
+            commit("SET_POLICY_LOADING", true)
+            commit("SET_POLICY_ERROR", null)
+            try {
+                const policy = await api.updateAccessPolicy({ csrfToken, enforceWhitelist })
+                commit("SET_POLICY", policy)
+                return policy
+            } catch (error) {
+                commit("SET_POLICY_ERROR", error)
+                throw error
+            } finally {
+                commit("SET_POLICY_LOADING", false)
+            }
         }
     }
 }

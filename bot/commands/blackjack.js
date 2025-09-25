@@ -134,6 +134,28 @@ const runBlackjack = async(interaction, client) => {
         registerGame(client, channel.game)
         game = channel.game
 
+        if (typeof game.setRemoteMeta === "function") {
+            const hostAvatar = typeof interaction.user.displayAvatarURL === "function"
+                ? interaction.user.displayAvatarURL({ extension: "png", size: 64 })
+                : null
+            game.setRemoteMeta({
+                label: "Blackjack",
+                type: "blackjack",
+                origin: "command:blackjack",
+                host: {
+                    id: interaction.user.id,
+                    tag: interaction.user.tag,
+                    username: interaction.user.username,
+                    avatar: hostAvatar
+                },
+                channelId: channel.id,
+                channelName: channel.name,
+                guildId: channel.guild?.id,
+                guildName: channel.guild?.name,
+                turnTimeoutMs: config.blackjack.actionTimeout.default
+            })
+        }
+
         const hostId = interaction.user.id
         const hostMention = hostId ? `<@${hostId}>` : interaction.user.tag
 
@@ -284,6 +306,7 @@ const runBlackjack = async(interaction, client) => {
             collectorOptions: { time: config.blackjack.lobbyTimeout.default },
             render: renderLobbyView
         })
+        game.lobbySession = lobbySession
 
         lobbySession.updateState({
             status: "waiting",

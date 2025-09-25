@@ -43,6 +43,12 @@
                 />
             </div>
             <aside class="dashboard__col dashboard__col--side">
+                <AccessPolicyCard
+                    :policy="accessPolicy"
+                    :loading="accessPolicyLoading"
+                    :saving="policySaving"
+                    @toggle="handlePolicyToggle"
+                />
                 <GuildOverview :guilds="guilds" @leave="leaveGuild" />
             </aside>
         </section>
@@ -73,6 +79,7 @@ import BotStatusCard from "./components/BotStatusCard.vue"
 import GuildOverview from "./components/GuildOverview.vue"
 import RemoteActions from "./components/RemoteActions.vue"
 import UserTable from "./components/UserTable.vue"
+import AccessPolicyCard from "./components/AccessPolicyCard.vue"
 import api from "../../services/api"
 
 const TOGGLE_COOLDOWN_MS = 15000
@@ -83,7 +90,8 @@ export default {
         BotStatusCard,
         GuildOverview,
         RemoteActions,
-        UserTable
+        UserTable,
+        AccessPolicyCard
     },
     data() {
         return {
@@ -106,11 +114,15 @@ export default {
             cooldownStart: null,
             lastStatusEnabled: null,
             lastStatusUpdatedAt: null,
-            botKillPending: false
+            botKillPending: false,
+            policySaving: false
         }
     },
     computed: {
         ...mapGetters("session", ["user", "isAuthenticated"]),
+        ...mapState("session", {
+            csrfToken: (state) => state.csrfToken
+        }),
         ...mapState("bot", {
             botStatus: (state) => state.status || {},
             botLoading: (state) => state.loading
@@ -119,7 +131,9 @@ export default {
             users: (state) => state.items,
             pagination: (state) => state.pagination,
             usersLoading: (state) => state.loading,
-            usersSearch: (state) => state.search
+            usersSearch: (state) => state.search,
+            accessPolicy: (state) => state.policy,
+            accessPolicyLoading: (state) => state.policyLoading
         }),
         roleLabel() {
             return getRoleLabel(this.user?.role)
@@ -251,7 +265,8 @@ export default {
             await Promise.all([
                 this.loadGuilds(),
                 this.loadActions(),
-                this.refreshUsers()
+                this.refreshUsers(),
+                this.$store.dispatch("users/fetchPolicy").catch(() => null)
             ])
 
             if (this.statusInterval) {
@@ -292,6 +307,34 @@ export default {
                 // eslint-disable-next-line no-console
                 console.error("Failed to load remote actions", error)
                 this.pushLog("warning", "Unable to refresh remote actions.")
+            }
+        },
+        async handlePolicyToggle(enforceWhitelist) {
+            if (this.policySaving) return
+            if (!this.csrfToken) {
+                this.setFlash("Missing CSRF token. Reload the page and try again.", "warning")
+                return
+            }
+            this.policySaving = true
+            const targetState = enforceWhitelist ? "enabled" : "disabled"
+            try {
+                await this.$store.dispatch("users/updatePolicy", {
+                    csrfToken: this.csrfToken,
+                    enforceWhitelist
+                })
+                const message = enforceWhitelist
+                    ? "Whitelist enforcement enabled. Only whitelisted users (plus admins) can use Chipsy."
+                    : "Whitelist enforcement disabled. Any non-blacklisted user can use Chipsy."
+                this.setFlash(message, "success")
+                this.pushLog("info", `Whitelist enforcement ${targetState}.`)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to update whitelist policy", error)
+                const message = error?.response?.data?.message || "Unable to update the whitelist setting."
+                this.setFlash(message, "warning")
+                this.pushLog("error", "Whitelist toggle failed.")
+            } finally {
+                this.policySaving = false
             }
         },
         async toggleBot(enabled) {
@@ -351,7 +394,7 @@ export default {
         },
         async handleSearch(value) {
             try {
-                const searchValue = value && value.trim() ? value.trim() : undefined
+                const searchValue = typeof value === "string" ? value.trim() : ""
                 await this.$store.dispatch("users/fetchUsers", {
                     page: 1,
                     search: searchValue

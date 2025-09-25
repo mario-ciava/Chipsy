@@ -154,6 +154,30 @@ const createUsersRouter = (dependencies) => {
         }
     })
 
+    router.get("/policy", async(req, res, next) => {
+        if (!ensureListManagement(req, res)) return
+        try {
+            const policy = await client.accessControl.getAccessPolicy()
+            res.status(200).json(policy)
+        } catch (error) {
+            next(error)
+        }
+    })
+
+    router.patch("/policy", requireCsrfToken, async(req, res, next) => {
+        if (!ensureListManagement(req, res)) return
+        const { enforceWhitelist } = req.body || {}
+        if (typeof enforceWhitelist !== "boolean") {
+            return res.status(400).json({ message: "400: Bad request" })
+        }
+        try {
+            const policy = await client.accessControl.setWhitelistEnforcement(enforceWhitelist)
+            res.status(200).json(policy)
+        } catch (error) {
+            next(error)
+        }
+    })
+
     router.get("/:id", async(req, res, next) => {
         if (!ensurePanelAccess(req, res)) return
         const userId = req.params.id

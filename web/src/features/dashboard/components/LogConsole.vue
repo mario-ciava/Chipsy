@@ -7,17 +7,6 @@
                     {{ subtitle }}
                 </p>
             </div>
-            <div v-if="showToggle" class="log-console__toggle">
-                <label class="toggle-switch">
-                    <input
-                        type="checkbox"
-                        :checked="recordingEnabled"
-                        @change="$emit('toggle-recording', $event.target.checked)"
-                    />
-                    <span class="toggle-switch__slider"></span>
-                </label>
-                <span class="log-console__toggle-label">Record commands</span>
-            </div>
         </div>
         <div class="log-console__body">
             <div class="log-console__scroll" ref="scrollContainer">
@@ -86,14 +75,6 @@ export default {
             type: String,
             default: "Track key panel events and bot status updates."
         },
-        showToggle: {
-            type: Boolean,
-            default: false
-        },
-        recordingEnabled: {
-            type: Boolean,
-            default: false
-        },
         fixedHeight: {
             type: [String, Number],
             default: null
@@ -150,81 +131,13 @@ export default {
 }
 
 .log-console__header {
-    position: relative;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
     gap: 12px;
-    padding-right: clamp(0px, 18vw, 180px);
 }
 
 .log-console__titles {
     flex: 1 1 auto;
-}
-
-.log-console__toggle {
-    position: absolute;
-    top: 0;
-    right: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 16px;
-    border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
-    background: rgba(15, 23, 42, 0.5);
-    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
-}
-
-.log-console__toggle-label {
-    color: var(--fg-secondary);
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.toggle-switch {
-    position: relative;
-    display: inline-block;
-    width: 48px;
-    height: 26px;
-}
-
-.toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-}
-
-.toggle-switch__slider {
-    position: absolute;
-    cursor: pointer;
-    inset: 0;
-    background: rgba(148, 163, 184, 0.25);
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    transition: 0.3s;
-    border-radius: 26px;
-}
-
-.toggle-switch__slider:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 4px;
-    bottom: 3px;
-    background: white;
-    transition: 0.3s;
-    border-radius: 50%;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.toggle-switch input:checked + .toggle-switch__slider {
-    background: linear-gradient(135deg, #7c3aed, #a855f7);
-    border-color: #7c3aed;
-}
-
-.toggle-switch input:checked + .toggle-switch__slider:before {
-    transform: translateX(20px);
 }
 
 .log-console__body {
@@ -345,15 +258,6 @@ export default {
 }
 
 @media (max-width: 720px) {
-    .log-console__header {
-        padding-right: 0;
-    }
-
-    .log-console__toggle {
-        position: static;
-        margin-left: auto;
-    }
-
     .log-console__titles {
         width: 100%;
     }

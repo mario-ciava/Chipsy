@@ -137,6 +137,13 @@ describe("Express API integration", () => {
                 prefix: "!",
                 enabled: true
             },
+            isReady: jest.fn().mockReturnValue(true),
+            ws: {
+                status: "READY",
+                ping: 42,
+                shards: new Map()
+            },
+            uptime: 1000,
             guilds: {
                 cache: {
                     get: jest.fn((id) => (id === "1" ? { id: "1", name: "Guild One" } : undefined))
@@ -205,6 +212,23 @@ describe("Express API integration", () => {
                     const map = new Map()
                     ids.forEach((id) => map.set(id, accessRecordFactory(id)))
                     return Promise.resolve(map)
+                }),
+                getAccessPolicy: jest.fn().mockResolvedValue({
+                    enforceWhitelist: false,
+                    updatedAt: null
+                }),
+                setWhitelistEnforcement: jest.fn().mockResolvedValue({
+                    enforceWhitelist: true,
+                    updatedAt: new Date().toISOString()
+                }),
+                evaluateBotAccess: jest.fn().mockResolvedValue({
+                    allowed: true,
+                    reason: null,
+                    record: accessRecordFactory("user-1"),
+                    policy: {
+                        enforceWhitelist: false,
+                        updatedAt: null
+                    }
                 }),
                 setRole: jest.fn().mockResolvedValue({
                     userId: "user-1",
@@ -651,6 +675,71 @@ describe("Express API integration", () => {
         }))
     })
 
+    test("GET /api/users/policy returns the current access policy", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const response = await agent.requestJson("/api/users/policy", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            enforceWhitelist: false
+        })
+        expect(client.accessControl.getAccessPolicy).toHaveBeenCalledTimes(1)
+    })
+
+    test("PATCH /api/users/policy updates whitelist enforcement", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientConfig = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        client.accessControl.setWhitelistEnforcement.mockResolvedValueOnce({
+            enforceWhitelist: true,
+            updatedAt: new Date().toISOString()
+        })
+
+        const response = await agent.requestJson("/api/users/policy", {
+            method: "PATCH",
+            headers: {
+                token: "access-token",
+                "content-type": "application/json",
+                "x-csrf-token": clientConfig.body.csrfToken
+            },
+            body: JSON.stringify({ enforceWhitelist: true })
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            enforceWhitelist: true
+        })
+        expect(client.accessControl.setWhitelistEnforcement).toHaveBeenCalledWith(true)
+    })
+
     test("GET /api/admin/actions exposes available remote commands", async() => {
         discordApi.get.mockResolvedValue({
             data: {
@@ -674,7 +763,7 @@ describe("Express API integration", () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     id: "bot-reload-config",
-                    type: "concept"
+                    type: "command"
                 }),
                 expect.objectContaining({
                     id: "bot-sync-commands",
@@ -682,9 +771,79 @@ describe("Express API integration", () => {
                 }),
                 expect.objectContaining({
                     id: "bot-diagnostics",
-                    type: "concept"
+                    type: "command"
                 })
             ])
         )
+    })
+
+    test("POST /api/admin/actions/bot-reload-config reloads runtime config", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientResponse = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const csrfToken = clientResponse.body.csrfToken
+
+        const response = await agent.requestJson("/api/admin/actions/bot-reload-config", {
+            method: "POST",
+            headers: {
+                token: "access-token",
+                "x-csrf-token": csrfToken
+            }
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            actionId: "bot-reload-config",
+            status: "ok"
+        })
+    })
+
+    test("POST /api/admin/actions/bot-diagnostics returns service status", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientResponse = await agent.requestJson("/api/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const response = await agent.requestJson("/api/admin/actions/bot-diagnostics", {
+            method: "POST",
+            headers: {
+                token: "access-token",
+                "x-csrf-token": clientResponse.body.csrfToken
+            }
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            actionId: "bot-diagnostics",
+            status: "ok"
+        })
+        expect(response.body.report).toBeDefined()
+        expect(response.body.report.services.mysql.ok).toBe(true)
     })
 })

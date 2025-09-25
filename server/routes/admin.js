@@ -144,6 +144,36 @@ const createAdminRouter = (dependencies) => {
     router.post("/turnoff", requireCsrfToken, handleTurnOff)
     router.post("/turnon", requireCsrfToken, handleTurnOn)
 
+    router.get("/tables", async(req, res, next) => {
+        if (!ensureLogsAccess(req, res)) return
+        try {
+            const payload = adminService.listTables()
+            res.status(200).json(payload)
+        } catch (error) {
+            respondWithServiceError(error, res, next)
+        }
+    })
+
+    router.post("/tables/:tableId/actions", requireCsrfToken, async(req, res, next) => {
+        if (!ensurePanelAdmin(req, res)) return
+        const tableId = req.params?.tableId
+        const action = req.body?.action
+        try {
+            const result = await adminService.controlTable({
+                tableId,
+                action,
+                actor: {
+                    id: req.user?.id,
+                    tag: req.user?.username || req.user?.tag || null,
+                    label: req.user?.username || null
+                }
+            })
+            res.status(200).json(result)
+        } catch (error) {
+            respondWithServiceError(error, res, next)
+        }
+    })
+
     router.post("/guild/leave", requireCsrfToken, async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         const { id: guildId } = req.body

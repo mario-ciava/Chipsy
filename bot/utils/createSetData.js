@@ -1,4 +1,5 @@
 const { normalizeUserExperience } = require("./experience")
+const logger = require("./logger")
 
 const createSetData = (dataHandler) => async(user) => {
     const createResult = ({ data = null, created = false, error = null }) => ({ data, created, error })
@@ -8,6 +9,15 @@ const createSetData = (dataHandler) => async(user) => {
             error: {
                 type: "invalid-user",
                 message: "Invalid user passed to SetData."
+            }
+        })
+    }
+
+    if (user.bot || user.system) {
+        return createResult({
+            error: {
+                type: "bot-user",
+                message: "Bot accounts do not have persistent Chipsy data."
             }
         })
     }

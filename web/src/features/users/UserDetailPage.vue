@@ -129,7 +129,8 @@
                     <section class="access-card">
                         <h3 class="access-card__title">Access lists</h3>
                         <p class="access-card__copy">
-                            Use whitelist to grant early access and blacklist to block panel login attempts.
+                            Blacklist permanently blocks the bot for this account. Whitelist grants access while whitelist mode is active (currently
+                            <strong>{{ whitelistActive ? "active" : "inactive" }}</strong>).
                         </p>
                         <div class="toggle-group">
                             <label class="toggle">
@@ -186,6 +187,7 @@ import {
     formatFriendlyDateTime
 } from "../../utils/formatters"
 import { showToast } from "../../utils/toast"
+import { copyToClipboard } from "../../utils/clipboard"
 
 export default {
     name: "UserDetailPage",
@@ -224,6 +226,9 @@ export default {
             canAssignAdmin: "canAssignAdmin",
             canAssignModerator: "canAssignModerator"
         }),
+        ...mapState("users", {
+            accessPolicy: (state) => state.policy
+        }),
         userId() {
             return this.$route.params.id
         },
@@ -253,6 +258,9 @@ export default {
         },
         isMasterTarget() {
             return (this.user?.access?.role || this.user?.panelRole) === "MASTER"
+        },
+        whitelistActive() {
+            return Boolean(this.accessPolicy?.enforceWhitelist)
         },
         canEditRole() {
             return this.canManageRoles && !this.isMasterTarget
@@ -284,13 +292,19 @@ export default {
             if (this.user.access.isBlacklisted) {
                 return {
                     tone: "danger",
-                    message: "This account is blacklisted and cannot sign in to the panel."
+                    message: "This account is blacklisted and Chipsy will ignore all of its commands."
                 }
             }
             if (this.user.access.isWhitelisted) {
+                if (this.whitelistActive) {
+                    return {
+                        tone: "info",
+                        message: "Whitelist enforcement is active and this account is allowed to use Chipsy."
+                    }
+                }
                 return {
                     tone: "info",
-                    message: "This account is whitelisted for priority panel access."
+                    message: "This account is ready for whitelist mode when it becomes active."
                 }
             }
             return null
@@ -306,6 +320,9 @@ export default {
         }
     },
     async created() {
+        if (!this.accessPolicy) {
+            this.$store.dispatch("users/fetchPolicy").catch(() => null)
+        }
         await this.loadUser()
     },
     beforeDestroy() {
@@ -412,19 +429,7 @@ export default {
         async copyUserId() {
             if (!this.userId) return
             try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(this.userId)
-                } else {
-                    const temp = document.createElement("textarea")
-                    temp.value = this.userId
-                    temp.setAttribute("readonly", "")
-                    temp.style.position = "absolute"
-                    temp.style.left = "-9999px"
-                    document.body.appendChild(temp)
-                    temp.select()
-                    document.execCommand("copy")
-                    document.body.removeChild(temp)
-                }
+                await copyToClipboard(this.userId)
                 this.copyStatus = "Copied to clipboard."
                 showToast("Discord ID copied to clipboard.")
             } catch (error) {

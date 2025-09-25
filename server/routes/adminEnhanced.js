@@ -28,14 +28,20 @@ const middleware = {
     read: {
         status: [adminReadLimiter],
         actions: [adminReadLimiter],
-        getLogs: [adminReadLimiter, validate(adminSchemas.getLogs, "query")]
+        getLogs: [adminReadLimiter, validate(adminSchemas.getLogs, "query")],
+        tables: [adminReadLimiter]
     },
 
     // Write operations: rate limiting + validation
     write: {
         leaveGuild: [adminWriteLimiter, validate(adminSchemas.leaveGuild, "body")],
         completeInvite: [adminWriteLimiter, validate(adminSchemas.completeInvite, "body")],
-        createLog: [logWriteLimiter, validate(adminSchemas.createLog, "body")]
+        createLog: [logWriteLimiter, validate(adminSchemas.createLog, "body")],
+        tableAction: [
+            adminWriteLimiter,
+            validate(adminSchemas.tableActionParams, "params"),
+            validate(adminSchemas.tableAction, "body")
+        ]
     }
 }
 
@@ -88,6 +94,10 @@ const createEnhancedAdminRouter = (dependencies) => {
                 middlewareToApply = middleware.critical.turnOff
             } else if (path === "/turnon" && method === "post") {
                 middlewareToApply = middleware.critical.turnOn
+            } else if (path === "/tables" && method === "get") {
+                middlewareToApply = middleware.read.tables
+            } else if (path === "/tables/:tableId/actions" && method === "post") {
+                middlewareToApply = middleware.write.tableAction
             }
 
             // Re-register with middleware
