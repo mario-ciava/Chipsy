@@ -246,7 +246,7 @@ export default {
             const user = this.user || {}
             return {
                 money: formatCurrency(user.money),
-                gold: formatCurrency(user.gold),
+                gold: Number.isFinite(Number(user.gold)) ? Number(user.gold).toLocaleString() : "0",
                 biggestWon: formatCurrency(user.biggest_won),
                 biggestBet: formatCurrency(user.biggest_bet),
                 level: user.level !== undefined ? user.level : 0,

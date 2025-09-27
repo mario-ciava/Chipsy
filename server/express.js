@@ -36,6 +36,7 @@ const buildDiscordError = (error, fallbackMessage) => {
 
     const err = new Error(message)
     err.status = status
+    err.statusCode = status
     if (error.data || error.response?.data) {
         err.details = error.data || error.response?.data
     }

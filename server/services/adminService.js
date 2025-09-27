@@ -2,6 +2,7 @@ const { EmbedBuilder, Colors } = require("discord.js")
 const { getActiveGames } = require("../../bot/utils/gameRegistry")
 const { analyzeQuery } = require("../../bot/utils/db/queryAnalyzer")
 const { logger: defaultLogger } = require("../middleware/structuredLogger")
+const runtimeConfig = require("../../config")
 const createRuntimeConfigService = require("./runtimeConfigService")
 const createDiagnosticsService = require("./diagnosticsService")
 
@@ -418,7 +419,8 @@ const createAdminService = ({
         ownerid: client.config?.ownerid,
         prefix: client.config?.prefix,
         enabled: Boolean(client.config?.enabled),
-        redirectUri: client.config?.redirectUri
+        redirectUri: client.config?.redirectUri,
+        panel: runtimeConfig.panel
     })
 
     const getGuild = async(guildId) => {
@@ -514,29 +516,29 @@ const createAdminService = ({
             actions: [
                 {
                     id: ACTION_IDS.SYNC_COMMANDS,
-                    label: "Sincronizza comandi slash",
-                    description: "Ricarica le definizioni locali e aggiorna Discord senza riavviare il bot.",
+                    label: "Sync slash commands",
+                    description: "Reload local definitions and push them to Discord without restarting the bot.",
                     type: registryAvailable ? "command" : "concept",
-                    pendingLabel: registryAvailable ? undefined : "In attesa di registro comandi",
+                    pendingLabel: registryAvailable ? undefined : "Waiting for command registry",
                     confirmation: {
-                        stepOne: "Questo avvierà un reload soft delle definizioni dei comandi.",
-                        stepTwo: "Assicurati che gli slash command stiano funzionando prima di proseguire."
+                        stepOne: "This will trigger a soft reload of the slash command definitions.",
+                        stepTwo: "Confirm only if the commands are behaving as expected after the sync."
                     }
                 },
                 {
                     id: ACTION_IDS.RELOAD_CONFIG,
-                    label: "Ricarica configurazioni",
-                    description: "Rilegge il file di configurazione e aggiorna i servizi senza riavviare il processo.",
+                    label: "Reload configuration",
+                    description: "Read the config file again and refresh services without killing the process.",
                     type: "command",
                     confirmation: {
-                        stepOne: "Le variabili d'ambiente saranno ricaricate. Procedi solo se il file è aggiornato.",
-                        stepTwo: "Questa operazione non riavvia il bot ma potrebbe aggiornare token e permessi."
+                        stepOne: "Environment variables will be reloaded. Continue only if the file is up to date.",
+                        stepTwo: "The bot keeps running but tokens and permissions might change."
                     }
                 },
                 {
                     id: ACTION_IDS.RUN_DIAGNOSTICS,
-                    label: "Esegui diagnostica servizi",
-                    description: "Verifica lo stato di Discord, MySQL, cache e health check integrati.",
+                    label: "Run service diagnostics",
+                    description: "Check Discord, MySQL, cache layers, and internal health checks.",
                     type: "command"
                 }
             ]

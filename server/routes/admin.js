@@ -1,6 +1,10 @@
 const express = require("express")
 const createAdminService = require("../services/adminService")
 const { logger } = require("../middleware/structuredLogger")
+const { constants } = require("../../config")
+
+const SESSION_EXPIRED_MESSAGE = constants.messages?.sessionExpired
+    || "401: Session expired. Please log in again."
 
 const respondWithServiceError = (error, res, next) => {
     if (error?.status) {
@@ -43,7 +47,7 @@ const createAdminRouter = (dependencies) => {
 
     const ensureAuthenticated = (req, res) => {
         if (!getAccessToken(req)) {
-            res.status(400).json({ message: "400: Bad request" })
+            res.status(401).json({ message: SESSION_EXPIRED_MESSAGE })
             return false
         }
         return true

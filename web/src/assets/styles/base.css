@@ -569,6 +569,10 @@ textarea {
     color: #fca5a5;
 }
 
+.status-list__value--warning {
+    color: #fde68a;
+}
+
 .status-list__value--loading {
     color: transparent;
 }
@@ -605,9 +609,8 @@ textarea {
     display: flex;
     flex-direction: column;
     height: 100%;
-    max-height: 560px;
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(148, 163, 184, 0.25);
     border-radius: var(--radius-xl);
     box-shadow: 0 18px 38px rgba(15, 23, 42, 0.35);
     overflow: hidden;
@@ -616,7 +619,7 @@ textarea {
 .guilds-panel__header {
     padding: 20px 24px;
     border-bottom: 1px solid rgba(148, 163, 184, 0.15);
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), transparent);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), transparent);
 }
 
 .guilds-panel__title {
@@ -631,9 +634,30 @@ textarea {
 
 .guilds-panel__body {
     flex: 1;
-    padding: 16px 24px 12px;
+    padding: 20px 24px;
     display: flex;
     flex-direction: column;
+}
+
+.guilds-panel__body--loading {
+    gap: 16px;
+}
+
+.guilds__skeleton {
+    height: 120px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(110deg, rgba(148, 163, 184, 0.08) 25%, rgba(148, 163, 184, 0.18) 40%, rgba(148, 163, 184, 0.08) 55%);
+    background-size: 200% 100%;
+    animation: guildSkeleton 1.4s linear infinite;
+}
+
+@keyframes guildSkeleton {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .guilds {
@@ -649,17 +673,17 @@ textarea {
     flex-direction: column;
     gap: 16px;
     min-height: 0;
-    background: rgba(13, 19, 33, 0.35);
-    border: 1px solid rgba(148, 163, 184, 0.15);
+    background: linear-gradient(160deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.7));
+    border: 1px solid rgba(148, 163, 184, 0.2);
     border-radius: var(--radius-lg);
-    padding: 16px;
+    padding: 18px;
     height: 100%;
 }
 
 .guilds__column-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 16px;
 }
 
@@ -672,8 +696,7 @@ textarea {
     color: #bfdbfe;
     font-weight: 600;
     border: 1px solid rgba(59, 130, 246, 0.35);
-    align-self: flex-start;
-    margin-top: 4px;
+    margin-top: 0;
 }
 
 .guilds__title {
@@ -711,10 +734,16 @@ textarea {
     justify-content: space-between;
     align-items: center;
     gap: 16px;
-    padding: 12px 14px;
+    padding: 14px 16px;
     border-radius: var(--radius-md);
     background: rgba(148, 163, 184, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    transition: border var(--transition-fast), transform var(--transition-fast);
+}
+
+.guilds__item:hover {
+    border-color: rgba(148, 163, 184, 0.4);
+    transform: translateY(-2px);
 }
 
 .guilds__info {
@@ -729,8 +758,8 @@ textarea {
 }
 
 .guilds__descriptor {
-    font-size: 0.8rem;
-    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: rgba(148, 163, 184, 0.85);
 }
@@ -788,11 +817,16 @@ textarea {
 .actions__item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: stretch;
     gap: 16px;
     padding: 14px 16px;
     border-radius: var(--radius-md);
     background: rgba(148, 163, 184, 0.07);
+}
+
+.actions__item > button,
+.actions__item > .button {
+    align-self: center;
 }
 
 .actions__title {
@@ -859,6 +893,20 @@ textarea {
 .data-table td {
     padding: 12px 16px;
     text-align: left;
+}
+
+.data-table--compact {
+    min-width: 640px;
+}
+
+.data-table--compact th,
+.data-table--compact td {
+    padding: 8px 12px;
+}
+
+.data-table--compact .data-table__meta {
+    font-size: 0.75rem;
+    opacity: 0.85;
 }
 
 .data-table__details {

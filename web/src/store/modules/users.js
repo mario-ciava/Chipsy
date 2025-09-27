@@ -7,10 +7,24 @@ const initialPagination = () => ({
     totalPages: 1
 })
 
+const defaultFilters = () => ({
+    search: "",
+    searchField: "id",
+    role: "all",
+    list: "all",
+    minLevel: "",
+    maxLevel: "",
+    minBalance: "",
+    maxBalance: "",
+    activity: "any",
+    sortBy: "last_played",
+    sortDirection: "desc"
+})
+
 const initialState = () => ({
     items: [],
     pagination: initialPagination(),
-    search: "",
+    filters: defaultFilters(),
     loading: false,
     error: null,
     policy: null,
@@ -18,13 +32,54 @@ const initialState = () => ({
     policyError: null
 })
 
+const parseNumberOrEmpty = (value) => {
+    if (value === null || value === undefined) return undefined
+    if (value === "") return undefined
+    const numeric = Number(value)
+    return Number.isFinite(numeric) ? numeric : undefined
+}
+
+const buildRequestFilters = (filters) => {
+    const payload = {}
+    if (filters.search) {
+        payload.search = filters.search
+    }
+    payload.searchField = filters.searchField || "id"
+
+    if (filters.role && filters.role !== "all") {
+        payload.role = filters.role
+    }
+
+    if (filters.list && filters.list !== "all") {
+        payload.list = filters.list
+    }
+
+    const numericKeys = ["minLevel", "maxLevel", "minBalance", "maxBalance"]
+    numericKeys.forEach((key) => {
+        const value = parseNumberOrEmpty(filters[key])
+        if (value !== undefined) {
+            payload[key] = value
+        }
+    })
+
+    if (filters.activity && filters.activity !== "any") {
+        payload.activity = filters.activity
+    }
+
+    payload.sortBy = filters.sortBy || "last_played"
+    payload.sortDirection = filters.sortDirection || "desc"
+
+    return payload
+}
+
 export default {
     namespaced: true,
     state: initialState,
     getters: {
         items: (state) => state.items,
         pagination: (state) => state.pagination,
-        search: (state) => state.search,
+        search: (state) => state.filters.search,
+        filters: (state) => state.filters,
         policy: (state) => state.policy,
         isPolicyLoading: (state) => state.policyLoading
     },
@@ -38,8 +93,11 @@ export default {
                 ...pagination
             }
         },
-        SET_SEARCH(state, search) {
-            state.search = search
+        SET_FILTERS(state, filters) {
+            state.filters = {
+                ...defaultFilters(),
+                ...(filters || {})
+            }
         },
         SET_LOADING(state, loading) {
             state.loading = loading
@@ -58,27 +116,47 @@ export default {
         }
     },
     actions: {
-        async fetchUsers({ commit, state, rootState }, payload = {}) {
+        async fetchUsers({ commit, state, rootState, dispatch }, payload = {}) {
             if (!rootState.session.user) {
-                throw new Error("Missing authentication context.")
+                try {
+                    await dispatch("session/refreshSession", null, { root: true })
+                } catch (error) {
+                    // Ignore: downstream guard will surface a meaningful error
+                }
+            }
+
+            if (!rootState.session.user) {
+                const authError = new Error("Missing authentication context.")
+                authError.code = "SESSION_MISSING"
+                throw authError
             }
 
             const page = typeof payload.page !== "undefined" ? payload.page : state.pagination.page
             const pageSize = typeof payload.pageSize !== "undefined" ? payload.pageSize : state.pagination.pageSize
-            let search = typeof payload.search !== "undefined" ? payload.search : state.search
-            if (typeof search === "string") {
-                search = search.trim()
+            const overrideFilters = {
+                ...(typeof payload.search !== "undefined" ? { search: payload.search } : {}),
+                ...(payload.filters || {})
             }
+            if (typeof overrideFilters.search === "string") {
+                overrideFilters.search = overrideFilters.search.trim()
+            }
+            const nextFilters = Object.keys(overrideFilters).length
+                ? { ...state.filters, ...overrideFilters }
+                : state.filters
 
             commit("SET_LOADING", true)
             commit("SET_ERROR", null)
 
             try {
-                const response = await api.listUsers({ page, pageSize, search })
+                const response = await api.listUsers({
+                    page,
+                    pageSize,
+                    ...buildRequestFilters(nextFilters)
+                })
 
                 commit("SET_ITEMS", response.items || [])
                 commit("SET_PAGINATION", response.pagination || initialPagination())
-                commit("SET_SEARCH", search ? search : "")
+                commit("SET_FILTERS", nextFilters)
                 return response
             } catch (error) {
                 commit("SET_ERROR", error)
@@ -92,7 +170,7 @@ export default {
             return dispatch("fetchUsers", {
                 page: state.pagination.page,
                 pageSize: state.pagination.pageSize,
-                search: state.search
+                filters: state.filters
             })
         },
         async fetchPolicy({ commit }) {

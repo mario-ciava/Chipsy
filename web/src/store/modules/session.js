@@ -1,4 +1,5 @@
-import api from "../../services/api"
+import api, { applyRuntimeConfig } from "../../services/api"
+import { getPanelConfig as resolvePanelConfig } from "../../config/panelDefaults"
 
 let bootstrapPromise = null
 
@@ -42,7 +43,10 @@ export default {
         canManageLists: (state) => Boolean(state.permissions?.canManageLists),
         canWriteLogs: (state) => Boolean(state.permissions?.canWriteLogs),
         canAssignAdmin: (state) => Boolean(state.permissions?.canAssignAdmin),
-        canAssignModerator: (state) => Boolean(state.permissions?.canAssignModerator)
+        canAssignModerator: (state) => Boolean(state.permissions?.canAssignModerator),
+        panelConfig: (state) => (state.clientConfig?.panel
+            ? resolvePanelConfig(state.clientConfig.panel)
+            : resolvePanelConfig())
     },
     mutations: {
         SET_USER(state, user) {
@@ -135,6 +139,17 @@ export default {
                     }
                 }
 
+                if (clientConfig) {
+                    const sanitizedPanel = resolvePanelConfig(clientConfig.panel)
+                    applyRuntimeConfig(sanitizedPanel)
+                    clientConfig = {
+                        ...clientConfig,
+                        panel: sanitizedPanel
+                    }
+                } else {
+                    applyRuntimeConfig()
+                }
+
                 commit("SET_USER", user)
                 commit("SET_CLIENT_CONFIG", clientConfig)
                 const csrfToken = clientConfig?.csrfToken || user?.csrfToken || null
@@ -171,6 +186,7 @@ export default {
             } finally {
                 commit("RESET_STATE")
                 commit("SET_INITIALIZED", true)
+                applyRuntimeConfig()
             }
         },
 

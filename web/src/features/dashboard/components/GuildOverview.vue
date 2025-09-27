@@ -9,7 +9,10 @@
             </div>
         </header>
 
-        <div class="guilds-panel__body guilds">
+        <div v-if="loading" class="guilds-panel__body guilds-panel__body--loading">
+            <div class="guilds__skeleton" v-for="index in 2" :key="`skeleton-${index}`"></div>
+        </div>
+        <div v-else class="guilds-panel__body guilds">
             <article class="guilds__column">
                 <div class="guilds__column-header">
                     <div>
@@ -27,6 +30,7 @@
                         </div>
                         <div class="guilds__actions">
                             <button
+                                v-if="showLeave"
                                 type="button"
                                 class="button button--ghost guilds__leave-button"
                                 @click="emitLeave(guild.id)"
@@ -89,6 +93,14 @@ export default {
                 added: [],
                 available: []
             })
+        },
+        loading: {
+            type: Boolean,
+            default: false
+        },
+        showLeave: {
+            type: Boolean,
+            default: true
         }
     },
     computed: {

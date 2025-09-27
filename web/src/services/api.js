@@ -13,6 +13,11 @@ const http = axios.create({
     withCredentials: true
 })
 
+export const applyRuntimeConfig = (panelConfig = {}) => {
+    const timeout = Number(panelConfig?.http?.timeoutMs)
+    http.defaults.timeout = Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT
+}
+
 http.interceptors.response.use(
     (response) => response,
     (error) => {
@@ -72,25 +77,57 @@ const api = {
         return response.data
     },
 
-    async getGuilds() {
-        const response = await http.get("/guilds")
+    async getGuilds({ forceRefresh = false } = {}) {
+        const params = {}
+        if (forceRefresh) {
+            params.refresh = "true"
+        }
+        const response = await http.get("/guilds", { params })
         return response.data
     },
 
-    async listUsers({ page, pageSize, search } = {}) {
+    async listUsers({
+        page,
+        pageSize,
+        search,
+        searchField,
+        role,
+        list,
+        minLevel,
+        maxLevel,
+        minBalance,
+        maxBalance,
+        activity,
+        sortBy,
+        sortDirection
+    } = {}) {
         const params = {}
-        if (typeof page !== "undefined") {
-            params.page = page
+        const assignIfPresent = (key, value) => {
+            if (value === undefined || value === null || value === "") return
+            params[key] = value
         }
-        if (typeof pageSize !== "undefined") {
-            params.pageSize = pageSize
-        }
+
+        assignIfPresent("page", page)
+        assignIfPresent("pageSize", pageSize)
+
         if (typeof search === "string") {
             const trimmed = search.trim()
             if (trimmed.length > 0) {
                 params.search = trimmed
             }
         }
+
+        assignIfPresent("searchField", searchField)
+        assignIfPresent("role", role)
+        assignIfPresent("list", list)
+        assignIfPresent("minLevel", minLevel)
+        assignIfPresent("maxLevel", maxLevel)
+        assignIfPresent("minBalance", minBalance)
+        assignIfPresent("maxBalance", maxBalance)
+        assignIfPresent("activity", activity)
+        assignIfPresent("sortBy", sortBy)
+        assignIfPresent("sortDirection", sortDirection)
+
         const response = await http.get("/users", { params })
         return response.data
     },

@@ -84,7 +84,41 @@ const createDataHandler = (pool) => {
         }
     }
 
-    const listUsers = async({ page = 1, pageSize = 25, search } = {}) => {
+    const SORT_COLUMNS = {
+        last_played: "COALESCE(u.`last_played`, '1970-01-01 00:00:00')",
+        balance: "u.`money`",
+        level: "u.`level`"
+    }
+
+    const clampNumber = (
+        value,
+        { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER, integer = false } = {}
+    ) => {
+        if (value === null || value === undefined || value === "") {
+            return null
+        }
+
+        const num = Number(value)
+        if (!Number.isFinite(num)) return null
+        const normalized = Math.min(Math.max(num, min), max)
+        return integer ? Math.trunc(normalized) : normalized
+    }
+
+    const listUsers = async({
+        page = 1,
+        pageSize = 25,
+        search,
+        userIds,
+        role,
+        list,
+        minLevel,
+        maxLevel,
+        minBalance,
+        maxBalance,
+        activityDays,
+        sortBy = "last_played",
+        sortDirection = "desc"
+    } = {}) => {
         const normalizedPageSize = Math.min(Math.max(Number(pageSize) || 25, 1), 100)
         const normalizedPage = Math.max(Number(page) || 1, 1)
         const offset = (normalizedPage - 1) * normalizedPageSize
@@ -92,23 +126,83 @@ const createDataHandler = (pool) => {
         const filters = []
         const params = []
 
-        if (typeof search === "string" && search.trim().length > 0) {
-            filters.push("`id` LIKE ?")
+        if (Array.isArray(userIds) && userIds.length > 0) {
+            const placeholders = userIds.map(() => "?").join(", ")
+            filters.push(`u.\`id\` IN (${placeholders})`)
+            params.push(...userIds)
+        } else if (typeof search === "string" && search.trim().length > 0) {
+            filters.push("u.`id` LIKE ?")
             params.push(`%${search.trim()}%`)
+        }
+
+        const normalizedMinLevel = clampNumber(minLevel, { min: 0, max: 500, integer: true })
+        const normalizedMaxLevel = clampNumber(maxLevel, { min: 0, max: 500, integer: true })
+
+        if (normalizedMinLevel !== null) {
+            filters.push("u.`level` >= ?")
+            params.push(normalizedMinLevel)
+        }
+
+        if (normalizedMaxLevel !== null) {
+            filters.push("u.`level` <= ?")
+            params.push(normalizedMaxLevel)
+        }
+
+        const normalizedMinBalance = clampNumber(minBalance, { min: 0, max: Number.MAX_SAFE_INTEGER })
+        const normalizedMaxBalance = clampNumber(maxBalance, { min: 0, max: Number.MAX_SAFE_INTEGER })
+
+        if (normalizedMinBalance !== null) {
+            filters.push("u.`money` >= ?")
+            params.push(normalizedMinBalance)
+        }
+
+        if (normalizedMaxBalance !== null) {
+            filters.push("u.`money` <= ?")
+            params.push(normalizedMaxBalance)
+        }
+
+        const normalizedActivity = clampNumber(activityDays, { min: 1, max: 365, integer: true })
+        if (normalizedActivity !== null) {
+            filters.push("u.`last_played` IS NOT NULL")
+            filters.push("u.`last_played` >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)")
+            params.push(normalizedActivity)
+        }
+
+        if (typeof role === "string" && role.trim().length > 0) {
+            filters.push("COALESCE(ua.`role`, 'USER') = ?")
+            params.push(role.trim().toUpperCase())
+        }
+
+        if (list === "whitelisted") {
+            filters.push("COALESCE(ua.`is_whitelisted`, 0) = 1")
+        } else if (list === "blacklisted") {
+            filters.push("COALESCE(ua.`is_blacklisted`, 0) = 1")
+        } else if (list === "neutral") {
+            filters.push("COALESCE(ua.`is_whitelisted`, 0) = 0")
+            filters.push("COALESCE(ua.`is_blacklisted`, 0) = 0")
         }
 
         const whereClause = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : ""
 
+        const column = SORT_COLUMNS[sortBy] || SORT_COLUMNS.last_played
+        const direction = sortDirection?.toUpperCase() === "ASC" ? "ASC" : "DESC"
+
+        const baseQuery = `
+            FROM \`users\` u
+            LEFT JOIN \`user_access\` ua ON ua.\`user_id\` = u.\`id\`
+        `
+
         try {
             const [rows] = await pool.query(
-                `SELECT * FROM \`users\` ${whereClause}
-                ORDER BY COALESCE(\`last_played\`, '1970-01-01 00:00:00') DESC
+                `SELECT u.* ${baseQuery}
+                ${whereClause}
+                ORDER BY ${column} ${direction}
                 LIMIT ? OFFSET ?`,
                 [...params, normalizedPageSize, offset]
             )
 
             const [countRows] = await pool.query(
-                `SELECT COUNT(*) as total FROM \`users\` ${whereClause}`,
+                `SELECT COUNT(*) as total ${baseQuery} ${whereClause}`,
                 params
             )
 
@@ -125,7 +219,22 @@ const createDataHandler = (pool) => {
                 }
             }
         } catch (error) {
-            handleError(error, { operation: "listUsers", page: normalizedPage, pageSize: normalizedPageSize, search })
+            handleError(error, {
+                operation: "listUsers",
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                search,
+                userIds,
+                role,
+                list,
+                minLevel,
+                maxLevel,
+                minBalance,
+                maxBalance,
+                activityDays,
+                sortBy,
+                sortDirection
+            })
         }
     }
 

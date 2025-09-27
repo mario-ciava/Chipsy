@@ -25,7 +25,15 @@ export default {
         }
     },
     actions: {
-        async fetchStatus({ commit, rootState }) {
+        async fetchStatus({ commit, rootState, dispatch }) {
+            if (!rootState.session.user) {
+                try {
+                    await dispatch("session/refreshSession", null, { root: true })
+                } catch (error) {
+                    // Ignore, follow-up guard will exit early if still unauthenticated
+                }
+            }
+
             if (!rootState.session.user) return null
 
             commit("SET_LOADING", true)

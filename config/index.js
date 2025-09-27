@@ -109,6 +109,9 @@ const constants = {
         maxFileSize: 5 * 1024 * 1024,
         maxFiles: 5
     },
+    messages: {
+        sessionExpired: "401: Session expired. Please log in again."
+    },
     games: {
         playerActionTimeout: 30000,
         upgradeConfirmTimeout: 180000,
@@ -319,6 +322,39 @@ const config = {
     },
     web: {
         redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.vueDevLocal
+    },
+    panel: {
+        http: {
+            timeoutMs: 15000
+        },
+        toggles: {
+            cooldownMs: 15000,
+            holdDurationMs: 3000
+        },
+        status: {
+            refreshIntervalMs: 30000
+        },
+        guilds: {
+            waitForJoin: {
+                pollDelayMs: 1500,
+                maxAttemptsWithTarget: 5,
+                maxAttemptsWithoutTarget: 3
+            },
+            fetch: {
+                cacheTtlMs: 5000,
+                maxEntries: 250,
+                retryAfterFloorMs: 7000,
+                forceRefreshCooldownMs: 4000,
+                liveFetchDebounceMs: 1000
+            }
+        },
+        dropdown: {
+            background: "rgba(15, 23, 42, 0.95)",
+            border: "rgba(148, 163, 184, 0.35)",
+            optionHover: "rgba(99, 102, 241, 0.35)",
+            optionActive: "rgba(124, 58, 237, 0.45)",
+            optionText: "#f8fafc"
+        }
     },
     blackjack: {
         deckCount: {

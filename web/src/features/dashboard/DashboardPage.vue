@@ -31,7 +31,8 @@
                     :cooldown-active="cooldown.active"
                     :cooldown-target="cooldown.target"
                     :cooldown-remaining="cooldown.remaining"
-                    :cooldown-duration="cooldown.duration"
+                    :cooldown-duration="cooldownDuration"
+                    :toggle-hold-duration="holdDuration"
                     :kill-loading="botKillPending"
                     @toggle="toggleBot"
                     @kill="handleKillRequest"
@@ -49,7 +50,7 @@
                     :saving="policySaving"
                     @toggle="handlePolicyToggle"
                 />
-                <GuildOverview :guilds="guilds" @leave="leaveGuild" />
+                <GuildOverview :guilds="guilds" :loading="guildsLoading" @leave="leaveGuild" />
             </aside>
         </section>
 
@@ -58,7 +59,7 @@
                 :users="users"
                 :pagination="pagination"
                 :loading="usersLoading"
-                :search="usersSearch"
+                :filters="userFilters"
                 @search="handleSearch"
                 @change-page="handlePageChange"
                 @refresh="refreshUsers"
@@ -82,8 +83,6 @@ import UserTable from "./components/UserTable.vue"
 import AccessPolicyCard from "./components/AccessPolicyCard.vue"
 import api from "../../services/api"
 
-const TOGGLE_COOLDOWN_MS = 15000
-
 export default {
     name: "DashboardPage",
     components: {
@@ -99,15 +98,18 @@ export default {
                 added: [],
                 available: []
             },
+            guildsMeta: null,
             actions: [],
             errorMessage: null,
             statusInterval: null,
             flashMessage: null,
             flashTimeout: null,
+            guildsLoading: false,
+            guildRateLimitedNotified: false,
+            guildCooldownNotified: false,
             cooldown: {
                 active: false,
                 target: null,
-                duration: TOGGLE_COOLDOWN_MS,
                 remaining: 0
             },
             cooldownInterval: null,
@@ -119,7 +121,7 @@ export default {
         }
     },
     computed: {
-        ...mapGetters("session", ["user", "isAuthenticated"]),
+        ...mapGetters("session", ["user", "isAuthenticated", "panelConfig"]),
         ...mapState("session", {
             csrfToken: (state) => state.csrfToken
         }),
@@ -131,12 +133,30 @@ export default {
             users: (state) => state.items,
             pagination: (state) => state.pagination,
             usersLoading: (state) => state.loading,
-            usersSearch: (state) => state.search,
+            userFilters: (state) => state.filters,
             accessPolicy: (state) => state.policy,
             accessPolicyLoading: (state) => state.policyLoading
         }),
         roleLabel() {
             return getRoleLabel(this.user?.role)
+        },
+        cooldownDuration() {
+            return this.panelConfig?.toggles?.cooldownMs || 15000
+        },
+        holdDuration() {
+            return this.panelConfig?.toggles?.holdDurationMs || 3000
+        },
+        statusRefreshInterval() {
+            return this.panelConfig?.status?.refreshIntervalMs || 30000
+        },
+        guildJoinDelay() {
+            return this.panelConfig?.guilds?.waitForJoin?.pollDelayMs || 1500
+        },
+        guildJoinAttemptsWithTarget() {
+            return this.panelConfig?.guilds?.waitForJoin?.maxAttemptsWithTarget || 5
+        },
+        guildJoinAttemptsWithoutTarget() {
+            return this.panelConfig?.guilds?.waitForJoin?.maxAttemptsWithoutTarget || 3
         }
     },
     watch: {
@@ -204,16 +224,17 @@ export default {
             if (guildId && this.guilds.added.some((guild) => guild.id === guildId)) {
                 return true
             }
-            const maxAttempts = guildId ? 5 : 3
+            const maxAttempts = guildId ? this.guildJoinAttemptsWithTarget : this.guildJoinAttemptsWithoutTarget
             for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                await this.loadGuilds()
+                const shouldForce = attempt === 0 && !this.guildsMeta?.cooldown
+                await this.loadGuilds({ force: shouldForce })
                 if (!guildId) {
                     return true
                 }
                 if (this.guilds.added.some((guild) => guild.id === guildId)) {
                     return true
                 }
-                await new Promise((resolve) => setTimeout(resolve, 1500))
+                await new Promise((resolve) => setTimeout(resolve, this.guildJoinDelay))
             }
             return false
         },
@@ -276,12 +297,17 @@ export default {
                 this.$store.dispatch("bot/fetchStatus").catch(() => {
                     this.pushLog("warning", "Automatic status refresh failed.")
                 })
-            }, 30000)
+            }, this.statusRefreshInterval)
         },
-        async loadGuilds() {
+        async loadGuilds({ force = false } = {}) {
             if (!this.isAuthenticated) return
+            this.guildsLoading = true
+
             try {
-                const guilds = await api.getGuilds()
+                const guilds = await api.getGuilds({ forceRefresh: force })
+                const meta = guilds?.meta || {}
+                this.guildsMeta = meta
+
                 const added = Array.isArray(guilds.added) ? guilds.added : []
                 const availableRaw = Array.isArray(guilds.available) ? guilds.available : []
                 const addedIds = new Set(added.map((guild) => guild.id))
@@ -291,10 +317,34 @@ export default {
                     added,
                     available
                 }
+
+                const wasRateLimited = Boolean(meta.rateLimited)
+                if (wasRateLimited && !this.guildRateLimitedNotified) {
+                    this.setFlash("Discord is throttling guild updates. Showing cached data.", "warning")
+                    this.guildRateLimitedNotified = true
+                    this.pushLog("warning", "Guild refresh limited by Discord; cache served.")
+                } else if (!wasRateLimited) {
+                    this.guildRateLimitedNotified = false
+                }
+
+                const wasCooldown = Boolean(meta.cooldown)
+                if (wasCooldown && force && !this.guildCooldownNotified) {
+                    this.setFlash("Guild refresh cooling down. Serving cached data for a moment.", "warning")
+                    this.guildCooldownNotified = true
+                    this.pushLog("info", "Guild refresh skipped due to cooldown; waiting before next live call.")
+                } else if (!wasCooldown) {
+                    this.guildCooldownNotified = false
+                }
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to load guilds", error)
                 this.pushLog("warning", "Unable to refresh the server list.")
+                const warningMessage = error?.response?.data?.message || error?.message
+                if (warningMessage) {
+                    this.setFlash(warningMessage.replace(/^\d{3}:\s*/, ""), "warning")
+                }
+            } finally {
+                this.guildsLoading = false
             }
         },
         async loadActions() {
@@ -361,12 +411,13 @@ export default {
             this.cancelCooldown({ silent: true })
             this.cooldown.target = target
             this.cooldown.active = true
-            this.cooldown.remaining = this.cooldown.duration
+            this.cooldown.remaining = this.cooldownDuration
             this.cooldownStart = Date.now()
-            this.pushLog("system", "15-second safety cooldown activated.")
+            const seconds = Math.max(1, Math.round(this.cooldownDuration / 1000))
+            this.pushLog("system", `${seconds}-second safety cooldown activated.`)
             this.cooldownInterval = setInterval(() => {
                 const elapsed = Date.now() - this.cooldownStart
-                const remaining = Math.max(0, this.cooldown.duration - elapsed)
+                const remaining = Math.max(0, this.cooldownDuration - elapsed)
                 this.cooldown.remaining = remaining
                 if (remaining <= 0) {
                     this.finishCooldown()
@@ -394,11 +445,18 @@ export default {
         },
         async handleSearch(value) {
             try {
-                const searchValue = typeof value === "string" ? value.trim() : ""
-                await this.$store.dispatch("users/fetchUsers", {
-                    page: 1,
-                    search: searchValue
-                })
+                if (value && typeof value === "object") {
+                    await this.$store.dispatch("users/fetchUsers", {
+                        page: 1,
+                        filters: value
+                    })
+                } else {
+                    const searchValue = typeof value === "string" ? value.trim() : ""
+                    await this.$store.dispatch("users/fetchUsers", {
+                        page: 1,
+                        search: searchValue
+                    })
+                }
             } catch (error) {
                 this.errorMessage = "Error while searching users."
                 // eslint-disable-next-line no-console
@@ -416,11 +474,14 @@ export default {
             }
         },
         async refreshUsers() {
+            this.errorMessage = null
             try {
                 await this.$store.dispatch("users/refresh")
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Refresh users failed", error)
+                this.errorMessage = "Unable to refresh the user list."
+                this.pushLog("warning", "User list refresh failed; showing cached data.")
             }
         },
         async leaveGuild(id) {
@@ -430,7 +491,7 @@ export default {
                     throw new Error("Missing authentication context")
                 }
                 await api.leaveGuild({ csrfToken, guildId: id })
-                await this.loadGuilds()
+                await this.loadGuilds({ force: true })
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to leave guild", error)

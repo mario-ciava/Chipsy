@@ -1,5 +1,10 @@
 const express = require("express")
 const { ROLES } = require("../services/accessControlService")
+const { userSchemas, validate } = require("../validation/schemas")
+const { constants } = require("../../config")
+
+const SESSION_EXPIRED_MESSAGE = constants.messages?.sessionExpired
+    || "401: Session expired. Please log in again."
 
 const createUsersRouter = (dependencies) => {
     const {
@@ -12,7 +17,7 @@ const createUsersRouter = (dependencies) => {
 
     const ensureAuthenticated = (req, res) => {
         if (!getAccessToken(req)) {
-            res.status(400).json({ message: "400: Bad request" })
+            res.status(401).json({ message: SESSION_EXPIRED_MESSAGE })
             return false
         }
         return true
@@ -128,15 +133,166 @@ const createUsersRouter = (dependencies) => {
         }
     }
 
-    router.get("/", async(req, res, next) => {
+    const MAX_NAME_MATCHES = 50
+
+    const collectNameCandidates = (userLike) => {
+        if (!userLike) return []
+        const source = userLike.user || userLike
+        const values = [
+            userLike.tag,
+            userLike.username,
+            userLike.globalName,
+            userLike.displayName,
+            userLike.nickname,
+            source?.tag,
+            source?.username,
+            source?.globalName,
+            source?.displayName
+        ]
+
+        if (source?.username && typeof source?.discriminator !== "undefined") {
+            values.push(`${source.username}#${source.discriminator}`)
+        }
+
+        return values.filter(Boolean)
+    }
+
+    const lookupUserIdsByName = (query) => {
+        if (!query || typeof query !== "string") return []
+        const normalized = query.trim().toLowerCase()
+        if (!normalized) return []
+
+        const matches = new Set()
+
+        const checkCandidate = (candidate) => {
+            if (matches.size >= MAX_NAME_MATCHES) {
+                return
+            }
+            if (!candidate) return
+            const names = collectNameCandidates(candidate)
+            const hasMatch = names.some((value) => typeof value === "string" && value.toLowerCase().includes(normalized))
+            if (hasMatch) {
+                const id = candidate.id || candidate.user?.id
+                if (id) {
+                    matches.add(id)
+                }
+            }
+        }
+
+        const visitCache = (cache, extractor = (entry) => entry) => {
+            if (matches.size >= MAX_NAME_MATCHES || !cache) {
+                return
+            }
+            if (typeof cache.values === "function") {
+                for (const value of cache.values()) {
+                    if (matches.size >= MAX_NAME_MATCHES) {
+                        break
+                    }
+                    checkCandidate(extractor(value))
+                }
+                return
+            }
+            if (typeof cache.forEach === "function") {
+                cache.forEach((value) => {
+                    if (matches.size >= MAX_NAME_MATCHES) {
+                        return
+                    }
+                    checkCandidate(extractor(value))
+                })
+                return
+            }
+            if (Array.isArray(cache)) {
+                for (const value of cache) {
+                    if (matches.size >= MAX_NAME_MATCHES) {
+                        break
+                    }
+                    checkCandidate(extractor(value))
+                }
+            }
+        }
+
+        visitCache(client?.users?.cache)
+        visitCache(client?.guilds?.cache, (guild) => {
+            if (!guild?.members?.cache) return null
+            const members = []
+            guild.members.cache.forEach((member) => members.push(member))
+            members.forEach((member) => {
+                checkCandidate(member)
+                if (member?.user) {
+                    checkCandidate(member.user)
+                }
+            })
+            return null
+        })
+
+        return Array.from(matches)
+    }
+
+    const activityToDays = (value) => {
+        switch (value) {
+            case "7d":
+                return 7
+            case "30d":
+                return 30
+            case "90d":
+                return 90
+            default:
+                return null
+        }
+    }
+
+    router.get("/", validate(userSchemas.listUsers, "query"), async(req, res, next) => {
         if (!ensurePanelAccess(req, res)) return
-        const { page, pageSize, search } = req.query || {}
+        const {
+            page,
+            pageSize,
+            search,
+            searchField,
+            role,
+            list,
+            minLevel,
+            maxLevel,
+            minBalance,
+            maxBalance,
+            activity,
+            sortBy,
+            sortDirection
+        } = req.query || {}
 
         try {
+            let searchIds = null
+            let normalizedSearch = search
+            if (searchField === "username" && search) {
+                const resolvedIds = lookupUserIdsByName(search)
+                if (!resolvedIds.length) {
+                    return res.status(200).json({
+                        items: [],
+                        pagination: {
+                            page,
+                            pageSize,
+                            total: 0,
+                            totalPages: 1
+                        }
+                    })
+                }
+                searchIds = resolvedIds
+                normalizedSearch = undefined
+            }
+
             const result = await client.dataHandler.listUsers({
                 page,
                 pageSize,
-                search
+                search: normalizedSearch,
+                userIds: searchIds,
+                role,
+                list: list === "all" ? undefined : list,
+                minLevel,
+                maxLevel,
+                minBalance,
+                maxBalance,
+                activityDays: activityToDays(activity),
+                sortBy,
+                sortDirection
             })
 
             const ids = result.items.map((item) => item.id).filter(Boolean)

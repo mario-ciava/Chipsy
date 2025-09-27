@@ -169,6 +169,10 @@ export default {
         cooldownDuration: {
             type: Number,
             default: 0
+        },
+        toggleHoldDuration: {
+            type: Number,
+            default: TOGGLE_HOLD_DURATION_MS
         }
     },
     data() {
@@ -183,8 +187,7 @@ export default {
                 frameId: null,
                 timeoutId: null,
                 resetTimeout: null
-            },
-            holdDuration: TOGGLE_HOLD_DURATION_MS
+            }
         }
     },
     watch: {
@@ -253,12 +256,15 @@ export default {
         statusMetrics() {
             const ready = this.metricsReady
             const mysqlAlive = this.mysqlStatus
+            const latencyValue = ready && typeof this.status.latency === "number"
+                ? Math.round(this.status.latency)
+                : null
             return [
                 {
-                    key: "guilds",
-                    label: "Active Discord servers",
-                    display: ready ? (this.status.guildCount || 0) : null,
-                    className: null,
+                    key: "latency",
+                    label: "Gateway latency",
+                    display: ready ? (latencyValue !== null ? `${latencyValue} ms` : "N/A") : null,
+                    className: latencyValue !== null && latencyValue > 250 ? "status-list__value--warning" : null,
                     ready
                 },
                 {
@@ -298,6 +304,13 @@ export default {
             if (this.loading || this.cooldownActive) return true
             if (!this.statusAvailable) return true
             return this.status.enabled
+        },
+        holdDurationMs() {
+            const value = Number(this.toggleHoldDuration)
+            if (Number.isFinite(value) && value > 0) {
+                return value
+            }
+            return TOGGLE_HOLD_DURATION_MS
         }
     },
     methods: {
@@ -335,7 +348,7 @@ export default {
             const step = (timestamp) => {
                 if (!this.hold.active) return
                 const elapsed = timestamp - this.hold.start
-                const ratio = Math.min(1, elapsed / this.holdDuration)
+                const ratio = Math.min(1, elapsed / this.holdDurationMs)
                 this.hold.progress = ratio
                 if (ratio < 1) {
                     this.hold.frameId = requestAnimationFrame(step)
@@ -344,7 +357,7 @@ export default {
             this.hold.frameId = requestAnimationFrame(step)
             this.hold.timeoutId = setTimeout(() => {
                 this.finishHold(true)
-            }, this.holdDuration)
+            }, this.holdDurationMs)
         },
         onKeyHoldStart(target, event) {
             if (event && event.repeat) return

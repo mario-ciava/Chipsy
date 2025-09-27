@@ -177,9 +177,9 @@ describe("Express API integration", () => {
                     }
                 }),
                 getUserData: jest.fn().mockImplementation((id) => {
-                    if (id === "user-1") {
+                    if (id === "user-1" || id === "owner-id") {
                         return Promise.resolve({
-                            id: "user-1",
+                            id,
                             money: 5000,
                             gold: 2,
                             level: 3,
@@ -193,7 +193,8 @@ describe("Express API integration", () => {
                             reward_amount_upgrade: 1,
                             reward_time_upgrade: 0,
                             next_reward: null,
-                            last_played: null
+                            last_played: null,
+                            join_date: null
                         })
                     }
                     return Promise.resolve(null)
@@ -325,6 +326,11 @@ describe("Express API integration", () => {
                 canAccessPanel: true,
                 canViewLogs: true
             })
+        })
+        expect(body.profile).toMatchObject({
+            id: "owner-id",
+            level: 3,
+            currentExp: 120
         })
 
         const clientConfig = await agent.requestJson("/api/client", {
@@ -538,10 +544,73 @@ describe("Express API integration", () => {
             })
         })
         expect(client.dataHandler.listUsers).toHaveBeenCalledWith(expect.objectContaining({
-            page: "2",
-            pageSize: "10",
-            search: "user"
+            page: 2,
+            pageSize: 10,
+            search: "user",
+            sortBy: "last_played",
+            sortDirection: "desc",
+            activityDays: null
         }))
+    })
+
+    test("GET /api/users applies activity filters when requested", async() => {
+        client.dataHandler.listUsers.mockClear()
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const listResponse = await agent.requestJson("/api/users?activity=30d", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(listResponse.response.status).toBe(200)
+        expect(client.dataHandler.listUsers).toHaveBeenCalledWith(expect.objectContaining({
+            activityDays: 30
+        }))
+    })
+
+    test("GET /api/users supports username search through cached matches", async() => {
+        client.dataHandler.listUsers.mockClear()
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        client.users = {
+            cache: new Map([
+                ["user-1", { id: "user-1", username: "LuckyFox", discriminator: "0001" }],
+                ["user-2", { id: "user-2", username: "CardPlayer" }]
+            ])
+        }
+
+        const listResponse = await agent.requestJson("/api/users?search=lucky&searchField=username", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(listResponse.response.status).toBe(200)
+        expect(client.dataHandler.listUsers).toHaveBeenCalledWith(expect.objectContaining({
+            userIds: ["user-1"],
+            search: undefined
+        }))
+
+        client.users = undefined
     })
 
     test("GET /api/users/:id returns a single user profile", async() => {

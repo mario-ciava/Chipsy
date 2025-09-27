@@ -2,32 +2,57 @@
     <div class="card access-policy-card">
         <header class="access-policy-card__header">
             <div>
-                <h3 class="access-policy-card__title">Access policy</h3>
+                <p class="access-policy-card__eyebrow">Bot access policy</p>
+                <h3 class="access-policy-card__title">Whitelist protection</h3>
                 <p class="access-policy-card__subtitle">
                     Blacklist always blocks the bot. When whitelist mode is active only whitelisted users and admins can use Chipsy.
                 </p>
             </div>
-            <span
-                class="access-policy-card__badge"
-                :class="isActive ? 'access-policy-card__badge--active' : 'access-policy-card__badge--idle'"
-            >
-                {{ isActive ? "Whitelist active" : "Whitelist disabled" }}
-            </span>
+            <div class="access-policy-card__toggle">
+                <span class="access-policy-card__toggle-label">Enable whitelist</span>
+                <button
+                    type="button"
+                    class="toggle-switch"
+                    role="switch"
+                    :aria-checked="isActive"
+                    :class="{ 'toggle-switch--active': isActive }"
+                    :disabled="toggleDisabled"
+                    @click="handleToggle"
+                >
+                    <span class="toggle-switch__track">
+                        <span class="toggle-switch__thumb" :class="{ 'toggle-switch__thumb--active': isActive }"></span>
+                    </span>
+                    <span class="toggle-switch__state" aria-hidden="true">
+                        {{ isActive ? "On" : "Off" }}
+                    </span>
+                    <span v-if="toggleDisabled" class="toggle-switch__loader">
+                        <span class="button__spinner"></span>
+                    </span>
+                </button>
+            </div>
         </header>
 
-        <p class="access-policy-card__meta" v-if="updatedAt">
-            Updated {{ updatedAt }}
-        </p>
+        <ul class="access-policy-card__rules">
+            <li>
+                <strong>Always blocked:</strong> anyone on the blacklist.
+            </li>
+            <li>
+                <strong>Always allowed:</strong> admins and whitelisted IDs.
+            </li>
+            <li>
+                <strong>Default users:</strong> follow the current whitelist toggle.
+            </li>
+        </ul>
 
-        <button
-            type="button"
-            class="button button--secondary access-policy-card__button"
-            :disabled="loading || saving"
-            @click="$emit('toggle', !isActive)"
-        >
-            <span v-if="loading || saving" class="button__spinner"></span>
-            <span v-else>{{ isActive ? "Disable whitelist" : "Enable whitelist" }}</span>
-        </button>
+        <div class="access-policy-card__meta-row">
+            <p class="access-policy-card__meta">
+                <span v-if="updatedAt">Updated {{ updatedAt }}</span>
+                <span v-else>Waiting for the first change</span>
+            </p>
+            <span class="access-policy-card__hint">
+                {{ policyMessage }}
+            </span>
+        </div>
     </div>
 </template>
 
@@ -57,6 +82,21 @@ export default {
         updatedAt() {
             if (!this.policy?.updatedAt) return null
             return formatDetailedDateTime(this.policy.updatedAt)
+        },
+        policyMessage() {
+            if (this.isActive) {
+                return "Only admins and whitelisted IDs can interact with Chipsy."
+            }
+            return "Whitelist disabled. Users follow default access permissions."
+        },
+        toggleDisabled() {
+            return this.loading || this.saving
+        }
+    },
+    methods: {
+        handleToggle() {
+            if (this.toggleDisabled) return
+            this.$emit("toggle", !this.isActive)
         }
     }
 }
@@ -66,54 +106,149 @@ export default {
 .access-policy-card {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 20px;
-    background: rgba(15, 23, 42, 0.5);
-    border: 1px solid rgba(148, 163, 184, 0.15);
+    gap: 16px;
+    padding: 22px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: var(--radius-xl);
 }
 
 .access-policy-card__header {
     display: flex;
     justify-content: space-between;
     gap: 16px;
+    flex-wrap: wrap;
+}
+
+.access-policy-card__eyebrow {
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.78rem;
+    color: #94a3b8;
 }
 
 .access-policy-card__title {
     margin: 0;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     color: #f8fafc;
 }
 
 .access-policy-card__subtitle {
-    margin: 4px 0 0;
+    margin: 6px 0 0;
     color: #cbd5f5;
     font-size: 0.9rem;
 }
 
-.access-policy-card__badge {
-    align-self: flex-start;
-    padding: 4px 10px;
+.access-policy-card__toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: var(--radius-full, 999px);
+    padding: 6px 12px 6px 16px;
+    background: rgba(15, 23, 42, 0.35);
+    flex-shrink: 0;
+}
+
+.access-policy-card__toggle-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    white-space: nowrap;
+}
+
+.toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+}
+
+.toggle-switch:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.toggle-switch__track {
+    width: 48px;
+    height: 24px;
     border-radius: 999px;
+    background: rgba(148, 163, 184, 0.25);
+    position: relative;
+    transition: background var(--transition-fast);
+}
+
+.toggle-switch--active .toggle-switch__track {
+    background: rgba(16, 185, 129, 0.4);
+}
+
+.toggle-switch__thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #f8fafc;
+    transition: transform var(--transition-fast);
+}
+
+.toggle-switch__thumb--active {
+    transform: translateX(24px);
+}
+
+.toggle-switch__state {
     font-size: 0.85rem;
     font-weight: 600;
+    min-width: 24px;
+    text-align: left;
 }
 
-.access-policy-card__badge--active {
-    background: rgba(34, 197, 94, 0.15);
-    color: #bbf7d0;
+.toggle-switch__loader {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
 }
 
-.access-policy-card__badge--idle {
-    background: rgba(148, 163, 184, 0.1);
+.access-policy-card__rules {
+    margin: 0;
+    padding-left: 18px;
     color: #cbd5f5;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.access-policy-card__rules li strong {
+    color: #f8fafc;
+}
+
+.access-policy-card__meta-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .access-policy-card__meta {
     font-size: 0.85rem;
     color: #94a3b8;
+    margin: 0;
 }
 
-.access-policy-card__button {
-    align-self: flex-start;
+.access-policy-card__hint {
+    font-size: 0.85rem;
+    color: rgba(248, 250, 252, 0.8);
+}
+
+.access-policy-card__actions {
+    display: none;
 }
 </style>

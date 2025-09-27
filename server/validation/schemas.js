@@ -80,6 +80,13 @@ const adminSchemas = {
 }
 
 // User schemas
+const roleValues = ["MASTER", "ADMIN", "MODERATOR", "USER"]
+const listFilters = ["all", "whitelisted", "blacklisted", "neutral"]
+const searchFields = ["id", "username"]
+const activityFilters = ["any", "7d", "30d", "90d"]
+const sortColumns = ["last_played", "balance", "level"]
+const sortDirections = ["asc", "desc"]
+
 const userSchemas = {
     getUserById: z.object({
         id: discordSnowflake
@@ -101,7 +108,17 @@ const userSchemas = {
             .transform((val) => val ? sanitizeHtml(val, {
                 allowedTags: [],
                 allowedAttributes: {}
-            }) : undefined)
+            }) : undefined),
+        searchField: z.enum(searchFields).default("id"),
+        role: z.enum(roleValues).optional(),
+        list: z.enum(listFilters).default("all"),
+        minLevel: z.coerce.number().int().min(0).max(500).optional(),
+        maxLevel: z.coerce.number().int().min(0).max(500).optional(),
+        minBalance: z.coerce.number().min(0).optional(),
+        maxBalance: z.coerce.number().min(0).optional(),
+        activity: z.enum(activityFilters).default("any"),
+        sortBy: z.enum(sortColumns).default("last_played"),
+        sortDirection: z.enum(sortDirections).default("desc")
     })
 }
 
