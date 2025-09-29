@@ -1,0 +1,387 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        color-scheme: dark;
+    }
+
+    * {
+        @apply antialiased;
+    }
+
+    body {
+        @apply min-h-screen bg-slate-950 font-sans text-slate-100;
+        background-color: #050816;
+        background-image:
+            radial-gradient(circle at 25% 10%, rgba(99, 102, 241, 0.28), transparent 55%),
+            linear-gradient(135deg, #0f172a 0%, #111827 40%, #10162a 100%);
+        background-attachment: fixed;
+        background-size: cover;
+        margin: 0;
+    }
+
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+            radial-gradient(circle at 15% 20%, rgba(79, 70, 229, 0.35), transparent 60%),
+            radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.22), transparent 65%);
+        opacity: 0.85;
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    #app {
+        @apply relative isolate min-h-screen;
+        z-index: 1;
+    }
+
+    ::selection {
+        background-color: rgba(124, 58, 237, 0.35);
+        color: #f8fafc;
+    }
+
+    a {
+        @apply font-medium text-violet-300 transition-colors duration-150 hover:text-violet-200;
+    }
+}
+
+@layer components {
+    .chip-shell {
+        @apply flex min-h-screen flex-col gap-6 px-4 pb-10 pt-6 text-slate-100 md:px-10;
+    }
+
+    .chip-shell__nav {
+        @apply sticky top-0 z-10 flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-900/80 px-6 py-4 backdrop-blur-2xl md:flex-row md:items-center md:justify-between;
+    }
+
+    .chip-nav__link {
+        @apply rounded-full px-4 py-2 text-sm font-semibold text-slate-300 transition hover:text-white;
+    }
+
+    .chip-nav__link.router-link-active,
+    .chip-nav__link.router-link-exact-active {
+        @apply bg-white/15 text-white;
+    }
+
+    .chip-card {
+        @apply relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-chip-card backdrop-blur-2xl;
+    }
+
+    .chip-card-accent {
+        @apply chip-card border-violet-500/40 bg-gradient-to-br from-violet-600/20 via-violet-500/10 to-indigo-900/40;
+    }
+
+    .chip-card-muted {
+        @apply chip-card border-white/5 bg-slate-900/60;
+    }
+
+    .chip-card__header {
+        @apply flex flex-wrap items-start justify-between gap-4;
+    }
+
+    .chip-card__title {
+        @apply text-lg font-semibold tracking-tight text-white;
+    }
+
+    .chip-card__subtitle {
+        @apply mt-1 text-sm text-slate-300;
+    }
+
+    .chip-section {
+        @apply flex flex-col gap-6;
+    }
+
+    .chip-grid {
+        @apply grid gap-6;
+    }
+
+    .chip-grid--split {
+        @apply grid-cols-1 lg:grid-cols-[2fr_1fr];
+    }
+
+    .chip-btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold tracking-tight text-white transition duration-200 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60;
+    }
+
+    .chip-btn-primary {
+        @apply chip-btn bg-violet-600/80 shadow-chip-soft hover:bg-violet-500/80;
+    }
+
+    .chip-btn-secondary {
+        @apply chip-btn bg-slate-800/80 shadow-chip-soft hover:bg-slate-700/80;
+    }
+
+    .chip-btn-ghost {
+        @apply chip-btn border border-white/10 bg-transparent hover:border-violet-400/40;
+    }
+
+    .chip-btn-danger {
+        @apply chip-btn bg-rose-600/80 hover:bg-rose-500/80;
+    }
+
+    .chip-btn-fixed {
+        @apply min-w-[9rem];
+    }
+
+    .chip-btn-progress {
+        @apply absolute inset-y-0 left-0 h-full origin-left bg-white/20 opacity-0 transition duration-200 ease-out;
+    }
+
+    .chip-spinner {
+        @apply inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent;
+    }
+
+    .chip-pill {
+        @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide;
+    }
+
+    .chip-pill-success {
+        @apply chip-pill border-emerald-400/40 bg-emerald-500/10 text-emerald-200;
+    }
+
+    .chip-pill-warning {
+        @apply chip-pill border-amber-400/40 bg-amber-500/10 text-amber-100;
+    }
+
+    .chip-pill-danger {
+        @apply chip-pill border-rose-500/50 bg-rose-500/10 text-rose-100;
+    }
+
+    .chip-pill-info {
+        @apply chip-pill border-sky-400/40 bg-sky-500/10 text-sky-100;
+    }
+
+    .chip-pill-ghost {
+        @apply chip-pill border-white/15 bg-white/5 text-slate-200;
+    }
+
+    .chip-role-master {
+        @apply border-amber-400/40 bg-amber-500/10 text-amber-100;
+    }
+
+    .chip-role-admin {
+        @apply border-sky-400/40 bg-sky-500/10 text-sky-100;
+    }
+
+    .chip-role-moderator {
+        @apply border-emerald-400/40 bg-emerald-500/10 text-emerald-100;
+    }
+
+    .chip-role-user {
+        @apply border-white/15 bg-white/5 text-slate-200;
+    }
+
+    .chip-input {
+        @apply block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:border-violet-400/60 focus:outline-none focus:ring-2 focus:ring-violet-500/30;
+    }
+
+    .chip-label {
+        @apply text-xs font-semibold uppercase tracking-wide text-slate-300;
+    }
+
+    .chip-text-success {
+        @apply text-emerald-200;
+    }
+
+    .chip-text-warning {
+        @apply text-amber-200;
+    }
+
+    .chip-text-danger {
+        @apply text-rose-200;
+    }
+
+    .chip-field-hint {
+        @apply text-xs text-slate-400;
+    }
+
+    .chip-filter {
+        @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200;
+    }
+
+    .chip-filter__remove {
+        @apply inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-slate-300 transition hover:bg-violet-500/40 hover:text-white;
+    }
+
+    .chip-table {
+        @apply w-full border-collapse text-sm text-slate-100;
+    }
+
+    .chip-table thead th {
+        @apply border-b border-white/10 pb-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-300;
+    }
+
+    .chip-table tbody tr {
+        @apply border-b border-white/5 transition hover:bg-white/5;
+    }
+
+    .chip-table tbody tr:last-child {
+        @apply border-b-0;
+    }
+
+    .chip-table td {
+        @apply py-3 text-sm text-slate-100;
+    }
+
+    .chip-table__meta {
+        @apply text-xs text-slate-400;
+    }
+
+    .chip-table__username {
+        @apply flex flex-col;
+    }
+
+    .chip-empty {
+        @apply rounded-2xl border border-dashed border-white/15 bg-white/5 px-4 py-6 text-center text-sm text-slate-300;
+    }
+
+    .chip-divider {
+        @apply h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent;
+    }
+
+    .chip-modal-overlay {
+        @apply fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 backdrop-blur;
+    }
+
+    .chip-modal {
+        @apply chip-card w-full max-w-lg p-6;
+    }
+
+    .chip-badge {
+        @apply inline-flex min-w-[2.5rem] items-center justify-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm font-semibold text-white;
+    }
+
+    .chip-segmented {
+        @apply inline-flex rounded-full border border-white/10 bg-white/5 p-1;
+    }
+
+    .chip-segmented__option {
+        @apply rounded-full px-3 py-1 text-xs font-semibold text-slate-300 transition;
+    }
+
+    .chip-segmented__option--active {
+        @apply bg-white/15 text-white;
+    }
+
+    .chip-toast {
+        @apply fixed bottom-6 right-6 rounded-2xl border border-white/10 bg-slate-900/90 px-4 py-3 text-sm text-white shadow-chip-card;
+    }
+
+    .chip-scroll {
+        @apply max-h-[420px] min-h-[220px] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-4;
+    }
+
+    .chip-log-lines {
+        @apply flex flex-col gap-2 font-mono text-sm;
+    }
+
+    .chip-log-line {
+        @apply grid grid-cols-[68px,52px,1fr] items-baseline gap-3 rounded-2xl border border-white/5 bg-white/5 px-3 py-2 text-slate-100 transition hover:border-white/20;
+    }
+
+    .chip-log-line--success {
+        @apply border-emerald-400/40;
+    }
+
+    .chip-log-line--warning {
+        @apply border-amber-400/40;
+    }
+
+    .chip-log-line--error {
+        @apply border-rose-500/40;
+    }
+
+    .chip-log-time {
+        @apply text-xs font-semibold text-slate-400;
+    }
+
+    .chip-log-level {
+        @apply text-xs font-semibold text-sky-300;
+    }
+
+    .chip-log-line--success .chip-log-level {
+        @apply text-emerald-300;
+    }
+
+    .chip-log-line--warning .chip-log-level {
+        @apply text-amber-200;
+    }
+
+    .chip-log-line--error .chip-log-level {
+        @apply text-rose-200;
+    }
+
+    .chip-log-empty {
+        @apply text-center text-sm text-slate-400;
+    }
+
+    .chip-notice {
+        @apply rounded-2xl border px-4 py-3 text-sm font-medium;
+    }
+
+    .chip-notice-info {
+        @apply chip-notice border-sky-500/40 bg-sky-500/10 text-sky-100;
+    }
+
+    .chip-notice-success {
+        @apply chip-notice border-emerald-500/40 bg-emerald-500/10 text-emerald-100;
+    }
+
+    .chip-notice-warning {
+        @apply chip-notice border-amber-500/40 bg-amber-500/10 text-amber-100;
+    }
+
+    .chip-notice-error {
+        @apply chip-notice border-rose-500/40 bg-rose-500/10 text-rose-100;
+    }
+
+    .fade-enter-active,
+    .fade-leave-active {
+        @apply transition duration-300 ease-out;
+    }
+
+    .fade-enter-from,
+    .fade-leave-to {
+        @apply translate-y-2 opacity-0;
+    }
+
+    .toast-fade-enter-active,
+    .toast-fade-leave-active {
+        @apply transition duration-200 ease-out;
+    }
+
+    .toast-fade-enter-from,
+    .toast-fade-leave-to {
+        @apply translate-y-2 opacity-0;
+    }
+
+    .status-flip-enter-active,
+    .status-flip-leave-active {
+        @apply transition duration-200 ease-out;
+    }
+
+    .status-flip-enter-from,
+    .status-flip-leave-to {
+        @apply translate-y-1 opacity-0;
+    }
+
+    .log-entry-enter-active {
+        @apply transition duration-200 ease-out;
+    }
+
+    .log-entry-leave-active {
+        @apply transition duration-150 ease-in;
+    }
+
+    .log-entry-enter-from {
+        @apply translate-y-1 opacity-0;
+    }
+
+    .log-entry-leave-to {
+        @apply opacity-0;
+    }
+}

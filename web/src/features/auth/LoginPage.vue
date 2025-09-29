@@ -1,30 +1,26 @@
 <template>
-    <div class="page page--centered">
-        <header class="page__header">
-            <h1 class="page__title">Login required</h1>
-            <p class="page__subtitle">
+    <div class="mx-auto flex w-full max-w-lg flex-col gap-6 rounded-3xl border border-white/10 bg-slate-900/70 p-8 text-center shadow-chip-card">
+        <header class="space-y-2">
+            <h1 class="text-3xl font-semibold text-white">Login required</h1>
+            <p class="text-sm text-slate-300">
                 You&apos;ll be redirected to Discord&apos;s authorization page to finish signing in.
             </p>
         </header>
-        <section class="page__section login">
-            <div class="card login__card">
-                <template v-if="clientId">
-                    <p class="card__body">
-                        If the Discord login doesn&apos;t open automatically, trigger it manually.
-                    </p>
-                    <div class="login__cta">
-                        <button type="button" class="button button--secondary" @click="openAuth">
-                            Open Discord authorization
-                        </button>
-                    </div>
-                    <p class="card__body card__body--muted login__redirect">
-                        Configured redirect: <code>{{ redirectTarget }}</code>
-                    </p>
-                </template>
-                <p v-else class="card__body card__body--warning">
-                    Configure <code>VUE_APP_DISCORD_CLIENT_ID</code> to enable login.
+        <section class="space-y-3">
+            <template v-if="clientId">
+                <p class="text-sm text-slate-300">
+                    If the Discord login doesn&apos;t open automatically, trigger it manually.
                 </p>
-            </div>
+                <button type="button" class="chip-btn chip-btn-secondary w-full justify-center" @click="openAuth">
+                    Open Discord authorization
+                </button>
+                <p class="text-xs text-slate-400">
+                    Configured redirect: <code class="font-mono text-slate-200">{{ redirectTarget }}</code>
+                </p>
+            </template>
+            <p v-else class="chip-notice chip-notice-warning text-sm text-center">
+                Configure <code>VUE_APP_DISCORD_CLIENT_ID</code> to enable login.
+            </p>
         </section>
     </div>
 </template>

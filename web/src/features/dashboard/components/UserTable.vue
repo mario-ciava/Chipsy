@@ -1,56 +1,55 @@
 <template>
-    <div class="card card--wide user-table-card" :style="dropdownStyleVars">
-        <div class="card__header card__header--split">
+    <div class="chip-card space-y-6">
+        <header class="chip-card__header flex-wrap gap-4">
             <div>
-                <h3 class="card__title">User stats</h3>
-                <p class="card__subtitle">
+                <h3 class="chip-card__title">User stats</h3>
+                <p class="chip-card__subtitle">
                     Review the data stored in MySQL to monitor balances and progress.
                 </p>
             </div>
-            <div class="user-table__summary">
+            <div class="flex flex-wrap items-center gap-4">
                 <div>
-                    <p class="user-table__summary-label">Quick glimpse</p>
-                    <span class="user-table__summary-value">
+                    <p class="chip-label">Quick glimpse</p>
+                    <span class="text-base font-semibold text-white">
                         {{ pagination.total || 0 }} users indexed
                     </span>
                 </div>
-                <div class="user-table__view-toggle" role="group" aria-label="Table density">
+                <div class="chip-segmented" role="group" aria-label="Table density">
                     <button
                         v-for="option in viewOptions"
                         :key="option.value"
                         type="button"
-                        class="user-table__view-button"
-                        :class="{ 'user-table__view-button--active': viewMode === option.value }"
+                        class="chip-segmented__option"
+                        :class="{ 'chip-segmented__option--active': viewMode === option.value }"
                         @click="setViewMode(option.value)"
                     >
                         {{ option.label }}
                     </button>
                 </div>
             </div>
-        </div>
+        </header>
 
-        <section class="user-table__filters" aria-label="User filters">
-            <div class="user-table__search-group">
-                <label class="user-table__label">
+        <section class="space-y-4" aria-label="User filters">
+            <div class="space-y-3">
+                <label class="chip-label flex items-center gap-2">
                     Search
-                    <span class="user-table__hint">Press enter to apply</span>
+                    <span class="chip-field-hint">Press enter to apply</span>
                 </label>
-                <div class="user-table__search-row">
+                <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
                     <input
                         v-model="filtersDraft.search"
-                        class="user-table__search-input"
+                        class="chip-input flex-1"
                         type="search"
                         :placeholder="searchPlaceholder"
                         @keyup.enter="applyFilters"
                     />
-                    <div class="segmented-control" role="group" aria-label="Search mode">
+                    <div class="chip-segmented" role="group" aria-label="Search mode">
                         <button
                             v-for="option in searchOptions"
                             :key="option.value"
                             type="button"
-                            class="segmented-control__option"
-                            :class="{ 'segmented-control__option--active': filtersDraft.searchField === option.value }"
-                            :aria-pressed="filtersDraft.searchField === option.value"
+                            class="chip-segmented__option"
+                            :class="{ 'chip-segmented__option--active': filtersDraft.searchField === option.value }"
                             @click="selectSearchField(option.value)"
                         >
                             {{ option.label }}
@@ -59,12 +58,10 @@
                 </div>
             </div>
 
-            <div class="user-table__filter-divider" aria-hidden="true"></div>
-
-            <div class="user-table__grid">
-                <label class="user-table__control">
-                    <span class="user-table__label">Role</span>
-                    <select v-model="filtersDraft.role">
+            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <label class="flex flex-col gap-2 text-sm text-slate-200">
+                    <span class="chip-label">Role</span>
+                    <select v-model="filtersDraft.role" class="chip-input" :style="dropdownSelectStyle">
                         <option value="all">All roles</option>
                         <option value="MASTER">Master</option>
                         <option value="ADMIN">Admin</option>
@@ -72,55 +69,55 @@
                         <option value="USER">User</option>
                     </select>
                 </label>
-                <label class="user-table__control">
-                    <span class="user-table__label">Access</span>
-                    <select v-model="filtersDraft.list">
+                <label class="flex flex-col gap-2 text-sm text-slate-200">
+                    <span class="chip-label">Access</span>
+                    <select v-model="filtersDraft.list" class="chip-input" :style="dropdownSelectStyle">
                         <option value="all">Any</option>
                         <option value="whitelisted">Whitelisted</option>
                         <option value="neutral">Neutral</option>
                         <option value="blacklisted">Blacklisted</option>
                     </select>
                 </label>
-                <div class="user-table__range">
-                    <span class="user-table__label">Level range</span>
-                    <div class="user-table__range-inputs">
-                        <input v-model="filtersDraft.minLevel" type="number" min="0" placeholder="Min" />
-                        <span class="user-table__range-sep">—</span>
-                        <input v-model="filtersDraft.maxLevel" type="number" min="0" placeholder="Max" />
+                <div class="flex flex-col gap-2 text-sm text-slate-200">
+                    <span class="chip-label">Level range</span>
+                    <div class="flex items-center gap-2">
+                        <input v-model="filtersDraft.minLevel" class="chip-input" type="number" min="0" placeholder="Min" />
+                        <span class="text-slate-500">—</span>
+                        <input v-model="filtersDraft.maxLevel" class="chip-input" type="number" min="0" placeholder="Max" />
                     </div>
                 </div>
-                <div class="user-table__range">
-                    <span class="user-table__label">Balance range</span>
-                    <div class="user-table__range-inputs">
-                        <input v-model="filtersDraft.minBalance" type="number" min="0" placeholder="Min" />
-                        <span class="user-table__range-sep">—</span>
-                        <input v-model="filtersDraft.maxBalance" type="number" min="0" placeholder="Max" />
+                <div class="flex flex-col gap-2 text-sm text-slate-200">
+                    <span class="chip-label">Balance range</span>
+                    <div class="flex items-center gap-2">
+                        <input v-model="filtersDraft.minBalance" class="chip-input" type="number" min="0" placeholder="Min" />
+                        <span class="text-slate-500">—</span>
+                        <input v-model="filtersDraft.maxBalance" class="chip-input" type="number" min="0" placeholder="Max" />
                     </div>
                 </div>
-                <label class="user-table__control">
-                    <span class="user-table__label">Activity</span>
-                    <select v-model="filtersDraft.activity">
+                <label class="flex flex-col gap-2 text-sm text-slate-200">
+                    <span class="chip-label">Activity</span>
+                    <select v-model="filtersDraft.activity" class="chip-input" :style="dropdownSelectStyle">
                         <option value="any">Any time</option>
-                        <option value="7d">Active last 7 days</option>
-                        <option value="30d">Active last 30 days</option>
-                        <option value="90d">Active last 90 days</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                        <option value="90d">Last 90 days</option>
                     </select>
                 </label>
-                <div class="user-table__sort">
-                    <span class="user-table__label">Order by</span>
-                    <div class="user-table__sort-controls">
-                        <select v-model="filtersDraft.sortBy">
-                            <option value="last_played">Last activity</option>
+                <div class="flex flex-col gap-2 text-sm text-slate-200">
+                    <span class="chip-label">Sort by</span>
+                    <div class="flex items-center gap-2">
+                        <select v-model="filtersDraft.sortBy" class="chip-input flex-1" :style="dropdownSelectStyle">
+                            <option value="last_played">Last played</option>
                             <option value="balance">Balance</option>
                             <option value="level">Level</option>
                         </select>
                         <button
+                            class="chip-btn chip-btn-ghost px-3 py-2"
                             type="button"
-                            class="user-table__sort-direction"
                             :aria-label="sortDirectionLabel"
                             @click="toggleSortDirection"
                         >
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" class="h-4 w-4" aria-hidden="true">
                                 <path
                                     v-if="filtersDraft.sortDirection === 'desc'"
                                     d="M12 6l6 6H6z"
@@ -137,52 +134,44 @@
                 </div>
             </div>
 
-            <div v-if="activeFilterChips.length" class="user-table__chips" aria-live="polite">
+            <div class="flex flex-wrap items-center gap-3" aria-live="polite">
                 <button
                     v-for="chip in activeFilterChips"
                     :key="chip.id"
                     type="button"
-                    class="user-table__chip"
+                    class="chip-filter"
                     @click="clearFilter(chip.keys)"
                 >
                     <span>{{ chip.label }}</span>
-                    <svg viewBox="0 0 16 16" aria-hidden="true">
-                        <path
-                            d="M4 4l8 8m0-8l-8 8"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                        />
-                    </svg>
+                    <span class="chip-filter__remove" aria-hidden="true">×</span>
                 </button>
-            </div>
-
-            <div class="user-table__actions">
-                <button
-                    class="button button--secondary"
-                    type="button"
-                    :disabled="loading"
-                    @click="applyFilters"
-                >
-                    <span v-if="loading" class="button__spinner"></span>
-                    <span v-else>{{ applyButtonLabel }}</span>
-                </button>
-                <button
-                    class="button button--ghost"
-                    type="button"
-                    :disabled="loading || !hasChanges"
-                    @click="resetFilters"
-                >
-                    Reset
-                </button>
-                <button class="button button--ghost" type="button" :disabled="loading" @click="refresh">
-                    Refresh
-                </button>
+                <div class="flex flex-wrap gap-2">
+                    <button
+                        class="chip-btn chip-btn-secondary"
+                        type="button"
+                        :disabled="loading"
+                        @click="applyFilters"
+                    >
+                        <span v-if="loading" class="chip-spinner"></span>
+                        <span v-else>{{ applyButtonLabel }}</span>
+                    </button>
+                    <button
+                        class="chip-btn chip-btn-ghost"
+                        type="button"
+                        :disabled="loading || !hasChanges"
+                        @click="resetFilters"
+                    >
+                        Reset
+                    </button>
+                    <button class="chip-btn chip-btn-ghost" type="button" :disabled="loading" @click="refresh">
+                        Refresh
+                    </button>
+                </div>
             </div>
         </section>
 
-        <div class="card__body card__body--overflow">
-            <table class="data-table" :class="{ 'data-table--compact': isCompactView }">
+        <div class="overflow-x-auto rounded-3xl border border-white/10 bg-white/5">
+            <table class="chip-table" :class="{ 'text-xs': isCompactView }">
                 <thead>
                     <tr>
                         <th>User</th>
@@ -191,84 +180,82 @@
                         <th>Balance</th>
                         <th>Level</th>
                         <th>Last activity</th>
-                        <th class="table-actions-column">Actions</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-if="loading">
-                        <td colspan="7" class="data-table__loading">Loading data…</td>
+                        <td colspan="7" class="py-6 text-center text-slate-300">Loading data…</td>
                     </tr>
                     <tr v-else-if="!formattedUsers.length">
-                        <td colspan="7" class="data-table__empty">
+                        <td colspan="7" class="py-6 text-center text-slate-400">
                             No users match the current filters.
                         </td>
                     </tr>
-                    <tr v-else v-for="user in formattedUsers" :key="user.id">
+                    <tr v-else v-for="user in formattedUsers" :key="user.id" class="transition hover:bg-white/5">
                         <td>
-                            <div class="user-table__name">
-                                <div class="user-table__name-meta">
-                                    <span class="user-table__username">{{ user.username }}</span>
-                                    <span v-if="user.tag" class="user-table__tag">{{ user.tag }}</span>
-                                </div>
+                            <div class="flex flex-col">
+                                <span class="font-semibold text-white">{{ user.username }}</span>
+                                <span v-if="user.tag" class="text-xs text-slate-400">{{ user.tag }}</span>
                             </div>
                         </td>
-                        <td class="data-table__cell data-table__cell--mono">
-                            <span class="user-table__id-value">{{ user.id }}</span>
+                        <td class="font-mono text-sm text-slate-300">
+                            {{ user.id }}
                         </td>
                         <td>
-                            <span class="role-pill" :class="user.roleClass">
+                            <span class="chip-pill" :class="user.roleClass">
                                 {{ user.roleLabel }}
                             </span>
                         </td>
-                        <td>{{ user.balance }}</td>
+                        <td class="font-semibold text-white">{{ user.balance }}</td>
                         <td>
-                            <span class="data-table__accent">{{ user.level }}</span>
-                            <small class="data-table__meta">{{ user.exp }}</small>
+                            <div class="flex flex-col">
+                                <span class="font-semibold text-white">{{ user.level }}</span>
+                                <span class="chip-table__meta">{{ user.exp }}</span>
+                            </div>
                         </td>
-                        <td>{{ user.lastPlayed }}</td>
-                        <td class="table-actions">
-                            <button
-                                type="button"
-                                class="button button--ghost button--icon user-table__copy"
-                                title="Copy ID"
-                                @click="copyId(user.id)"
-                            >
-                                <svg viewBox="0 0 20 20" aria-hidden="true">
-                                    <rect x="6" y="6" width="9" height="9" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                                    <rect x="3" y="3" width="9" height="9" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                                </svg>
-                                <span class="sr-only">Copy ID</span>
-                            </button>
-                            <button
-                                type="button"
-                                class="button button--ghost data-table__details"
-                                @click="openDetails(user.id)"
-                            >
-                                Details
-                            </button>
+                        <td class="text-slate-200">{{ user.lastPlayed }}</td>
+                        <td>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
+                                    title="Copy ID"
+                                    @click="copyId(user.id)"
+                                >
+                                    Copy
+                                </button>
+                                <button
+                                    type="button"
+                                    class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
+                                    @click="openDetails(user.id)"
+                                >
+                                    Details
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
-        <div class="card__footer pagination">
-            <span class="pagination__count" v-if="pagination.total">
+        <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
+            <span v-if="pagination.total">
                 {{ pagination.total }} users
             </span>
-            <div class="pagination__controls">
+            <div class="flex flex-wrap items-center gap-2">
                 <button
-                    class="button button--ghost"
+                    class="chip-btn chip-btn-ghost px-4 py-2"
                     :disabled="loading || pagination.page <= 1"
                     @click="changePage(pagination.page - 1)"
                 >
                     ← Previous
                 </button>
-                <span class="pagination__info">
+                <span class="text-slate-200">
                     Page {{ pagination.page }} of {{ pagination.totalPages }}
                 </span>
                 <button
-                    class="button button--ghost"
+                    class="chip-btn chip-btn-ghost px-4 py-2"
                     :disabled="loading || pagination.page >= pagination.totalPages"
                     @click="changePage(pagination.page + 1)"
                 >
@@ -354,6 +341,7 @@ export default {
                     if (namePart) baseName = namePart
                     if (discriminator) tag = `#${discriminator}`
                 }
+                const roleKey = (user.panelRole || user.access?.role || "USER").toLowerCase()
                 return {
                     id: user.id,
                     balance: formatCurrency(user.money),
@@ -368,7 +356,7 @@ export default {
                     username: baseName || "N/A",
                     tag,
                     roleLabel: getRoleLabel(user.panelRole || user.access?.role),
-                    roleClass: `role-pill--${(user.panelRole || user.access?.role || "USER").toLowerCase()}`
+                    roleClass: `chip-role-${roleKey}`
                 }
             })
         },
@@ -376,14 +364,12 @@ export default {
             const config = this.$store?.getters?.["session/panelConfig"]
             return config?.dropdown || PANEL_DEFAULTS.dropdown
         },
-        dropdownStyleVars() {
-            const theme = this.panelDropdownTheme
+        dropdownSelectStyle() {
+            const theme = this.panelDropdownTheme || {}
             return {
-                "--dropdown-bg": theme.background,
-                "--dropdown-border": theme.border,
-                "--dropdown-option-hover": theme.optionHover,
-                "--dropdown-option-active": theme.optionActive,
-                "--dropdown-option-text": theme.optionText
+                backgroundColor: theme.background,
+                borderColor: theme.border,
+                color: theme.optionText
             }
         },
         viewOptions() {
@@ -560,299 +546,3 @@ export default {
     }
 }
 </script>
-
-<style scoped>
-.user-table-card {
-    gap: 20px;
-    --dropdown-bg: rgba(15, 23, 42, 0.85);
-    --dropdown-border: rgba(148, 163, 184, 0.3);
-    --dropdown-option-hover: rgba(99, 102, 241, 0.25);
-    --dropdown-option-active: rgba(124, 58, 237, 0.35);
-    --dropdown-option-text: var(--fg-primary);
-}
-
-.user-table__summary {
-    text-align: right;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px 16px;
-    align-items: center;
-}
-
-.user-table__summary-label {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--fg-muted);
-}
-
-.user-table__summary-value {
-    font-weight: 600;
-    font-size: 1rem;
-}
-
-.user-table__view-toggle {
-    display: inline-flex;
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 999px;
-    padding: 3px;
-    gap: 2px;
-}
-
-.user-table__view-button {
-    border: none;
-    background: transparent;
-    color: rgba(226, 232, 240, 0.75);
-    font-size: 0.8rem;
-    padding: 6px 12px;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.user-table__view-button--active {
-    background: rgba(99, 102, 241, 0.2);
-    color: #f8fafc;
-    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
-}
-
-.user-table__filters {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    padding: 0;
-}
-
-.user-table__search-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-bottom: 12px;
-}
-
-.user-table__label {
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--fg-muted);
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-}
-
-.user-table__hint {
-    color: rgba(226, 232, 240, 0.65);
-    font-size: 0.75rem;
-    text-transform: none;
-    letter-spacing: normal;
-}
-
-.user-table__search-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-}
-
-.user-table__search-input {
-    flex: 1 1 260px;
-    padding: 10px 14px;
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    background: rgba(15, 23, 42, 0.85);
-    color: var(--fg-primary);
-    min-width: 220px;
-}
-
-.user-table__search-input:focus-visible {
-    outline: 2px solid var(--focus-ring-color);
-    outline-offset: 2px;
-}
-
-.segmented-control {
-    display: inline-flex;
-    background: rgba(148, 163, 184, 0.1);
-    border-radius: var(--radius-full, 999px);
-    padding: 4px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.segmented-control__option {
-    border: none;
-    background: transparent;
-    color: var(--fg-muted);
-    padding: 6px 14px;
-    border-radius: var(--radius-full, 999px);
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.segmented-control__option--active {
-    background: rgba(124, 58, 237, 0.2);
-    color: var(--fg-primary);
-}
-
-.user-table__filter-divider {
-    height: 1px;
-    width: 100%;
-    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.45), transparent);
-}
-
-.user-table__grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 16px;
-}
-
-.user-table__control,
-.user-table__range,
-.user-table__sort {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.user-table__control select,
-.user-table__range input,
-.user-table__sort select {
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--dropdown-border, rgba(148, 163, 184, 0.3));
-    background: var(--dropdown-bg, rgba(15, 23, 42, 0.85));
-    color: var(--dropdown-option-text, var(--fg-primary));
-    transition: border var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.user-table__control select:focus-visible,
-.user-table__sort select:focus-visible {
-    outline: none;
-    border-color: rgba(99, 102, 241, 0.7);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-}
-
-.user-table__control select,
-.user-table__sort select {
-    appearance: none;
-    background-image:
-        linear-gradient(45deg, transparent 50%, rgba(148, 163, 184, 0.8) 50%),
-        linear-gradient(135deg, rgba(148, 163, 184, 0.8) 50%, transparent 50%),
-        linear-gradient(to right, rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.2));
-    background-position:
-        calc(100% - 18px) center,
-        calc(100% - 12px) center,
-        calc(100% - 2.4em) center;
-    background-size: 6px 6px, 6px 6px, 1px 60%;
-    background-repeat: no-repeat;
-    padding-right: 40px;
-}
-
-.user-table__control select option,
-.user-table__sort select option {
-    background: var(--dropdown-bg, rgba(15, 23, 42, 0.9));
-    color: var(--dropdown-option-text, var(--fg-primary));
-}
-
-.user-table__control select option:hover,
-.user-table__sort select option:hover {
-    background: var(--dropdown-option-hover, rgba(99, 102, 241, 0.25));
-}
-
-.user-table__control select option:checked,
-.user-table__sort select option:checked {
-    background: var(--dropdown-option-active, rgba(124, 58, 237, 0.35));
-}
-
-.user-table__range-inputs {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.user-table__range-sep {
-    color: var(--fg-muted);
-    font-size: 0.85rem;
-}
-
-.user-table__sort-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.user-table__sort-direction {
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    border-radius: 10px;
-    background: rgba(15, 23, 42, 0.8);
-    width: 42px;
-    height: 40px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-}
-
-.user-table__sort-direction svg {
-    width: 20px;
-    height: 20px;
-}
-
-.user-table__actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: flex-end;
-}
-
-.user-table__chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: -4px;
-}
-
-.user-table__chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    border-radius: 999px;
-    background: rgba(148, 163, 184, 0.12);
-    color: var(--fg-primary);
-    font-size: 0.8rem;
-    padding: 4px 10px 4px 14px;
-    cursor: pointer;
-    transition: border var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
-}
-
-.user-table__chip:hover {
-    border-color: rgba(124, 58, 237, 0.45);
-    background: rgba(124, 58, 237, 0.15);
-    transform: translateY(-1px);
-}
-
-.user-table__chip svg {
-    width: 12px;
-    height: 12px;
-}
-
-@media (max-width: 720px) {
-    .user-table__summary {
-        justify-content: space-between;
-        text-align: left;
-    }
-
-    .user-table__view-toggle {
-        align-self: stretch;
-        justify-content: space-between;
-    }
-
-    .user-table__search-row {
-        flex-direction: column;
-    }
-
-    .user-table__actions {
-        justify-content: flex-start;
-    }
-}
-</style>

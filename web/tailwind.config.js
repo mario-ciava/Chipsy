@@ -1,0 +1,80 @@
+const uiTheme = require("../config/uiTheme")
+
+const px = (value) => `${value}px`
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+    content: [
+        "./public/index.html",
+        "./src/**/*.{vue,js,ts,jsx,tsx}"
+    ],
+    theme: {
+        extend: {
+            colors: {
+                chip: {
+                    background: uiTheme.colors.background,
+                    surface: uiTheme.colors.surface,
+                    emphasis: uiTheme.colors.emphasisSurface,
+                    border: uiTheme.colors.cardBorder,
+                    primary: uiTheme.colors.primary,
+                    secondary: uiTheme.colors.secondary,
+                    muted: uiTheme.colors.muted,
+                    accent: uiTheme.colors.accent,
+                    accentSoft: uiTheme.colors.accentSoft,
+                    highlight: uiTheme.colors.highlight,
+                    success: uiTheme.colors.success,
+                    warning: uiTheme.colors.warning,
+                    danger: uiTheme.colors.danger
+                }
+            },
+            fontFamily: {
+                sans: [uiTheme.fonts.sans, "sans-serif"],
+                mono: [uiTheme.fonts.mono, "monospace"]
+            },
+            maxWidth: {
+                shell: px(uiTheme.layout.shellMaxWidth),
+                content: px(uiTheme.layout.contentMaxWidth)
+            },
+            borderRadius: {
+                "chip-xl": uiTheme.radii.xl,
+                "chip-lg": uiTheme.radii.lg,
+                "chip-md": uiTheme.radii.md,
+                "chip-sm": uiTheme.radii.sm,
+                "chip-pill": uiTheme.radii.pill
+            },
+            boxShadow: {
+                "chip-card": uiTheme.effects.cardShadow,
+                "chip-soft": uiTheme.effects.softShadow
+            },
+            backgroundImage: {
+                "chip-shell": uiTheme.colors.backdrop
+            },
+            keyframes: {
+                "chip-pulse": {
+                    "0%, 100%": { opacity: "1" },
+                    "50%": { opacity: "0.7" }
+                },
+                "chip-shimmer": {
+                    "0%": { opacity: "0.45" },
+                    "50%": { opacity: "0.9" },
+                    "100%": { opacity: "0.45" }
+                },
+                "chip-toast": {
+                    "0%": { transform: "translateY(100%) scale(0.96)", opacity: "0" },
+                    "60%": { transform: "translateY(-4px) scale(1.01)", opacity: "1" },
+                    "100%": { transform: "translateY(0) scale(1)", opacity: "1" }
+                }
+            },
+            animation: {
+                "chip-pulse": "chip-pulse 1.8s ease-in-out infinite",
+                "chip-shimmer": "chip-shimmer 2.8s ease-in-out infinite",
+                "chip-toast": "chip-toast 0.35s ease both"
+            }
+        }
+    },
+    plugins: [
+        require("@tailwindcss/forms")({
+            strategy: "class"
+        })
+    ]
+}

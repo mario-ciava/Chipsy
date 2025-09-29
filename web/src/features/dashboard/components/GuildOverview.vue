@@ -1,78 +1,68 @@
 <template>
-    <section class="guilds-panel">
-        <header class="guilds-panel__header">
+    <section class="chip-card space-y-6">
+        <header class="chip-card__header">
             <div>
-                <h3 class="guilds-panel__title">Connected Discord servers</h3>
-                <p class="guilds-panel__subtitle">
+                <h3 class="chip-card__title">Connected Discord servers</h3>
+                <p class="chip-card__subtitle">
                     Track where the bot already lives and where you still can invite it.
                 </p>
             </div>
         </header>
 
-        <div v-if="loading" class="guilds-panel__body guilds-panel__body--loading">
-            <div class="guilds__skeleton" v-for="index in 2" :key="`skeleton-${index}`"></div>
+        <div v-if="loading" class="grid gap-4 md:grid-cols-2">
+            <div v-for="index in 2" :key="`skeleton-${index}`" class="h-32 rounded-2xl border border-white/10 bg-white/5 animate-pulse"></div>
         </div>
-        <div v-else class="guilds-panel__body guilds">
-            <article class="guilds__column">
-                <div class="guilds__column-header">
+        <div v-else class="grid gap-4 md:grid-cols-2">
+            <article class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div class="flex items-center justify-between gap-3">
                     <div>
-                        <h4 class="guilds__title">Active</h4>
-                        <p class="guilds__subtitle">Currently connected</p>
+                        <h4 class="text-base font-semibold text-white">Active</h4>
+                        <p class="text-sm text-slate-400">Currently connected</p>
                     </div>
-                    <span class="guilds__badge">{{ addedGuilds.length }}</span>
+                    <span class="chip-badge">{{ addedGuilds.length }}</span>
                 </div>
-                <p v-if="!hasAdded" class="guilds__empty">The bot is not active on any managed server.</p>
-                <ul v-else class="guilds__list">
-                    <li v-for="guild in addedGuilds" :key="guild.id" class="guilds__item">
-                        <div class="guilds__info">
-                            <span class="guilds__name">{{ guild.name }}</span>
-                            <span class="guilds__descriptor">Live</span>
+                <p v-if="!hasAdded" class="chip-empty mt-4">The bot is not active on any managed server.</p>
+                <ul v-else class="mt-4 space-y-3">
+                    <li v-for="guild in addedGuilds" :key="guild.id" class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/50 px-4 py-3">
+                        <div>
+                            <p class="font-semibold text-white">{{ guild.name }}</p>
+                            <span class="chip-table__meta">Live</span>
                         </div>
-                        <div class="guilds__actions">
-                            <button
-                                v-if="showLeave"
-                                type="button"
-                                class="button button--ghost guilds__leave-button"
-                                @click="emitLeave(guild.id)"
-                            >
-                                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                    <path d="M4 9a1 1 0 100 2h12a1 1 0 100-2H4z" />
-                                </svg>
-                                Leave
-                            </button>
-                        </div>
+                        <button
+                            v-if="showLeave"
+                            type="button"
+                            class="chip-btn chip-btn-ghost px-3 py-1 text-sm"
+                            @click="emitLeave(guild.id)"
+                        >
+                            Leave
+                        </button>
                     </li>
                 </ul>
             </article>
-            <article class="guilds__column">
-                <div class="guilds__column-header">
+            <article class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div class="flex items-center justify-between gap-3">
                     <div>
-                        <h4 class="guilds__title">Available</h4>
-                        <p class="guilds__subtitle">Invite-ready servers</p>
+                        <h4 class="text-base font-semibold text-white">Available</h4>
+                        <p class="text-sm text-slate-400">Invite-ready servers</p>
                     </div>
-                    <span class="guilds__badge">{{ availableGuilds.length }}</span>
+                    <span class="chip-badge">{{ availableGuilds.length }}</span>
                 </div>
-                <p v-if="!hasAvailable" class="guilds__empty">
+                <p v-if="!hasAvailable" class="chip-empty mt-4">
                     No other servers grant you enough permissions.
                 </p>
-                <ul v-else class="guilds__list">
-                    <li v-for="guild in availableGuilds" :key="guild.id" class="guilds__item">
-                        <div class="guilds__info">
-                            <span class="guilds__name">{{ guild.name }}</span>
-                            <span class="guilds__descriptor guilds__descriptor--available">Invite-ready</span>
+                <ul v-else class="mt-4 space-y-3">
+                    <li v-for="guild in availableGuilds" :key="guild.id" class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-900/50 px-4 py-3">
+                        <div>
+                            <p class="font-semibold text-white">{{ guild.name }}</p>
+                            <span class="chip-table__meta">Invite-ready</span>
                         </div>
-                        <div class="guilds__actions">
-                            <button
-                                type="button"
-                                class="button button--secondary guilds__invite-button"
-                                @click="openInvite(guild.id)"
-                            >
-                                <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                    <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" />
-                                </svg>
-                                Invite
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            class="chip-btn chip-btn-secondary px-3 py-1 text-sm"
+                            @click="openInvite(guild.id)"
+                        >
+                            Invite
+                        </button>
                     </li>
                 </ul>
             </article>

@@ -1,30 +1,27 @@
 <template>
-    <div class="dashboard">
-        <header class="dashboard__header">
-            <div>
-                <h1 class="dashboard__title">Control panel</h1>
-                <p class="dashboard__subtitle">
+    <div class="flex flex-col gap-8">
+        <header class="flex flex-wrap items-start justify-between gap-4">
+            <div class="space-y-3 max-w-content">
+                <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Control panel</p>
+                <h1 class="text-3xl font-semibold tracking-tight text-white">Control panel</h1>
+                <p class="text-base text-slate-300">
                     Manage the bot, watch the linked servers, and keep an eye on the MySQL feed.
                 </p>
             </div>
-            <div class="dashboard__meta" v-if="user">
-                <span class="dashboard__meta-label">Access level:</span>
-                <span class="dashboard__meta-value">{{ roleLabel }}</span>
+            <div v-if="user" class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                <span class="text-slate-400">Access level:</span>
+                <span class="font-semibold text-white">{{ roleLabel }}</span>
             </div>
         </header>
 
         <transition name="fade">
-            <div
-                v-if="flashMessage"
-                class="dashboard__notice"
-                :class="`dashboard__notice--${flashMessage.type}`"
-            >
+            <div v-if="flashMessage" :class="flashNoticeClass">
                 {{ flashMessage.message }}
             </div>
         </transition>
 
-        <section class="dashboard__layout">
-            <div class="dashboard__col dashboard__col--main">
+        <section class="chip-grid chip-grid--split">
+            <div class="flex flex-col gap-6">
                 <BotStatusCard
                     :status="botStatus"
                     :loading="botLoading"
@@ -43,7 +40,7 @@
                     @action-error="handleActionError"
                 />
             </div>
-            <aside class="dashboard__col dashboard__col--side">
+            <aside class="flex flex-col gap-6">
                 <AccessPolicyCard
                     :policy="accessPolicy"
                     :loading="accessPolicyLoading"
@@ -54,7 +51,7 @@
             </aside>
         </section>
 
-        <section class="dashboard__section">
+        <section class="flex flex-col gap-4">
             <UserTable
                 :users="users"
                 :pagination="pagination"
@@ -67,9 +64,9 @@
             />
         </section>
 
-        <p v-if="errorMessage" class="dashboard__error">
+        <div v-if="errorMessage" class="chip-notice chip-notice-error">
             {{ errorMessage }}
-        </p>
+        </div>
     </div>
 </template>
 
@@ -139,6 +136,16 @@ export default {
         }),
         roleLabel() {
             return getRoleLabel(this.user?.role)
+        },
+        flashNoticeClass() {
+            if (!this.flashMessage) return ""
+            const variants = {
+                success: "chip-notice-success",
+                warning: "chip-notice-warning",
+                error: "chip-notice-error",
+                info: "chip-notice-info"
+            }
+            return variants[this.flashMessage.type] || variants.info
         },
         cooldownDuration() {
             return this.panelConfig?.toggles?.cooldownMs || 15000
@@ -551,30 +558,3 @@ export default {
     }
 }
 </script>
-
-<style scoped>
-.dashboard__meta-value {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.dashboard__notice {
-    margin: 16px 0;
-    padding: 14px 18px;
-    border-radius: 12px;
-    font-weight: 500;
-    background: rgba(148, 163, 184, 0.1);
-    color: #e2e8f0;
-}
-
-.dashboard__notice--success {
-    background: rgba(74, 222, 128, 0.2);
-    color: #bbf7d0;
-}
-
-.dashboard__notice--warning {
-    background: rgba(250, 204, 21, 0.2);
-    color: #fef08a;
-}
-</style>

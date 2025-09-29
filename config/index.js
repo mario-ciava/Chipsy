@@ -1,5 +1,6 @@
 const { config: loadEnv } = require("dotenv")
 const { z } = require("zod")
+const uiTheme = require("./uiTheme")
 
 // Load environment variables once at startup
 const result = loadEnv()
@@ -529,5 +530,6 @@ const upgradeToolkit = {
 module.exports = {
     ...config,
     constants,
-    upgrades: upgradeToolkit
+    upgrades: upgradeToolkit,
+    uiTheme
 }

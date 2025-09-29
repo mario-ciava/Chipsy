@@ -1,147 +1,121 @@
 <template>
-    <div class="page home">
-        <header class="home__hero">
-            <span v-if="isAuthenticated" class="home__badge">
-                {{ roleLabel }} access
-            </span>
-            <h1 class="page__title">Chipsy Control Center</h1>
-            <p class="page__subtitle home__subtitle">
-                Monitor the bot, surface player stats, and drop Chipsy into Discord servers without touching a terminal.
-            </p>
-            <div class="home__cta" v-if="!isAuthenticated">
-                <button class="button button--primary home__cta-button" @click="goToLogin" :disabled="processing">
-                    <span v-if="processing">Redirecting…</span>
-                    <span v-else>Sign in with Discord</span>
-                </button>
-            </div>
-            <div class="home__cta home__cta--authed" v-else>
-                <router-link
-                    v-if="isAdmin"
-                    to="/control_panel"
-                    class="button button--primary home__cta-button"
-                >
-                    Open the panel
-                </router-link>
-                <router-link
-                    v-if="canViewLogs"
-                    to="/logs"
-                    class="button button--secondary home__cta-button"
-                >
-                    View logs
-                </router-link>
+    <div class="flex flex-col gap-10">
+        <header class="rounded-3xl border border-white/10 bg-gradient-to-br from-violet-600/20 via-slate-900/80 to-indigo-900/40 p-8 text-center shadow-chip-card lg:text-left">
+            <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div class="space-y-4">
+                    <span v-if="isAuthenticated" class="chip-pill chip-pill-info self-start">
+                        {{ roleLabel }} access
+                    </span>
+                    <h1 class="text-4xl font-semibold text-white">Chipsy Control Center</h1>
+                    <p class="text-base text-slate-200">
+                        Monitor the bot, surface player stats, and drop Chipsy into Discord servers without touching a terminal.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                        v-if="!isAuthenticated"
+                        class="chip-btn chip-btn-primary min-w-[200px]"
+                        @click="goToLogin"
+                        :disabled="processing"
+                    >
+                        <span v-if="processing">Redirecting…</span>
+                        <span v-else>Sign in with Discord</span>
+                    </button>
+                    <template v-else>
+                        <router-link
+                            v-if="isAdmin"
+                            to="/control_panel"
+                            class="chip-btn chip-btn-primary min-w-[180px]"
+                        >
+                            Open the panel
+                        </router-link>
+                        <router-link
+                            v-if="canViewLogs"
+                            to="/logs"
+                            class="chip-btn chip-btn-secondary min-w-[160px]"
+                        >
+                            View logs
+                        </router-link>
+                    </template>
+                </div>
             </div>
         </header>
 
-        <section v-if="isAuthenticated" class="home__dashboard">
-            <div class="home__grid">
-                <article class="card home__card home__profile-card">
-                    <header class="home__card-header">
+        <section v-if="isAuthenticated" class="space-y-8">
+            <div class="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+                <article class="chip-card space-y-6">
+                    <header class="flex items-center justify-between gap-3">
                         <div>
-                            <h2 class="card__title">Your Chipsy profile</h2>
-                            <p class="card__subtitle">
+                            <h2 class="chip-card__title">Your Chipsy profile</h2>
+                            <p class="chip-card__subtitle">
                                 The same data exposed by the in-Discord <code>/profile</code> command.
                             </p>
                         </div>
-                        <span class="home__tag">@{{ userName || "unknown" }}</span>
+                        <span class="chip-pill chip-pill-ghost">@{{ userName || 'unknown' }}</span>
                     </header>
-
-                    <div v-if="profileStats" class="home__metrics">
-                        <div class="home__metric">
-                            <span class="home__metric-label">Balance</span>
-                            <span class="home__metric-value">{{ formattedBalance }}</span>
+                    <div v-if="profileStats" class="grid gap-4 md:grid-cols-2">
+                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p class="chip-label">Balance</p>
+                            <p class="text-2xl font-semibold text-white">{{ formattedBalance }}</p>
                         </div>
-                        <div class="home__metric">
-                            <span class="home__metric-label">Gold</span>
-                            <span class="home__metric-value">{{ profileStats.gold || 0 }}</span>
-                            <small class="home__metric-hint">Premium currency</small>
+                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p class="chip-label">Gold</p>
+                            <p class="text-2xl font-semibold text-white">{{ profileStats.gold || 0 }}</p>
+                            <p class="text-xs text-slate-400">Premium currency</p>
                         </div>
-                        <div class="home__metric">
-                            <span class="home__metric-label">Level</span>
-                            <span class="home__metric-value">
-                                Lv. {{ profileStats.level || 1 }}
-                            </span>
-                            <small class="home__metric-hint">
-                                {{ formattedExp }}
-                            </small>
+                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p class="chip-label">Level</p>
+                            <p class="text-2xl font-semibold text-white">Lv. {{ profileStats.level || 1 }}</p>
+                            <p class="text-xs text-slate-400">{{ formattedExp }}</p>
                         </div>
-                        <div class="home__metric">
-                            <span class="home__metric-label">Last activity</span>
-                            <span class="home__metric-value home__metric-value--sm">
-                                {{ profileLastPlayed }}
-                            </span>
-                            <small class="home__metric-hint">Next reward {{ profileNextReward }}</small>
+                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p class="chip-label">Last activity</p>
+                            <p class="text-base font-semibold text-white">{{ profileLastPlayed }}</p>
+                            <p class="text-xs text-slate-400">Next reward {{ profileNextReward }}</p>
                         </div>
                     </div>
-                    <p v-else class="home__placeholder">
+                    <p v-else class="chip-empty">
                         We could not find Chipsy stats for this account yet. Play a game to create the profile.
                     </p>
-
-                    <div class="home__profile-actions">
-                        <button
-                            class="button button--ghost"
-                            type="button"
-                            :disabled="profileRefreshing"
-                            @click="refreshProfile"
-                        >
-                            <span v-if="profileRefreshing" class="button__spinner"></span>
+                    <div class="flex justify-end">
+                        <button class="chip-btn chip-btn-ghost" type="button" :disabled="profileRefreshing" @click="refreshProfile">
+                            <span v-if="profileRefreshing" class="chip-spinner"></span>
                             <span v-else>Refresh info</span>
                         </button>
                     </div>
                 </article>
-
-                <article class="card home__card home__shortcuts">
-                    <h2 class="card__title">Handy shortcuts</h2>
-                    <ul class="home__shortcut-list">
-                        <li>
-                            <div>
-                                <p class="home__shortcut-label">Invite Chipsy</p>
-                                <p class="home__shortcut-desc">
-                                    Open Discord's OAuth flow and pick one of your managed servers.
-                                </p>
-                            </div>
-                            <button class="button button--secondary" type="button" @click="openGenericInvite">
-                                Invite
+                <article class="chip-card space-y-4">
+                    <h2 class="chip-card__title">Handy shortcuts</h2>
+                    <ul class="space-y-3 text-sm text-slate-200">
+                        <li class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p class="font-semibold text-white">Invite Chipsy</p>
+                            <p class="text-slate-300">Open Discord&apos;s OAuth flow and pick one of your managed servers.</p>
+                            <button class="chip-btn chip-btn-secondary mt-3 w-full" type="button" @click="openGenericInvite">
+                                Launch invite
                             </button>
                         </li>
-                        <li v-if="isAdmin">
-                            <div>
-                                <p class="home__shortcut-label">Control panel</p>
-                                <p class="home__shortcut-desc">
-                                    Toggle the bot, manage access lists, and run quick actions.
-                                </p>
-                            </div>
-                            <router-link to="/control_panel" class="button button--primary">
-                                Open
-                            </router-link>
-                        </li>
-                        <li v-if="canViewLogs">
-                            <div>
-                                <p class="home__shortcut-label">Live logs</p>
-                                <p class="home__shortcut-desc">
-                                    Monitor command usage and debug output without SSH.
-                                </p>
-                            </div>
-                            <router-link to="/logs" class="button button--ghost">
-                                Console
+                        <li class="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p class="font-semibold text-white">Review panel policy</p>
+                            <p class="text-slate-300">Check whitelist enforcement and server permissions.</p>
+                            <router-link to="/control_panel" class="chip-btn chip-btn-ghost mt-3 w-full">
+                                Open dashboard
                             </router-link>
                         </li>
                     </ul>
                 </article>
             </div>
 
-            <section class="home__section home__section--guilds">
-                <div class="home__section-header">
+            <section class="space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h3>Servers you can manage</h3>
-                        <p>
-                            Active and invite-ready guilds pulled straight from Discord. Admins can remove Chipsy from any active server.
-                        </p>
+                        <h3 class="text-xl font-semibold text-white">Servers you can manage</h3>
+                        <p class="text-sm text-slate-300">Active and invite-ready guilds pulled straight from Discord.</p>
                     </div>
-                    <span class="home__section-meta">
+                    <span class="chip-pill chip-pill-ghost">
                         {{ guilds.added.length }} active · {{ guilds.available.length }} invite-ready
                     </span>
                 </div>
-                <div v-if="guildNotice" class="home__section-notice">
+                <div v-if="guildNotice" class="chip-notice chip-notice-warning">
                     {{ guildNotice }}
                 </div>
                 <GuildOverview
@@ -153,25 +127,22 @@
             </section>
         </section>
 
-        <section v-else class="page__section home__section home__section--public">
-            <div class="card card--highlight home__card">
-                <h2 class="card__title">Sign in with Discord</h2>
-                <p class="card__body">
+        <section v-else class="grid gap-6 lg:grid-cols-2">
+            <div class="chip-card space-y-4">
+                <h2 class="chip-card__title">Sign in with Discord</h2>
+                <p class="text-sm text-slate-300">
                     Use your account to unlock the control panel. Only approved admins can enable or suspend Chipsy and review community stats.
                 </p>
-                <div class="home__cta">
-                    <button class="button button--primary home__cta-button" @click="goToLogin" :disabled="processing">
-                        <span v-if="processing">Redirecting…</span>
-                        <span v-else>Authenticate</span>
-                    </button>
-                </div>
+                <button class="chip-btn chip-btn-primary w-full" @click="goToLogin" :disabled="processing">
+                    <span v-if="processing">Redirecting…</span>
+                    <span v-else>Authenticate</span>
+                </button>
             </div>
-
-            <div class="card home__features">
-                <h3 class="card__title">Why Chipsy</h3>
-                <ul class="features-list">
+            <div class="chip-card space-y-4">
+                <h3 class="chip-card__title">Why Chipsy</h3>
+                <ul class="space-y-3 text-sm text-slate-200">
                     <li>
-                        <strong>Casino workflow:</strong> blackjack, texas hold'em, and other games with a bankroll shared between bot and panel.
+                        <strong>Casino workflow:</strong> blackjack, texas hold&apos;em, and other games with a bankroll shared between bot and panel.
                     </li>
                     <li>
                         <strong>Player progression:</strong> levels, auto-rewards, and stats kept in sync with MySQL.
@@ -183,12 +154,12 @@
             </div>
         </section>
 
-        <div v-if="processing" class="page__status home__status">
+        <div v-if="processing" class="chip-notice chip-notice-info">
             Validating your access…
         </div>
 
         <transition name="fade">
-            <div v-if="errorMessage" class="page__error">
+            <div v-if="errorMessage" class="chip-notice chip-notice-warning">
                 {{ errorMessage }}
             </div>
         </transition>
@@ -396,251 +367,3 @@ export default {
 }
 </script>
 
-<style scoped>
-.home {
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
-    padding: clamp(48px, 5vw, 72px) clamp(16px, 4vw, 40px);
-}
-
-.home__hero {
-    text-align: center;
-    max-width: 780px;
-    margin: 0 auto 24px;
-}
-
-.home__badge {
-    display: inline-flex;
-    padding: 6px 14px;
-    border-radius: 999px;
-    font-size: 0.85rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-bottom: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    background: rgba(148, 163, 184, 0.12);
-    color: var(--fg-secondary);
-}
-
-.home__cta {
-    margin-top: 24px;
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-.home__cta--authed {
-    margin-top: 16px;
-}
-
-.home__cta-button {
-    min-width: 160px;
-}
-
-.home__dashboard {
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-}
-
-.home__grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
-}
-
-.home__card {
-    height: 100%;
-    gap: 18px;
-}
-
-.home__card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-}
-
-.home__tag {
-    padding: 6px 12px;
-    border-radius: var(--radius-full, 999px);
-    background: rgba(124, 58, 237, 0.18);
-    border: 1px solid rgba(124, 58, 237, 0.35);
-    font-size: 0.9rem;
-    font-weight: 600;
-}
-
-.home__metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 16px;
-}
-
-.home__metric {
-    padding: 12px 14px;
-    border-radius: var(--radius-md);
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.home__metric-label {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--fg-muted);
-}
-
-.home__metric-value {
-    font-size: 1.35rem;
-    font-weight: 600;
-}
-
-.home__metric-value--sm {
-    font-size: 1rem;
-    word-break: break-word;
-}
-
-.home__metric-hint {
-    margin: 0;
-    color: var(--fg-muted);
-    font-size: 0.8rem;
-}
-
-.home__placeholder {
-    margin: 0;
-    padding: 14px;
-    border-radius: var(--radius-md);
-    background: rgba(248, 113, 113, 0.08);
-    border: 1px dashed rgba(248, 113, 113, 0.35);
-    color: #fecaca;
-}
-
-.home__profile-actions {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.home__shortcut-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-}
-
-.home__shortcut-list li {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    align-items: center;
-    padding: 12px 0;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-}
-
-.home__shortcut-list li:last-child {
-    border-bottom: none;
-}
-
-.home__shortcut-label {
-    margin: 0;
-    font-weight: 600;
-}
-
-.home__shortcut-desc {
-    margin: 4px 0 0;
-    color: var(--fg-muted);
-    font-size: 0.9rem;
-}
-
-.home__section--guilds {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.home__section-header {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-.home__section-header h3 {
-    margin: 0;
-    font-size: 1.2rem;
-}
-
-.home__section-header p {
-    margin: 4px 0 0;
-    color: var(--fg-muted);
-}
-
-.home__section-meta {
-    align-self: flex-start;
-    padding: 6px 12px;
-    border-radius: var(--radius-full, 999px);
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    background: rgba(15, 23, 42, 0.4);
-    font-weight: 600;
-}
-
-.home__section-notice {
-    padding: 10px 14px;
-    border-radius: 12px;
-    background: rgba(252, 211, 77, 0.15);
-    border: 1px solid rgba(252, 211, 77, 0.35);
-    color: #fef3c7;
-    font-weight: 500;
-}
-
-.home__section--public {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 20px;
-}
-
-.home__features {
-    gap: 16px;
-}
-
-.features-list {
-    margin: 0;
-    padding-left: 18px;
-    color: var(--fg-muted);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.home__status {
-    text-align: center;
-    margin-top: 12px;
-    color: var(--fg-muted);
-}
-
-@media (max-width: 640px) {
-    .home {
-        padding: 32px 16px 64px;
-    }
-
-    .home__metric-value {
-        font-size: 1.2rem;
-    }
-
-    .home__shortcut-list li {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .home__section-meta {
-        width: 100%;
-        text-align: center;
-    }
-}
-</style>

@@ -1,136 +1,153 @@
 <template>
-    <div :class="['card', 'bot-status-card', { 'card--updating': isUpdating }]">
-        <div class="card__header">
-            <div>
-                <h3 class="card__title">Bot status</h3>
-                <p class="card__subtitle">
-                    Check bot availability and the health of its dependencies.
-                </p>
+    <div class="chip-card overflow-hidden" :class="cardStateClass">
+        <div
+            v-if="isUpdating"
+            class="pointer-events-none absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-rose-500/15 animate-chip-shimmer"
+        ></div>
+        <div class="relative z-10 space-y-6">
+            <div class="chip-card__header">
+                <div>
+                    <h3 class="chip-card__title">Bot status</h3>
+                    <p class="chip-card__subtitle">
+                        Check bot availability and the health of its dependencies.
+                    </p>
+                </div>
+                <div>
+                    <transition name="status-flip" mode="out-in">
+                        <span
+                            :key="statusKey"
+                            class="chip-pill"
+                            :class="statusPillClass"
+                        >
+                            {{ statusLabel }}
+                        </span>
+                    </transition>
+                </div>
             </div>
-            <div class="card__status">
-                <transition name="status-flip" mode="out-in">
-                    <span
-                        :key="statusKey"
-                        class="status-pill"
-                        :class="statusClass"
-                    >
-                        {{ statusLabel }}
-                    </span>
-                </transition>
-            </div>
-        </div>
 
-        <div class="card__body">
-            <ul class="status-list status-grid">
-                <li v-for="metric in statusMetrics" :key="metric.key">
-                    <span class="status-list__label">{{ metric.label }}</span>
-                    <span
-                        class="status-list__value"
-                        :class="[metric.className, { 'status-list__value--loading': !metric.ready }]"
+            <ul class="grid gap-4 sm:grid-cols-3">
+                <li
+                    v-for="metric in statusMetrics"
+                    :key="metric.key"
+                    class="rounded-2xl border border-white/5 bg-white/5 px-4 py-3"
+                >
+                    <p class="chip-label text-[0.7rem]">{{ metric.label }}</p>
+                    <p
+                        v-if="metric.ready"
+                        :class="['mt-2 text-lg font-semibold text-white', metric.toneClass]"
                     >
-                        <template v-if="metric.ready">
-                            {{ metric.display }}
-                        </template>
-                        <span v-else class="status-list__placeholder" aria-hidden="true"></span>
-                    </span>
+                        {{ metric.display }}
+                    </p>
+                    <span
+                        v-else
+                        class="mt-2 block h-4 w-20 animate-pulse rounded-full bg-white/10"
+                        aria-hidden="true"
+                    ></span>
                 </li>
             </ul>
-        </div>
 
-        <div class="bot-status-card__footer">
-            <div class="card__actions bot-status-card__actions">
-                <button
-                    type="button"
-                    class="button button--secondary button--fixed-width"
-                    :disabled="disableDisableButton"
-                    @pointerdown="onHoldStart('disable', $event)"
-                    @pointerup="onHoldCancel"
-                    @pointerleave="onHoldCancel"
-                    @pointercancel="onHoldCancel"
-                    @keydown.space.prevent="onKeyHoldStart('disable', $event)"
-                    @keyup.space="onHoldCancel"
-                    @keydown.enter.prevent="onKeyHoldStart('disable', $event)"
-                    @keyup.enter="onHoldCancel"
-                    @blur="onHoldCancel"
-                    @contextmenu.prevent
-                >
-                    <span
-                        class="button__hold-progress"
-                        :class="{ 'button__hold-progress--active': isHoldTarget('disable') }"
-                        :style="holdProgressStyle('disable')"
-                        aria-hidden="true"
-                    ></span>
-                    <span v-if="loading && !status.enabled" class="button__spinner"></span>
-                    <span v-else class="button__content">
-                        <span>Disable</span>
+            <div class="flex flex-col gap-4">
+                <div class="flex flex-wrap gap-3">
+                    <button
+                        type="button"
+                        class="chip-btn chip-btn-secondary chip-btn-fixed relative overflow-hidden"
+                        :disabled="disableDisableButton"
+                        @pointerdown="onHoldStart('disable', $event)"
+                        @pointerup="onHoldCancel"
+                        @pointerleave="onHoldCancel"
+                        @pointercancel="onHoldCancel"
+                        @keydown.space.prevent="onKeyHoldStart('disable', $event)"
+                        @keyup.space="onHoldCancel"
+                        @keydown.enter.prevent="onKeyHoldStart('disable', $event)"
+                        @keyup.enter="onHoldCancel"
+                        @blur="onHoldCancel"
+                        @contextmenu.prevent
+                    >
                         <span
-                            v-if="showCooldownIndicator && cooldownTarget === 'disable'"
-                            class="button__cooldown"
-                        >
-                            <svg viewBox="0 0 24 24" class="button__cooldown-svg" aria-hidden="true">
-                                <circle cx="12" cy="12" r="9" class="button__cooldown-track" />
-                                <circle
-                                    cx="12"
-                                    cy="12"
-                                    r="9"
-                                    class="button__cooldown-progress"
-                                    :stroke-dasharray="cooldownCircumference"
-                                    :stroke-dashoffset="cooldownDashOffset"
-                                />
-                            </svg>
+                            class="chip-btn-progress"
+                            :class="{ 'opacity-100': isHoldTarget('disable') }"
+                            :style="holdProgressStyle('disable')"
+                            aria-hidden="true"
+                        ></span>
+                        <span v-if="loading && !status.enabled" class="chip-spinner"></span>
+                        <span v-else class="flex items-center gap-2">
+                            <span>Disable</span>
+                            <span
+                                v-if="showCooldownIndicator && cooldownTarget === 'disable'"
+                                class="relative inline-flex h-5 w-5 items-center justify-center"
+                            >
+                                <svg viewBox="0 0 24 24" class="h-5 w-5 text-white/80" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9" class="fill-none stroke-white/20" stroke-width="2"></circle>
+                                    <circle
+                                        cx="12"
+                                        cy="12"
+                                        r="9"
+                                        class="fill-none stroke-white"
+                                        stroke-width="2.5"
+                                        :stroke-dasharray="cooldownCircumference"
+                                        :stroke-dashoffset="cooldownDashOffset"
+                                        transform="rotate(-90 12 12)"
+                                    ></circle>
+                                </svg>
+                            </span>
                         </span>
-                    </span>
-                </button>
-                <button
-                    type="button"
-                    class="button button--primary button--fixed-width"
-                    :disabled="disableEnableButton"
-                    @pointerdown="onHoldStart('enable', $event)"
-                    @pointerup="onHoldCancel"
-                    @pointerleave="onHoldCancel"
-                    @pointercancel="onHoldCancel"
-                    @keydown.space.prevent="onKeyHoldStart('enable', $event)"
-                    @keyup.space="onHoldCancel"
-                    @keydown.enter.prevent="onKeyHoldStart('enable', $event)"
-                    @keyup.enter="onHoldCancel"
-                    @blur="onHoldCancel"
-                    @contextmenu.prevent
-                >
-                    <span
-                        class="button__hold-progress"
-                        :class="{ 'button__hold-progress--active': isHoldTarget('enable') }"
-                        :style="holdProgressStyle('enable')"
-                        aria-hidden="true"
-                    ></span>
-                    <span v-if="loading && status.enabled" class="button__spinner"></span>
-                    <span v-else class="button__content">
-                        <span>Enable</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="chip-btn chip-btn-primary chip-btn-fixed relative overflow-hidden"
+                        :disabled="disableEnableButton"
+                        @pointerdown="onHoldStart('enable', $event)"
+                        @pointerup="onHoldCancel"
+                        @pointerleave="onHoldCancel"
+                        @pointercancel="onHoldCancel"
+                        @keydown.space.prevent="onKeyHoldStart('enable', $event)"
+                        @keyup.space="onHoldCancel"
+                        @keydown.enter.prevent="onKeyHoldStart('enable', $event)"
+                        @keyup.enter="onHoldCancel"
+                        @blur="onHoldCancel"
+                        @contextmenu.prevent
+                    >
                         <span
-                            v-if="showCooldownIndicator && cooldownTarget === 'enable'"
-                            class="button__cooldown"
-                        >
-                            <svg viewBox="0 0 24 24" class="button__cooldown-svg" aria-hidden="true">
-                                <circle cx="12" cy="12" r="9" class="button__cooldown-track" />
-                                <circle
-                                    cx="12"
-                                    cy="12"
-                                    r="9"
-                                    class="button__cooldown-progress"
-                                    :stroke-dasharray="cooldownCircumference"
-                                    :stroke-dashoffset="cooldownDashOffset"
-                                />
-                            </svg>
+                            class="chip-btn-progress"
+                            :class="{ 'opacity-100': isHoldTarget('enable') }"
+                            :style="holdProgressStyle('enable')"
+                            aria-hidden="true"
+                        ></span>
+                        <span v-if="loading && status.enabled" class="chip-spinner"></span>
+                        <span v-else class="flex items-center gap-2">
+                            <span>Enable</span>
+                            <span
+                                v-if="showCooldownIndicator && cooldownTarget === 'enable'"
+                                class="relative inline-flex h-5 w-5 items-center justify-center"
+                            >
+                                <svg viewBox="0 0 24 24" class="h-5 w-5 text-white/80" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9" class="fill-none stroke-white/20" stroke-width="2"></circle>
+                                    <circle
+                                        cx="12"
+                                        cy="12"
+                                        r="9"
+                                        class="fill-none stroke-white"
+                                        stroke-width="2.5"
+                                        :stroke-dasharray="cooldownCircumference"
+                                        :stroke-dashoffset="cooldownDashOffset"
+                                        transform="rotate(-90 12 12)"
+                                    ></circle>
+                                </svg>
+                            </span>
                         </span>
+                    </button>
+                </div>
+                <div class="flex flex-wrap items-center gap-4 text-sm text-slate-300">
+                    <span class="inline-flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-violet-400"></span>
+                        Hold for 3 seconds to confirm.
                     </span>
-                </button>
-            </div>
-            <div class="bot-status-card__guidance">
-                <p class="bot-status-card__instruction">
-                    <span class="bot-status-card__instruction-icon" aria-hidden="true"></span>
-                    Hold for 3 seconds to confirm.
-                </p>
-                <p class="bot-status-card__note">
-                    Disables command responses; the process stays alive.
+                    <span v-if="formattedUpdatedAt" class="text-xs text-slate-400">
+                        Updated {{ formattedUpdatedAt }}
+                    </span>
+                </div>
+                <p class="text-xs text-slate-400">
+                    Disabling pauses command responses but keeps the process alive.
                 </p>
             </div>
         </div>
@@ -233,9 +250,12 @@ export default {
             if (this.isUpdating) return "Updating"
             return this.status.enabled ? "Online" : "Offline"
         },
-        statusClass() {
-            if (this.isUpdating) return "status-pill--warning"
-            return this.status.enabled ? "status-pill--success" : "status-pill--danger"
+        cardStateClass() {
+            return this.isUpdating ? "ring-1 ring-amber-400/30" : ""
+        },
+        statusPillClass() {
+            if (this.isUpdating) return "chip-pill-warning"
+            return this.status.enabled ? "chip-pill-success" : "chip-pill-danger"
         },
         statusKey() {
             if (this.isUpdating) return "updating"
@@ -264,21 +284,21 @@ export default {
                     key: "latency",
                     label: "Gateway latency",
                     display: ready ? (latencyValue !== null ? `${latencyValue} ms` : "N/A") : null,
-                    className: latencyValue !== null && latencyValue > 250 ? "status-list__value--warning" : null,
+                    toneClass: latencyValue !== null && latencyValue > 250 ? "chip-text-warning" : "",
                     ready
                 },
                 {
                     key: "mysql",
                     label: "MySQL",
                     display: ready ? (mysqlAlive ? "Online" : "Offline") : null,
-                    className: !mysqlAlive && ready ? "status-list__value--error" : null,
+                    toneClass: !mysqlAlive && ready ? "chip-text-danger" : "",
                     ready
                 },
                 {
                     key: "updated",
                     label: "Last update",
                     display: ready ? this.formattedUpdatedAt : null,
-                    className: null,
+                    toneClass: "",
                     ready
                 }
             ]
@@ -415,135 +435,3 @@ export default {
     }
 }
 </script>
-
-<style scoped>
-.bot-status-card {
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.4s ease, box-shadow 0.4s ease;
-}
-
-.bot-status-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
-}
-
-.card--updating::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 0% 0%, rgba(251, 191, 36, 0.12), transparent 55%),
-        radial-gradient(circle at 100% 0%, rgba(251, 146, 60, 0.12), transparent 55%);
-    pointer-events: none;
-    animation: shimmer 2s ease-in-out infinite;
-}
-
-.card--updating {
-    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.18);
-}
-
-.status-pill {
-    position: relative;
-    transition: transform 0.35s ease, background 0.35s ease, color 0.35s ease;
-}
-
-.card--updating .status-pill {
-    transform: translateY(0);
-    animation: pulse 1.6s ease-in-out infinite;
-}
-
-.status-flip-enter-active,
-.status-flip-leave-active {
-    transition: opacity 0.25s ease;
-}
-
-.status-flip-enter-from,
-.status-flip-leave-to {
-    opacity: 0;
-}
-
-@keyframes pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.7;
-    }
-}
-
-@keyframes shimmer {
-    0%,
-    100% {
-        opacity: 0.55;
-    }
-    50% {
-        opacity: 0.9;
-    }
-}
-
-@keyframes wave-motion {
-    0% {
-        transform: translate(-55%, -58%) rotate(0deg);
-    }
-    50% {
-        transform: translate(-45%, -62%) rotate(2deg);
-    }
-    100% {
-        transform: translate(-35%, -58%) rotate(0deg);
-    }
-}
-.button__content {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.button__cooldown {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.button__cooldown-svg {
-    width: 20px;
-    height: 20px;
-}
-
-.button__cooldown-track {
-    fill: none;
-    stroke: rgba(255, 255, 255, 0.2);
-    stroke-width: 2;
-}
-
-.button__cooldown-progress {
-    fill: none;
-    stroke: #fff;
-    stroke-width: 2.5;
-    transform-origin: center;
-    transform: rotate(-90deg);
-    transition: stroke-dashoffset 0.12s ease-out;
-}
-
-.button--fixed-width {
-    width: 148px;
-    flex-shrink: 0;
-    position: relative;
-    overflow: hidden;
-}
-
-.card__status {
-    min-width: 156px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.card__status .status-pill {
-    min-width: 100%;
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-}
-</style>

@@ -1,177 +1,143 @@
 <template>
-    <div class="page user-detail">
-        <div class="card user-detail__card">
-            <header class="user-detail__header">
-                <div>
-                    <h1 class="user-detail__title">{{ userDisplayName }}</h1>
-                    <div class="user-detail__id-row">
-                        <span class="user-detail__subtitle user-detail__id-label">Discord ID</span>
-                        <code class="user-detail__id-value">{{ userId }}</code>
+    <div class="flex flex-col gap-8">
+        <section class="chip-card space-y-6">
+            <header class="flex flex-wrap items-start justify-between gap-4">
+                <div class="space-y-3">
+                    <h1 class="text-3xl font-semibold text-white">{{ userDisplayName }}</h1>
+                    <p class="text-sm text-slate-300">Overview of the stored bankroll data and this account&apos;s panel privileges.</p>
+                    <div class="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+                        <span class="chip-label">Discord ID</span>
+                        <code class="font-mono text-white">{{ userId }}</code>
                         <button
                             type="button"
-                            class="button button--ghost button--icon"
+                            class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
                             @click="copyUserId"
                             aria-label="Copy Discord ID"
                         >
-                            <svg viewBox="0 0 20 20" aria-hidden="true">
-                                <rect x="6" y="6" width="9" height="9" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                                <rect x="3" y="3" width="9" height="9" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="1.5" />
-                            </svg>
-                            <span class="sr-only">Copy ID</span>
+                            Copy
                         </button>
                     </div>
-                    <p v-if="copyStatus" class="copy-status">{{ copyStatus }}</p>
-                    <p class="user-detail__description">
-                        Overview of the stored bankroll data and this account's panel privileges.
-                    </p>
+                    <p v-if="copyStatus" class="text-xs text-slate-400">{{ copyStatus }}</p>
                 </div>
-                <router-link to="/control_panel" class="button button--ghost">
+                <router-link to="/control_panel" class="chip-btn chip-btn-ghost">
                     ← Back to panel
                 </router-link>
             </header>
 
-            <div v-if="loading" class="user-detail__loading">Loading data…</div>
-            <div v-else-if="error" class="user-detail__error">{{ error }}</div>
-            <div v-else>
-                <div
-                    v-if="statusBanner"
-                    class="user-detail__alert"
-                    :class="`user-detail__alert--${statusBanner.tone}`"
-                >
+            <div v-if="loading" class="chip-empty">Loading data…</div>
+            <div v-else-if="error" class="chip-notice chip-notice-warning">{{ error }}</div>
+            <div v-else class="space-y-6">
+                <div v-if="statusBanner" :class="statusBannerClass">
                     {{ statusBanner.message }}
                 </div>
-                <div class="user-detail__grid">
-                    <section class="user-detail__section-card user-detail__section-card--balances">
-                        <h2 class="user-detail__section-title">Balances</h2>
-                        <ul class="user-detail__list user-detail__list--two-col">
-                            <li><span>Balance</span><strong>{{ formatted.money }}</strong></li>
-                            <li><span>Gold</span><strong>{{ formatted.gold }}</strong></li>
-                            <li><span>Biggest win</span><strong>{{ formatted.biggestWon }}</strong></li>
-                            <li><span>Biggest bet</span><strong>{{ formatted.biggestBet }}</strong></li>
-                        </ul>
-                    </section>
-                    <section class="user-detail__section-card">
-                        <h2 class="user-detail__section-title">Progression</h2>
-                        <ul class="user-detail__list user-detail__list--two-col">
-                            <li><span>Level</span><strong>{{ formatted.level }}</strong></li>
-                            <li><span>Exp</span><strong>{{ formatted.exp }}</strong></li>
-                            <li><span>Win rate</span><strong>{{ formatted.winRate }}</strong></li>
-                            <li><span>Last activity</span><strong>{{ formatted.lastPlayed }}</strong></li>
-                        </ul>
-                    </section>
-                    <section class="user-detail__section-card user-detail__section-card--access">
-                        <h2 class="user-detail__section-title">Panel access</h2>
-                        <ul class="user-detail__list user-detail__list--stacked">
-                            <li><span>Role</span><strong>{{ roleLabel }}</strong></li>
-                            <li>
-                                <span>Whitelist</span>
-                                <strong>{{ user.access?.isWhitelisted ? "Enabled" : "Disabled" }}</strong>
-                            </li>
-                            <li>
-                                <span>Blacklist</span>
-                                <strong>{{ user.access?.isBlacklisted ? "Enabled" : "Disabled" }}</strong>
-                            </li>
-                            <li>
-                                <span>Last update</span>
-                                <strong>{{ formatted.updatedAccess || "Not available" }}</strong>
-                            </li>
-                        </ul>
-                    </section>
-                </div>
-
-                <div class="user-detail__access">
-                    <section class="access-card">
-                        <h3 class="access-card__title">Role management</h3>
-                        <p class="access-card__copy">
-                            Assign a new role to define which areas of the control panel this account can reach.
-                        </p>
-                        <label class="form-label" for="role-select">Role</label>
-                        <div class="select-control">
-                            <select
-                                id="role-select"
-                                v-model="roleForm.pending"
-                                class="form-input form-input--select"
-                                :disabled="!canEditRole || roleForm.saving || availableRoleOptions.length === 0"
-                            >
-                                <option v-for="option in availableRoleOptions" :key="option.value" :value="option.value">
-                                    {{ option.label }}
-                                </option>
-                            </select>
-                            <span class="select-control__icon" aria-hidden="true">
-                                <svg viewBox="0 0 16 16" focusable="false">
-                                    <path d="M3.5 6l4.5 4 4.5-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                                </svg>
-                            </span>
-                        </div>
-                        <p class="form-role-description">
-                            {{ roleDescription }}
-                        </p>
-                        <p v-if="!canEditRole" class="form-hint">
-                            You don't have permissions to change this role or the user is the current master.
-                        </p>
-                        <div class="form-actions">
-                            <button
-                                type="button"
-                                class="button button--secondary"
-                                :disabled="!roleDirty || !canEditRole || roleForm.saving"
-                                @click="saveRole"
-                            >
-                                <span v-if="roleForm.saving" class="button__spinner"></span>
-                                <span v-else>Update role</span>
-                            </button>
-                            <span v-if="roleForm.error" class="form-feedback">{{ roleForm.error }}</span>
-                            <span v-else-if="roleForm.success" class="form-feedback form-feedback--success">
-                                {{ roleForm.success }}
-                            </span>
-                        </div>
-                    </section>
-
-                    <section class="access-card">
-                        <h3 class="access-card__title">Access lists</h3>
-                        <p class="access-card__copy">
-                            Blacklist permanently blocks the bot for this account. Whitelist grants access while whitelist mode is active (currently
-                            <strong>{{ whitelistActive ? "active" : "inactive" }}</strong>).
-                        </p>
-                        <div class="toggle-group">
-                            <label class="toggle">
-                                <input
-                                    type="checkbox"
-                                    v-model="listsForm.pendingWhitelist"
-                                    :disabled="!canEditLists || listsForm.saving"
-                                >
-                                <span>Whitelist</span>
-                            </label>
-                            <label class="toggle">
-                                <input
-                                    type="checkbox"
-                                    v-model="listsForm.pendingBlacklist"
-                                    :disabled="!canEditLists || listsForm.saving"
-                                >
-                                <span>Blacklist</span>
-                            </label>
-                        </div>
-                        <p v-if="!canEditLists" class="form-hint">
-                            Only admins can manage whitelist/blacklist entries.
-                        </p>
-                        <div class="form-actions">
-                            <button
-                                type="button"
-                                class="button button--ghost"
-                                :disabled="!listsDirty || !canEditLists || listsForm.saving"
-                                @click="saveLists"
-                            >
-                                <span v-if="listsForm.saving" class="button__spinner"></span>
-                                <span v-else>Save lists</span>
-                            </button>
-                            <span v-if="listsForm.error" class="form-feedback">{{ listsForm.error }}</span>
-                            <span v-else-if="listsForm.success" class="form-feedback form-feedback--success">
-                                {{ listsForm.success }}
-                            </span>
-                        </div>
-                    </section>
+                <div class="grid gap-4 lg:grid-cols-3">
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+                        <h2 class="chip-label">Balances</h2>
+                        <dl class="space-y-2 text-sm text-slate-300">
+                            <div class="flex justify-between"><dt>Balance</dt><dd class="font-semibold text-white">{{ formatted.money }}</dd></div>
+                            <div class="flex justify-between"><dt>Gold</dt><dd class="font-semibold text-white">{{ formatted.gold }}</dd></div>
+                            <div class="flex justify-between"><dt>Biggest win</dt><dd class="font-semibold text-white">{{ formatted.biggestWon }}</dd></div>
+                            <div class="flex justify-between"><dt>Biggest bet</dt><dd class="font-semibold text-white">{{ formatted.biggestBet }}</dd></div>
+                        </dl>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+                        <h2 class="chip-label">Progression</h2>
+                        <dl class="space-y-2 text-sm text-slate-300">
+                            <div class="flex justify-between"><dt>Level</dt><dd class="font-semibold text-white">{{ formatted.level }}</dd></div>
+                            <div class="flex justify-between"><dt>Exp</dt><dd class="font-semibold text-white">{{ formatted.exp }}</dd></div>
+                            <div class="flex justify-between"><dt>Win rate</dt><dd class="font-semibold text-white">{{ formatted.winRate }}</dd></div>
+                            <div class="flex justify-between"><dt>Last activity</dt><dd class="font-semibold text-white">{{ formatted.lastPlayed }}</dd></div>
+                        </dl>
+                    </article>
+                    <article class="rounded-2xl border border-white/10 bg-white/5 p-4 space-y-2">
+                        <h2 class="chip-label">Panel access</h2>
+                        <dl class="space-y-2 text-sm text-slate-300">
+                            <div class="flex justify-between"><dt>Role</dt><dd class="font-semibold text-white">{{ roleLabel }}</dd></div>
+                            <div class="flex justify-between"><dt>Whitelist</dt><dd class="font-semibold text-white">{{ user.access?.isWhitelisted ? 'Enabled' : 'Disabled' }}</dd></div>
+                            <div class="flex justify-between"><dt>Blacklist</dt><dd class="font-semibold text-white">{{ user.access?.isBlacklisted ? 'Enabled' : 'Disabled' }}</dd></div>
+                            <div class="flex justify-between"><dt>Last update</dt><dd class="font-semibold text-white">{{ formatted.updatedAccess || 'Not available' }}</dd></div>
+                        </dl>
+                    </article>
                 </div>
             </div>
-        </div>
+        </section>
+
+        <section class="grid gap-6 lg:grid-cols-2">
+            <article class="chip-card space-y-4">
+                <h3 class="chip-card__title">Role management</h3>
+                <p class="chip-card__subtitle">
+                    Assign a new role to define which areas of the control panel this account can reach.
+                </p>
+                <label class="chip-label">Role</label>
+                <select
+                    v-model="roleForm.pending"
+                    class="chip-input"
+                    :disabled="!canEditRole || roleForm.saving"
+                >
+                    <option v-for="option in availableRoleOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                    </option>
+                </select>
+                <p class="text-xs text-slate-400">{{ roleDescription }}</p>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        class="chip-btn chip-btn-secondary"
+                        :disabled="!roleDirty || !canEditRole || roleForm.saving"
+                        @click="saveRole"
+                    >
+                        <span v-if="roleForm.saving" class="chip-spinner"></span>
+                        <span v-else>Save role</span>
+                    </button>
+                    <span v-if="roleForm.error" class="text-xs text-rose-200">{{ roleForm.error }}</span>
+                    <span v-else-if="roleForm.success" class="text-xs text-emerald-200">{{ roleForm.success }}</span>
+                </div>
+            </article>
+
+            <article class="chip-card space-y-4">
+                <h3 class="chip-card__title">Access lists</h3>
+                <p class="chip-card__subtitle">
+                    Blacklist permanently blocks the bot for this account. Whitelist grants access while whitelist mode is active (currently
+                    <strong>{{ whitelistActive ? 'active' : 'inactive' }}</strong>).
+                </p>
+                <div class="space-y-3">
+                    <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <input
+                            type="checkbox"
+                            class="h-4 w-4 rounded border-white/20 bg-slate-900"
+                            v-model="listsForm.pendingWhitelist"
+                            :disabled="!canEditLists || listsForm.saving"
+                        >
+                        <span>Whitelist</span>
+                    </label>
+                    <label class="flex items-center gap-3 text-sm text-slate-200">
+                        <input
+                            type="checkbox"
+                            class="h-4 w-4 rounded border-white/20 bg-slate-900"
+                            v-model="listsForm.pendingBlacklist"
+                            :disabled="!canEditLists || listsForm.saving"
+                        >
+                        <span>Blacklist</span>
+                    </label>
+                    <p v-if="!canEditLists" class="text-xs text-slate-400">
+                        Only admins can manage whitelist/blacklist entries.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        class="chip-btn chip-btn-ghost"
+                        :disabled="!listsDirty || !canEditLists || listsForm.saving"
+                        @click="saveLists"
+                    >
+                        <span v-if="listsForm.saving" class="chip-spinner"></span>
+                        <span v-else>Save lists</span>
+                    </button>
+                    <span v-if="listsForm.error" class="text-xs text-rose-200">{{ listsForm.error }}</span>
+                    <span v-else-if="listsForm.success" class="text-xs text-emerald-200">{{ listsForm.success }}</span>
+                </div>
+            </article>
+        </section>
     </div>
 </template>
 
@@ -308,6 +274,12 @@ export default {
                 }
             }
             return null
+        },
+        statusBannerClass() {
+            if (!this.statusBanner) return ""
+            const tone = this.statusBanner.tone
+            if (tone === "danger") return "chip-notice chip-notice-error"
+            return "chip-notice chip-notice-info"
         },
         roleDirty() {
             return this.roleForm.pending && this.roleForm.pending !== this.roleForm.current
