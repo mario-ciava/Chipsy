@@ -1,16 +1,29 @@
 <template>
-    <div class="flex flex-col gap-8">
-        <header class="flex flex-wrap items-start justify-between gap-4">
-            <div class="space-y-3 max-w-content">
-                <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Control panel</p>
-                <h1 class="text-3xl font-semibold tracking-tight text-white">Control panel</h1>
-                <p class="text-base text-slate-300">
-                    Manage the bot, watch the linked servers, and keep an eye on the MySQL feed.
-                </p>
-            </div>
-            <div v-if="user" class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                <span class="text-slate-400">Access level:</span>
-                <span class="font-semibold text-white">{{ roleLabel }}</span>
+    <div class="chip-section">
+        <header class="chip-card chip-card--accent">
+            <div class="chip-card__header">
+                <div class="chip-stack">
+                    <div class="flex items-center gap-2">
+                        <span class="chip-eyebrow">Control panel</span>
+                        <span
+                            class="chip-info-dot"
+                            role="img"
+                            tabindex="0"
+                            aria-label="Realtime telemetry"
+                            :data-tooltip="`Dashboard data auto-refreshes every ${Math.round(statusRefreshInterval / 1000)}s.`"
+                        ></span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <h1 class="chip-heading">Orchestrate the Chipsy fleet</h1>
+                    </div>
+                    <p class="chip-card__subtitle chip-card__subtitle--tight">
+                        Stay on top of toggles, authorisations, and remote controls without bouncing between views.
+                    </p>
+                </div>
+                <div v-if="user" class="flex flex-col items-end gap-2 text-right">
+                    <span class="chip-label">Access level</span>
+                    <span class="chip-pill chip-pill-info">{{ roleLabel }}</span>
+                </div>
             </div>
         </header>
 
@@ -21,7 +34,7 @@
         </transition>
 
         <section class="chip-grid chip-grid--split">
-            <div class="flex flex-col gap-6">
+            <div class="chip-stack">
                 <BotStatusCard
                     :status="botStatus"
                     :loading="botLoading"
@@ -34,35 +47,31 @@
                     @toggle="toggleBot"
                     @kill="handleKillRequest"
                 />
-                <RemoteActions
-                    :actions="actions"
-                    @action-success="handleActionSuccess"
-                    @action-error="handleActionError"
-                />
-            </div>
-            <aside class="flex flex-col gap-6">
                 <AccessPolicyCard
                     :policy="accessPolicy"
                     :loading="accessPolicyLoading"
                     :saving="policySaving"
                     @toggle="handlePolicyToggle"
                 />
-                <GuildOverview :guilds="guilds" :loading="guildsLoading" @leave="leaveGuild" />
+            </div>
+            <aside class="chip-stack h-full">
+                <RemoteActions
+                    :actions="actions"
+                    @action-success="handleActionSuccess"
+                    @action-error="handleActionError"
+                />
             </aside>
         </section>
-
-        <section class="flex flex-col gap-4">
-            <UserTable
-                :users="users"
-                :pagination="pagination"
-                :loading="usersLoading"
-                :filters="userFilters"
-                @search="handleSearch"
-                @change-page="handlePageChange"
-                @refresh="refreshUsers"
-                @open-details="openUserDetails"
-            />
-        </section>
+        <UserTable
+            :users="users"
+            :pagination="pagination"
+            :loading="usersLoading"
+            :filters="userFilters"
+            @search="handleSearch"
+            @change-page="handlePageChange"
+            @refresh="refreshUsers"
+            @open-details="openUserDetails"
+        />
 
         <div v-if="errorMessage" class="chip-notice chip-notice-error">
             {{ errorMessage }}
@@ -74,7 +83,6 @@
 import { mapActions, mapGetters, mapState } from "vuex"
 import { getRoleLabel } from "../../constants/roles"
 import BotStatusCard from "./components/BotStatusCard.vue"
-import GuildOverview from "./components/GuildOverview.vue"
 import RemoteActions from "./components/RemoteActions.vue"
 import UserTable from "./components/UserTable.vue"
 import AccessPolicyCard from "./components/AccessPolicyCard.vue"
@@ -84,7 +92,6 @@ export default {
     name: "DashboardPage",
     components: {
         BotStatusCard,
-        GuildOverview,
         RemoteActions,
         UserTable,
         AccessPolicyCard

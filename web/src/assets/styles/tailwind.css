@@ -5,6 +5,24 @@
 @layer base {
     :root {
         color-scheme: dark;
+        --chip-color-background: #050816;
+        --chip-color-surface: rgba(13, 18, 32, 0.88);
+        --chip-color-surface-strong: rgba(15, 23, 42, 0.92);
+        --chip-color-border: rgba(148, 163, 184, 0.25);
+        --chip-color-soft-border: rgba(255, 255, 255, 0.08);
+        --chip-color-contrast: #f8fafc;
+        --chip-glow-violet: radial-gradient(circle at 25% 10%, rgba(99, 102, 241, 0.28), transparent 55%);
+        --chip-glow-fuchsia: radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.22), transparent 65%);
+        --chip-shell-gradient: linear-gradient(135deg, #0f172a 0%, #111827 40%, #10162a 100%);
+        --chip-role-master-start: theme("colors.roleBadge.masterStart");
+        --chip-role-master-end: theme("colors.roleBadge.masterEnd");
+        --chip-role-master-text: theme("colors.roleBadge.masterText");
+        --chip-role-admin-start: theme("colors.roleBadge.adminStart");
+        --chip-role-admin-end: theme("colors.roleBadge.adminEnd");
+        --chip-role-admin-text: theme("colors.roleBadge.adminText");
+        --chip-role-moderator-start: theme("colors.roleBadge.moderatorStart");
+        --chip-role-moderator-end: theme("colors.roleBadge.moderatorEnd");
+        --chip-role-moderator-text: theme("colors.roleBadge.moderatorText");
     }
 
     * {
@@ -12,11 +30,9 @@
     }
 
     body {
-        @apply min-h-screen bg-slate-950 font-sans text-slate-100;
-        background-color: #050816;
-        background-image:
-            radial-gradient(circle at 25% 10%, rgba(99, 102, 241, 0.28), transparent 55%),
-            linear-gradient(135deg, #0f172a 0%, #111827 40%, #10162a 100%);
+        @apply min-h-screen bg-chip-background font-sans text-chip-primary;
+        background-color: var(--chip-color-background);
+        background-image: var(--chip-glow-violet), var(--chip-shell-gradient);
         background-attachment: fixed;
         background-size: cover;
         margin: 0;
@@ -26,9 +42,7 @@
         content: "";
         position: fixed;
         inset: 0;
-        background-image:
-            radial-gradient(circle at 15% 20%, rgba(79, 70, 229, 0.35), transparent 60%),
-            radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.22), transparent 65%);
+        background-image: var(--chip-glow-violet), var(--chip-glow-fuchsia);
         opacity: 0.85;
         pointer-events: none;
         z-index: 0;
@@ -40,39 +54,56 @@
     }
 
     ::selection {
-        background-color: rgba(124, 58, 237, 0.35);
-        color: #f8fafc;
+        background-color: rgba(124, 58, 237, 0.45);
+        color: var(--chip-color-contrast);
     }
 
     a {
-        @apply font-medium text-violet-300 transition-colors duration-150 hover:text-violet-200;
+        @apply font-medium text-chip-secondary transition-colors duration-150 hover:text-white;
     }
 }
 
 @layer components {
     .chip-shell {
-        @apply flex min-h-screen flex-col gap-6 px-4 pb-10 pt-6 text-slate-100 md:px-10;
+        @apply relative mx-auto flex min-h-screen w-full max-w-shell flex-col gap-8 px-4 pb-12 pt-6 text-chip-primary sm:px-6 lg:px-8;
     }
 
     .chip-shell__nav {
-        @apply sticky top-0 z-10 flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-900/80 px-6 py-4 backdrop-blur-2xl md:flex-row md:items-center md:justify-between;
+        @apply sticky top-4 z-20 flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-white/10 bg-slate-900/70 px-5 py-4 shadow-chip-soft backdrop-blur-2xl sm:px-8;
+    }
+
+    .chip-shell__brand {
+        @apply flex items-center gap-3 text-lg font-semibold text-white;
+    }
+
+    .chip-shell__menu {
+        @apply flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-300;
+    }
+
+    .chip-shell__actions {
+        @apply flex flex-wrap items-center gap-3 text-sm text-slate-300;
     }
 
     .chip-nav__link {
-        @apply rounded-full px-4 py-2 text-sm font-semibold text-slate-300 transition hover:text-white;
+        @apply rounded-full px-4 py-2 text-sm font-semibold text-slate-400 transition hover:text-white;
     }
 
     .chip-nav__link.router-link-active,
     .chip-nav__link.router-link-exact-active {
-        @apply bg-white/15 text-white;
+        @apply bg-white/15 text-white shadow-chip-soft;
     }
 
     .chip-card {
-        @apply relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-chip-card backdrop-blur-2xl;
+        @apply relative flex flex-col gap-5 rounded-[28px] border border-white/10 bg-slate-900/70 p-6 text-slate-100 shadow-chip-card backdrop-blur-2xl sm:p-7;
     }
 
+    .chip-card--status {
+        @apply overflow-hidden;
+    }
+
+    .chip-card--accent,
     .chip-card-accent {
-        @apply chip-card border-violet-500/40 bg-gradient-to-br from-violet-600/20 via-violet-500/10 to-indigo-900/40;
+        @apply chip-card border-violet-500/35 bg-gradient-to-br from-violet-600/25 via-violet-500/10 to-indigo-900/50;
     }
 
     .chip-card-muted {
@@ -84,15 +115,104 @@
     }
 
     .chip-card__title {
-        @apply text-lg font-semibold tracking-tight text-white;
+        @apply text-[1.85rem] font-semibold leading-tight tracking-tight text-white;
     }
 
     .chip-card__subtitle {
-        @apply mt-1 text-sm text-slate-300;
+        @apply -mt-2.5 mb-5 text-base text-slate-300;
+    }
+
+    .chip-card__subtitle--tight {
+        @apply -mt-2 mb-2 text-base text-slate-300;
+    }
+
+    .chip-card__subtitle--reset {
+        @apply mt-0;
+    }
+
+    .chip-card__meta {
+        @apply text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-slate-400;
+    }
+
+    .chip-eyebrow {
+        @apply text-[0.7rem] font-semibold uppercase tracking-[0.28em] text-slate-400;
+    }
+
+    .chip-heading {
+        @apply text-3xl font-semibold tracking-tight text-white;
+    }
+
+    .chip-text {
+        @apply text-base text-slate-300;
     }
 
     .chip-section {
         @apply flex flex-col gap-6;
+    }
+
+    .chip-table-shell {
+        @apply flex flex-col gap-6;
+    }
+
+    .chip-filter-form {
+        @apply w-full;
+    }
+
+    .chip-search-toolbar {
+        @apply flex flex-wrap items-center gap-4 border-0 bg-transparent p-0;
+        @apply flex-col lg:flex-row lg:items-end;
+    }
+
+    .chip-search-toolbar .chip-toolbar__group {
+        @apply flex flex-1 flex-col gap-1;
+    }
+
+    .chip-search-toolbar .chip-toolbar__actions {
+        @apply flex flex-shrink-0 items-center gap-2;
+    }
+
+    .chip-search-stats {
+        @apply mt-3 mb-12 grid grid-cols-1 gap-y-4 px-3 sm:grid-cols-2 sm:gap-x-10 sm:gap-y-6 sm:px-6 lg:gap-x-14;
+    }
+
+    .chip-search-stats__divider {
+        @apply my-2 h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent;
+    }
+
+    .chip-search-column {
+        @apply flex flex-col divide-y divide-white/10;
+    }
+
+    .chip-search-stat {
+        @apply flex items-start justify-between gap-4 rounded-none border-0 bg-transparent px-1 py-4 sm:px-2;
+    }
+
+    .chip-search-column .chip-search-stat:first-child {
+        @apply pt-0;
+    }
+
+    .chip-search-column .chip-search-stat:last-child {
+        @apply pb-0;
+    }
+
+    .chip-search-stat__text {
+        @apply flex flex-col text-slate-200;
+    }
+
+    .chip-search-stat__label {
+        @apply text-xs font-semibold uppercase tracking-[0.32em] text-white;
+    }
+
+    .chip-search-stat__hint {
+        @apply text-xs text-slate-500;
+    }
+
+    .chip-search-stat__value {
+        @apply text-base font-semibold text-white;
+    }
+
+    .chip-stack {
+        @apply flex flex-col gap-3;
     }
 
     .chip-grid {
@@ -100,7 +220,15 @@
     }
 
     .chip-grid--split {
-        @apply grid-cols-1 lg:grid-cols-[2fr_1fr];
+        @apply grid-cols-1 lg:grid-cols-[1.8fr_1fr];
+    }
+
+    .chip-grid--auto {
+        @apply grid-cols-1 md:grid-cols-2 xl:grid-cols-3;
+    }
+
+    .chip-grid--filters {
+        @apply grid-cols-1 md:grid-cols-2;
     }
 
     .chip-btn {
@@ -108,35 +236,63 @@
     }
 
     .chip-btn-primary {
-        @apply chip-btn bg-violet-600/80 shadow-chip-soft hover:bg-violet-500/80;
+        @apply chip-btn bg-violet-600/90 shadow-chip-soft hover:bg-violet-500;
     }
 
     .chip-btn-secondary {
-        @apply chip-btn bg-slate-800/80 shadow-chip-soft hover:bg-slate-700/80;
+        @apply chip-btn bg-white/10 text-white hover:bg-white/20;
     }
 
     .chip-btn-ghost {
-        @apply chip-btn border border-white/10 bg-transparent hover:border-violet-400/40;
+        @apply chip-btn border border-white/15 bg-transparent text-slate-200 hover:border-violet-400/40 hover:text-white;
     }
 
     .chip-btn-danger {
-        @apply chip-btn bg-rose-600/80 hover:bg-rose-500/80;
+        @apply chip-btn bg-rose-600/85 hover:bg-rose-500;
+    }
+
+    .chip-btn-icon {
+        @apply chip-btn h-10 w-10 rounded-full p-0;
     }
 
     .chip-btn-fixed {
-        @apply min-w-[9rem];
+        @apply min-w-[7rem];
+    }
+
+    .chip-btn-compact {
+        @apply px-4 py-2 text-sm;
+    }
+
+    .chip-badge {
+        @apply inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-1.5 text-sm font-semibold text-white shadow-chip-soft;
+    }
+
+    .chip-badge__label {
+        @apply text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-white/70;
+    }
+
+    .chip-badge__value {
+        @apply text-base font-semibold text-white tracking-tight;
+    }
+
+    .chip-badge--indexed {
+        @apply border-violet-400/50 bg-violet-500/15;
+    }
+
+    .chip-badge--compact {
+        @apply px-3 py-1 text-xs;
     }
 
     .chip-btn-progress {
-        @apply absolute inset-y-0 left-0 h-full origin-left bg-white/20 opacity-0 transition duration-200 ease-out;
+        @apply absolute inset-y-0 left-0 h-full origin-left bg-white/25 opacity-0 transition duration-200 ease-out;
     }
 
     .chip-spinner {
-        @apply inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent;
+        @apply inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-transparent;
     }
 
     .chip-pill {
-        @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide;
+        @apply inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-200;
     }
 
     .chip-pill-success {
@@ -156,31 +312,173 @@
     }
 
     .chip-pill-ghost {
-        @apply chip-pill border-white/15 bg-white/5 text-slate-200;
+        @apply chip-pill border-white/20 bg-white/5 text-slate-200;
+    }
+
+    .chip-pill-metric {
+        @apply chip-pill border-white/30 bg-white/10 text-white shadow-chip-soft;
+    }
+
+    .chip-pill-identity {
+        @apply chip-pill-ghost inline-flex items-center justify-center px-4 py-2 text-sm font-semibold tracking-tight text-white;
+    }
+
+    .chip-pill-identity--icon {
+        @apply chip-pill-identity h-10 w-10 p-0 text-base;
+    }
+
+    .chip-identity {
+        @apply relative inline-flex items-center rounded-full border border-white/15 bg-white/10 pl-14 pr-6 py-1.5 text-sm font-semibold text-white shadow-chip-soft;
+    }
+
+    .chip-identity--combo {
+        @apply pr-6;
+    }
+
+    .chip-identity__avatar {
+        @apply absolute left-3 top-1/2 -translate-x-1/2 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full border-2 border-white/20 bg-slate-800 shadow-chip-soft;
+        overflow: hidden;
+    }
+
+    .chip-identity__avatar-img {
+        @apply h-full w-full object-cover;
+    }
+
+    .chip-identity__avatar-placeholder {
+        @apply text-base uppercase tracking-tight text-white/80;
+    }
+
+    .chip-identity__handle {
+        @apply tracking-tight pr-3 text-sm;
+    }
+
+    .chip-identity__cta {
+        @apply inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-base text-white transition hover:bg-white/20 disabled:opacity-50;
+    }
+
+    .chip-icon-btn {
+        @apply inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-base font-semibold text-white transition hover:bg-white/20 disabled:opacity-50;
+    }
+
+    .chip-icon-btn--active {
+        @apply border-violet-400/60 bg-violet-500/20 text-white;
+    }
+
+    .chip-icon-counter {
+        @apply inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-base font-semibold text-white shadow-chip-soft;
+    }
+
+    .chip-brand-avatar {
+        @apply flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/10 text-xl font-semibold text-white shadow-chip-soft;
+    }
+
+    .chip-brand-avatar__initial {
+        @apply leading-none;
+    }
+
+    .chip-brand-avatar__image {
+        @apply h-full w-full rounded-full object-cover;
+    }
+
+
+    .chip-status-scroll {
+        @apply overflow-y-auto overscroll-contain;
+        scrollbar-width: none;
+    }
+
+    .chip-status-scroll::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chip-scroll-hidden {
+        @apply overflow-y-auto overscroll-contain;
+        scrollbar-width: none;
+    }
+
+    .chip-scroll-hidden::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chip-scroll-hint {
+        @apply pointer-events-none absolute inset-x-0 bottom-0 flex w-full items-center justify-center bg-gradient-to-t from-slate-950/70 via-slate-950/0 to-transparent pb-2 pt-6 text-white/70;
+    }
+
+    .chip-scroll-dot {
+        @apply mx-1 h-1.5 w-1.5 rounded-full bg-white/70 opacity-70;
+    }
+
+    .chip-role-badge {
+        @apply chip-pill border border-transparent text-white shadow-chip-soft;
+        background-image: none;
+        letter-spacing: 0.08em;
+    }
+
+    .chip-role-master,
+    .chip-role-admin,
+    .chip-role-moderator {
+        @apply border-transparent;
     }
 
     .chip-role-master {
-        @apply border-amber-400/40 bg-amber-500/10 text-amber-100;
+        background-image: linear-gradient(
+            120deg,
+            var(--chip-role-master-start),
+            var(--chip-role-master-end)
+        );
+        color: var(--chip-role-master-text);
+        text-shadow: 0 1px 1px rgba(15, 23, 42, 0.25);
     }
 
     .chip-role-admin {
-        @apply border-sky-400/40 bg-sky-500/10 text-sky-100;
+        background-image: linear-gradient(
+            120deg,
+            var(--chip-role-admin-start),
+            var(--chip-role-admin-end)
+        );
+        color: var(--chip-role-admin-text);
+        text-shadow: 0 1px 1px rgba(15, 23, 42, 0.2);
     }
 
     .chip-role-moderator {
-        @apply border-emerald-400/40 bg-emerald-500/10 text-emerald-100;
+        background-image: linear-gradient(
+            120deg,
+            var(--chip-role-moderator-start),
+            var(--chip-role-moderator-end)
+        );
+        color: var(--chip-role-moderator-text);
+        text-shadow: 0 1px 1px rgba(15, 23, 42, 0.2);
     }
 
     .chip-role-user {
-        @apply border-white/15 bg-white/5 text-slate-200;
+        @apply chip-pill border border-white/20 bg-white/10 text-slate-100;
     }
 
     .chip-input {
-        @apply block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 focus:border-violet-400/60 focus:outline-none focus:ring-2 focus:ring-violet-500/30;
+        @apply block w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-violet-400/60 focus:outline-none focus:ring-2 focus:ring-violet-500/30;
+    }
+
+    .chip-input--bright-placeholder::placeholder {
+        color: rgba(248, 250, 252, 0.92);
+    }
+
+    .chip-select {
+        @apply chip-input appearance-none pr-10;
+        background-image: linear-gradient(45deg, transparent 50%, rgba(248, 250, 252, 0.8) 50%), linear-gradient(135deg, rgba(248, 250, 252, 0.8) 50%, transparent 50%);
+        background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+    }
+
+    .chip-select:focus {
+        background-position: calc(100% - 18px) calc(50% + 2px), calc(100% - 12px) calc(50% + 2px);
     }
 
     .chip-label {
-        @apply text-xs font-semibold uppercase tracking-wide text-slate-300;
+        @apply text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-400;
+    }
+
+    .chip-field-hint {
+        @apply text-[0.7rem] text-slate-500;
     }
 
     .chip-text-success {
@@ -195,28 +493,40 @@
         @apply text-rose-200;
     }
 
-    .chip-field-hint {
-        @apply text-xs text-slate-400;
-    }
-
     .chip-filter {
-        @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200;
+        @apply inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200;
     }
 
     .chip-filter__remove {
         @apply inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-slate-300 transition hover:bg-violet-500/40 hover:text-white;
     }
 
+    .chip-filter-indicator {
+        @apply absolute -right-1 -top-1 inline-flex h-2.5 w-2.5 items-center justify-center rounded-full border border-slate-950/50 bg-violet-400 shadow-chip-soft;
+    }
+
+    .chip-toolbar {
+        @apply flex flex-wrap items-center gap-4 rounded-2xl border border-white/5 bg-white/5 px-4 py-3;
+    }
+
+    .chip-toolbar__group {
+        @apply flex flex-1 flex-wrap items-center gap-3;
+    }
+
+    .chip-toolbar__actions {
+        @apply flex items-center gap-2;
+    }
+
     .chip-table {
-        @apply w-full border-collapse text-sm text-slate-100;
+        @apply w-full table-auto border-spacing-0 text-sm text-slate-100;
     }
 
     .chip-table thead th {
-        @apply border-b border-white/10 pb-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-300;
+        @apply border-b border-white/10 pb-3 text-left text-sm font-semibold tracking-tight text-white;
     }
 
     .chip-table tbody tr {
-        @apply border-b border-white/5 transition hover:bg-white/5;
+        @apply border-b border-white/5 transition hover:border-white/15 hover:bg-white/5;
     }
 
     .chip-table tbody tr:last-child {
@@ -224,7 +534,7 @@
     }
 
     .chip-table td {
-        @apply py-3 text-sm text-slate-100;
+        @apply py-4 align-middle text-sm text-slate-100;
     }
 
     .chip-table__meta {
@@ -232,15 +542,71 @@
     }
 
     .chip-table__username {
-        @apply flex flex-col;
+        @apply flex flex-col gap-0.5 text-sm text-white;
     }
 
     .chip-empty {
-        @apply rounded-2xl border border-dashed border-white/15 bg-white/5 px-4 py-6 text-center text-sm text-slate-300;
+        @apply rounded-[24px] border border-dashed border-white/20 bg-white/5 px-4 py-6 text-center text-sm text-slate-300;
     }
 
     .chip-divider {
-        @apply h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent;
+        @apply h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent;
+    }
+
+    .chip-divider--strong {
+        @apply via-white/40;
+    }
+
+    .chip-status {
+        @apply overflow-hidden rounded-[24px] border border-white/10 bg-white/5;
+    }
+
+    .chip-status__block {
+        @apply px-4 py-3;
+    }
+
+    .chip-status__block + .chip-status__block {
+        @apply border-t border-white/5;
+    }
+
+    .chip-status__row {
+        @apply flex items-center justify-between gap-4;
+    }
+
+    .chip-status__label {
+        @apply text-xs font-semibold uppercase tracking-[0.3em] text-slate-300;
+    }
+
+    .chip-status__value {
+        @apply text-base font-semibold text-white;
+    }
+
+    .chip-status__value--warn {
+        @apply text-amber-200;
+    }
+
+    .chip-status__value--ok {
+        @apply text-emerald-200;
+    }
+
+    .chip-status__value--danger {
+        @apply text-rose-200;
+    }
+
+    .chip-status__skeleton {
+        @apply h-4 w-16 animate-pulse rounded-full bg-white/10;
+    }
+
+    .chip-status__value--primary {
+        @apply text-sky-300;
+    }
+
+    .chip-status__value--accent {
+        @apply text-amber-300;
+    }
+
+    .chip-status__value--info {
+        @apply text-emerald-300;
     }
 
     .chip-modal-overlay {
@@ -252,7 +618,7 @@
     }
 
     .chip-badge {
-        @apply inline-flex min-w-[2.5rem] items-center justify-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm font-semibold text-white;
+        @apply inline-flex min-w-[2.5rem] items-center justify-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm font-semibold text-white;
     }
 
     .chip-segmented {
@@ -264,7 +630,7 @@
     }
 
     .chip-segmented__option--active {
-        @apply bg-white/15 text-white;
+        @apply bg-white/15 text-white shadow-chip-soft;
     }
 
     .chip-toast {
@@ -272,27 +638,32 @@
     }
 
     .chip-scroll {
-        @apply max-h-[420px] min-h-[220px] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-4;
+        @apply w-full overflow-y-auto rounded-none border-0 bg-transparent px-1 py-0;
+        scrollbar-width: none;
+    }
+
+    .chip-scroll::-webkit-scrollbar {
+        display: none;
     }
 
     .chip-log-lines {
-        @apply flex flex-col gap-2 font-mono text-sm;
+        @apply flex flex-col divide-y divide-white/10 font-mono text-sm;
     }
 
     .chip-log-line {
-        @apply grid grid-cols-[68px,52px,1fr] items-baseline gap-3 rounded-2xl border border-white/5 bg-white/5 px-3 py-2 text-slate-100 transition hover:border-white/20;
+        @apply grid grid-cols-[68px,52px,1fr] items-baseline gap-3 py-2 text-slate-100;
     }
 
-    .chip-log-line--success {
-        @apply border-emerald-400/40;
+    .chip-chevron {
+        @apply inline-flex h-4 w-4 items-center justify-center text-white transition-transform duration-200;
     }
 
-    .chip-log-line--warning {
-        @apply border-amber-400/40;
+    .chip-chevron svg {
+        @apply h-full w-full fill-current;
     }
 
-    .chip-log-line--error {
-        @apply border-rose-500/40;
+    .chip-chevron--expanded {
+        @apply rotate-180;
     }
 
     .chip-log-time {
@@ -339,49 +710,226 @@
         @apply chip-notice border-rose-500/40 bg-rose-500/10 text-rose-100;
     }
 
-    .fade-enter-active,
-    .fade-leave-active {
-        @apply transition duration-300 ease-out;
+    .chip-stat {
+        @apply rounded-2xl border border-white/10 bg-white/5 px-4 py-3;
     }
 
-    .fade-enter-from,
-    .fade-leave-to {
-        @apply translate-y-2 opacity-0;
+    .chip-stat--inline {
+        @apply flex flex-col gap-1;
     }
 
-    .toast-fade-enter-active,
-    .toast-fade-leave-active {
-        @apply transition duration-200 ease-out;
+    .chip-stat__label {
+        @apply chip-label text-[0.6rem];
     }
 
-    .toast-fade-enter-from,
-    .toast-fade-leave-to {
-        @apply translate-y-2 opacity-0;
+    .chip-stat__value {
+        @apply mt-2 text-lg font-semibold text-white;
     }
 
-    .status-flip-enter-active,
-    .status-flip-leave-active {
-        @apply transition duration-200 ease-out;
+    .chip-pagination {
+        @apply flex flex-wrap items-center justify-center gap-4 text-sm text-slate-300;
     }
 
-    .status-flip-enter-from,
-    .status-flip-leave-to {
-        @apply translate-y-1 opacity-0;
+    .chip-pagination__meta {
+        @apply text-sm font-medium text-slate-200;
     }
 
-    .log-entry-enter-active {
-        @apply transition duration-200 ease-out;
+    .chip-filter-panel {
+        @apply flex flex-col gap-5 rounded-[28px] border border-white/10 bg-white/5 p-5 lg:h-full;
     }
 
-    .log-entry-leave-active {
-        @apply transition duration-150 ease-in;
+    .chip-filter-panel__field {
+        @apply flex flex-col gap-2 text-sm text-slate-200;
     }
 
-    .log-entry-enter-from {
-        @apply translate-y-1 opacity-0;
+    .chip-filter-panel__range {
+        @apply flex items-center gap-2;
     }
 
-    .log-entry-leave-to {
-        @apply opacity-0;
+    .chip-filter-panel__divider {
+        @apply text-slate-500;
     }
+
+    .chip-filter-panel__footer {
+        @apply flex flex-col gap-3 border-t border-white/10 pt-4 lg:flex-row lg:items-center lg:justify-between;
+    }
+
+    .chip-filter-panel__chips {
+        @apply flex flex-wrap items-center gap-2;
+    }
+
+    .chip-filter-panel__cta {
+        @apply flex flex-wrap items-center gap-2;
+    }
+
+    .chip-info-dot {
+        @apply relative inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/30 text-[0.65rem] font-semibold text-white/70 transition hover:border-violet-300 hover:text-white focus-visible:border-violet-300 focus-visible:text-white;
+    }
+
+    .chip-info-dot::after {
+        content: "i";
+        line-height: 1;
+    }
+
+    .chip-info-dot::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: calc(100% + 0.35rem);
+        left: 50%;
+        transform: translate(-50%, 6px);
+        @apply min-w-[120px] max-w-[220px] rounded-2xl border border-white/20 bg-slate-950/90 px-3 py-2 text-[0.65rem] font-semibold text-white opacity-0 shadow-chip-soft transition;
+        pointer-events: none;
+        white-space: normal;
+    }
+
+    .chip-info-dot:focus-visible::before,
+    .chip-info-dot:hover::before {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+
+    .chip-toggle,
+    .chip-toggle-bare {
+        --chip-toggle-thumb-size: 1.25rem;
+        --chip-toggle-thumb-offset: 0.25rem;
+        --chip-toggle-transition: 1320ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .chip-toggle {
+        @apply inline-flex items-center justify-between gap-4 rounded-[999px] border border-white/25 bg-slate-950/70 px-3 py-2 text-left text-sm text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed;
+    }
+
+    .chip-toggle-bare {
+        @apply inline-flex items-center justify-end gap-0 border-0 bg-transparent p-0 text-left text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed min-w-0;
+        border-radius: 0;
+    }
+
+    .chip-toggle__label {
+        @apply text-[0.6rem] font-semibold uppercase tracking-[0.25em] text-slate-400;
+    }
+
+    .chip-toggle__track {
+        @apply relative inline-flex h-9 w-full max-w-[260px] items-center justify-center rounded-full bg-white/15 px-4 text-sm font-semibold uppercase text-white/80;
+        transition: background-color var(--chip-toggle-transition), border-color var(--chip-toggle-transition), color var(--chip-toggle-transition);
+        padding-left: calc(var(--chip-toggle-thumb-offset) + 0.35rem);
+        padding-right: 0.35rem;
+    }
+
+    .chip-toggle__thumb {
+        @apply absolute inline-block rounded-full bg-white shadow;
+        width: var(--chip-toggle-thumb-size);
+        height: var(--chip-toggle-thumb-size);
+        left: var(--chip-toggle-thumb-offset);
+        top: 50%;
+        transform: translateY(-50%);
+        transition: left var(--chip-toggle-transition), box-shadow var(--chip-toggle-transition);
+    }
+
+    .chip-toggle--on .chip-toggle__track {
+        @apply bg-emerald-500/70;
+        padding-left: 0.35rem;
+        padding-right: calc(var(--chip-toggle-thumb-offset) + 0.35rem);
+    }
+
+    .chip-toggle--on .chip-toggle__thumb {
+        left: calc(100% - (var(--chip-toggle-thumb-size) + var(--chip-toggle-thumb-offset)));
+    }
+
+    .chip-toggle--disabled {
+        @apply opacity-70 pointer-events-none;
+    }
+
+    .chip-toggle--disabled .chip-toggle__track {
+        @apply border border-white/15 bg-white/10 text-white/50;
+    }
+
+    .chip-toggle--ghost {
+        @apply border-dashed border-white/20 bg-transparent;
+    }
+
+    .chip-toggle--ghost .chip-toggle__track {
+        @apply bg-transparent border border-white/15;
+    }
+
+    .chip-toggle--bare {
+        @apply justify-end;
+    }
+
+    .chip-toggle--bare .chip-toggle__track {
+        @apply h-9 w-40 max-w-none bg-white/15;
+    }
+
+    .chip-toggle--bare .chip-toggle__thumb {
+        @apply h-5 w-5;
+    }
+
+    .chip-toggle__status {
+        @apply w-full text-center text-xs font-semibold uppercase text-white/80;
+        transition: color var(--chip-toggle-transition), padding var(--chip-toggle-transition);
+        padding-left: calc(var(--chip-toggle-thumb-offset) + 0.35rem);
+        padding-right: 0.35rem;
+    }
+
+    .chip-toggle--on .chip-toggle__status {
+        padding-left: 0.35rem;
+        padding-right: calc(var(--chip-toggle-thumb-offset) + 0.35rem);
+    }
+
+    .chip-toggle__status--ok {
+        @apply text-emerald-200;
+    }
+
+    .chip-toggle__status--warn {
+        @apply text-amber-200;
+    }
+
+    .chip-toggle__status--danger {
+        @apply text-rose-200;
+    }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    @apply transition duration-300 ease-out;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    @apply translate-y-2 opacity-0;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+    @apply transition duration-200 ease-out;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+    @apply translate-y-2 opacity-0;
+}
+
+.status-flip-enter-active,
+.status-flip-leave-active {
+    @apply transition duration-200 ease-out;
+}
+
+.status-flip-enter-from,
+.status-flip-leave-to {
+    @apply translate-y-1 opacity-0;
+}
+
+.log-entry-enter-active {
+    @apply transition duration-200 ease-out;
+}
+
+.log-entry-leave-active {
+    @apply transition duration-150 ease-in;
+}
+
+.log-entry-enter-from {
+    @apply translate-y-1 opacity-0;
+}
+
+.log-entry-leave-to {
+    @apply opacity-0;
 }

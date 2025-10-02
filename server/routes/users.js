@@ -247,7 +247,6 @@ const createUsersRouter = (dependencies) => {
             page,
             pageSize,
             search,
-            searchField,
             role,
             list,
             minLevel,
@@ -260,29 +259,13 @@ const createUsersRouter = (dependencies) => {
         } = req.query || {}
 
         try {
-            let searchIds = null
-            let normalizedSearch = search
-            if (searchField === "username" && search) {
-                const resolvedIds = lookupUserIdsByName(search)
-                if (!resolvedIds.length) {
-                    return res.status(200).json({
-                        items: [],
-                        pagination: {
-                            page,
-                            pageSize,
-                            total: 0,
-                            totalPages: 1
-                        }
-                    })
-                }
-                searchIds = resolvedIds
-                normalizedSearch = undefined
-            }
+            const resolvedIds = search ? lookupUserIdsByName(search) : []
+            const searchIds = resolvedIds.length ? resolvedIds : undefined
 
             const result = await client.dataHandler.listUsers({
                 page,
                 pageSize,
-                search: normalizedSearch,
+                search,
                 userIds: searchIds,
                 role,
                 list: list === "all" ? undefined : list,

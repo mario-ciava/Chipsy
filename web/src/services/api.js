@@ -90,7 +90,6 @@ const api = {
         page,
         pageSize,
         search,
-        searchField,
         role,
         list,
         minLevel,
@@ -117,7 +116,6 @@ const api = {
             }
         }
 
-        assignIfPresent("searchField", searchField)
         assignIfPresent("role", role)
         assignIfPresent("list", list)
         assignIfPresent("minLevel", minLevel)

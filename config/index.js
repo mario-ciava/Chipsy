@@ -42,6 +42,102 @@ if (!parsedEnv.success) {
 
 const env = parsedEnv.data
 
+const clampChannel = (value) => {
+    if (!Number.isFinite(value)) {
+        return 0
+    }
+    return Math.min(255, Math.max(0, Math.round(value)))
+}
+
+const parseHexColor = (hex) => {
+    if (typeof hex !== "string") {
+        return null
+    }
+    const match = hex.trim().match(/^#?([0-9a-f]{6})$/i)
+    if (!match) {
+        return null
+    }
+    const value = match[1]
+    return {
+        r: parseInt(value.slice(0, 2), 16),
+        g: parseInt(value.slice(2, 4), 16),
+        b: parseInt(value.slice(4, 6), 16)
+    }
+}
+
+const rgbToHex = (r, g, b) => {
+    const toHex = (channel) => clampChannel(channel).toString(16).padStart(2, "0")
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+const mixHex = (color, target, ratio = 0.15) => {
+    const sourceRgb = parseHexColor(color)
+    const targetRgb = parseHexColor(target)
+    if (!sourceRgb || !targetRgb) {
+        return color
+    }
+    const blend = Math.min(1, Math.max(0, ratio))
+    const mixChannel = (source, destination) => source + (destination - source) * blend
+    return rgbToHex(
+        mixChannel(sourceRgb.r, targetRgb.r),
+        mixChannel(sourceRgb.g, targetRgb.g),
+        mixChannel(sourceRgb.b, targetRgb.b)
+    )
+}
+
+const lightenHex = (color, ratio = 0.15) => mixHex(color, "#ffffff", ratio)
+const darkenHex = (color, ratio = 0.15) => mixHex(color, "#000000", ratio)
+
+const roleBadges = Object.freeze({
+    master: Object.freeze({
+        start: lightenHex(uiTheme.colors.warning, 0.18),
+        end: darkenHex(uiTheme.colors.warning, 0.1),
+        text: "#0f172a"
+    }),
+    admin: Object.freeze({
+        start: lightenHex(uiTheme.colors.highlight, 0.1),
+        end: darkenHex(uiTheme.colors.accent, 0.1),
+        text: uiTheme.colors.primary
+    }),
+    moderator: Object.freeze({
+        start: lightenHex(uiTheme.colors.success, 0.15),
+        end: darkenHex(uiTheme.colors.success, 0.12),
+        text: "#052e16"
+    })
+})
+
+const designTokens = Object.freeze({
+    theme: uiTheme,
+    colors: uiTheme.colors,
+    fonts: uiTheme.fonts,
+    layout: uiTheme.layout,
+    radii: uiTheme.radii,
+    effects: uiTheme.effects,
+    spacing: Object.freeze({
+        shellPaddingX: 32,
+        shellPaddingY: 24,
+        sectionGap: uiTheme.layout.cardGap,
+        stackGap: 16,
+        cardPadding: 24
+    }),
+    typography: Object.freeze({
+        heading: {
+            weight: 600,
+            tracking: -0.02,
+            lineHeight: 1.2
+        },
+        body: {
+            size: 16,
+            lineHeight: 1.5
+        },
+        label: {
+            size: 12,
+            letterSpacing: 0.18
+        }
+    }),
+    roleBadges
+})
+
 const constants = {
     timeouts: {
         serverShutdown: 15000,
@@ -355,6 +451,18 @@ const config = {
             optionHover: "rgba(99, 102, 241, 0.35)",
             optionActive: "rgba(124, 58, 237, 0.45)",
             optionText: "#f8fafc"
+        },
+        userStats: {
+            densityModes: [
+                { label: "Comfort", value: "comfortable" },
+                { label: "Compact", value: "compact" }
+            ],
+            kpis: {
+                maxCards: 5,
+                veteranLevelThreshold: 40,
+                vipBalanceThreshold: 250000,
+                recentActivityWindowDays: 14
+            }
         }
     },
     blackjack: {
@@ -531,5 +639,6 @@ module.exports = {
     ...config,
     constants,
     upgrades: upgradeToolkit,
-    uiTheme
+    uiTheme,
+    designTokens
 }

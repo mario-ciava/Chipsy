@@ -1,167 +1,94 @@
 <template>
-    <div class="chip-card overflow-hidden" :class="cardStateClass">
+    <div class="chip-card chip-card--status" :class="cardStateClass">
         <div
             v-if="isUpdating"
             class="pointer-events-none absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-rose-500/15 animate-chip-shimmer"
         ></div>
-        <div class="relative z-10 space-y-6">
+        <div class="relative z-10 chip-stack">
             <div class="chip-card__header">
-                <div>
-                    <h3 class="chip-card__title">Bot status</h3>
-                    <p class="chip-card__subtitle">
-                        Check bot availability and the health of its dependencies.
-                    </p>
-                </div>
-                <div>
-                    <transition name="status-flip" mode="out-in">
+                <div class="chip-stack">
+                    <div class="flex items-center gap-2">
+                        <span class="chip-eyebrow">Runtime posture</span>
                         <span
-                            :key="statusKey"
-                            class="chip-pill"
-                            :class="statusPillClass"
-                        >
-                            {{ statusLabel }}
-                        </span>
-                    </transition>
+                            class="chip-info-dot"
+                            role="img"
+                            tabindex="0"
+                            aria-label="Runtime controls info"
+                            data-tooltip="Pause or resume the bot and monitor dependencies from here."
+                        ></span>
+                    </div>
+                    <h3 class="chip-card__title">Runtime health</h3>
+                    <p class="chip-card__subtitle chip-card__subtitle--tight">
+                        Track processes, cooldowns, and response posture in real time.
+                    </p>
                 </div>
             </div>
 
-            <ul class="grid gap-4 sm:grid-cols-3">
-                <li
-                    v-for="metric in statusMetrics"
+            <div class="chip-divider chip-divider--strong my-1"></div>
+            <div class="flex flex-col gap-3">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex flex-col">
+                        <span class="chip-status__label">Bot process</span>
+                        <span class="chip-field-hint">Pause or resume runtime responses.</span>
+                    </div>
+                    <ChipToggle
+                        class="w-40"
+                        :label="statusLabel"
+                        :checked="displayStatusEnabled"
+                        :visual-on="displayStatusEnabled"
+                        :busy="isUpdating"
+                        :disabled="processToggleDisabled"
+                        :tone="statusToggleTone"
+                        aria-label="Bot process toggle"
+                        @toggle="handleProcessToggle"
+                    />
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex flex-col">
+                        <span class="chip-status__label">MySQL</span>
+                        <span class="chip-field-hint">Database connectivity monitor.</span>
+                    </div>
+                    <ChipToggle
+                        class="w-40"
+                        :label="mysqlBadgeLabel"
+                        :checked="mysqlStatus"
+                        :disabled="true"
+                        :tone="mysqlToggleTone"
+                        aria-label="MySQL connectivity indicator"
+                    />
+                </div>
+            </div>
+
+            <div class="grid gap-3">
+                <div
+                    v-for="metric in latencyMetrics"
                     :key="metric.key"
-                    class="rounded-2xl border border-white/5 bg-white/5 px-4 py-3"
+                    class="flex items-center justify-between gap-4"
                 >
-                    <p class="chip-label text-[0.7rem]">{{ metric.label }}</p>
-                    <p
-                        v-if="metric.ready"
-                        :class="['mt-2 text-lg font-semibold text-white', metric.toneClass]"
-                    >
+                    <div class="flex flex-col">
+                        <span class="chip-status__label">{{ metric.label }}</span>
+                        <span class="chip-field-hint" v-if="metric.hint">{{ metric.hint }}</span>
+                    </div>
+                    <span v-if="metric.ready" class="chip-status__value" :class="metric.toneClass">
                         {{ metric.display }}
-                    </p>
-                    <span
-                        v-else
-                        class="mt-2 block h-4 w-20 animate-pulse rounded-full bg-white/10"
-                        aria-hidden="true"
-                    ></span>
-                </li>
-            </ul>
-
-            <div class="flex flex-col gap-4">
-                <div class="flex flex-wrap gap-3">
-                    <button
-                        type="button"
-                        class="chip-btn chip-btn-secondary chip-btn-fixed relative overflow-hidden"
-                        :disabled="disableDisableButton"
-                        @pointerdown="onHoldStart('disable', $event)"
-                        @pointerup="onHoldCancel"
-                        @pointerleave="onHoldCancel"
-                        @pointercancel="onHoldCancel"
-                        @keydown.space.prevent="onKeyHoldStart('disable', $event)"
-                        @keyup.space="onHoldCancel"
-                        @keydown.enter.prevent="onKeyHoldStart('disable', $event)"
-                        @keyup.enter="onHoldCancel"
-                        @blur="onHoldCancel"
-                        @contextmenu.prevent
-                    >
-                        <span
-                            class="chip-btn-progress"
-                            :class="{ 'opacity-100': isHoldTarget('disable') }"
-                            :style="holdProgressStyle('disable')"
-                            aria-hidden="true"
-                        ></span>
-                        <span v-if="loading && !status.enabled" class="chip-spinner"></span>
-                        <span v-else class="flex items-center gap-2">
-                            <span>Disable</span>
-                            <span
-                                v-if="showCooldownIndicator && cooldownTarget === 'disable'"
-                                class="relative inline-flex h-5 w-5 items-center justify-center"
-                            >
-                                <svg viewBox="0 0 24 24" class="h-5 w-5 text-white/80" aria-hidden="true">
-                                    <circle cx="12" cy="12" r="9" class="fill-none stroke-white/20" stroke-width="2"></circle>
-                                    <circle
-                                        cx="12"
-                                        cy="12"
-                                        r="9"
-                                        class="fill-none stroke-white"
-                                        stroke-width="2.5"
-                                        :stroke-dasharray="cooldownCircumference"
-                                        :stroke-dashoffset="cooldownDashOffset"
-                                        transform="rotate(-90 12 12)"
-                                    ></circle>
-                                </svg>
-                            </span>
-                        </span>
-                    </button>
-                    <button
-                        type="button"
-                        class="chip-btn chip-btn-primary chip-btn-fixed relative overflow-hidden"
-                        :disabled="disableEnableButton"
-                        @pointerdown="onHoldStart('enable', $event)"
-                        @pointerup="onHoldCancel"
-                        @pointerleave="onHoldCancel"
-                        @pointercancel="onHoldCancel"
-                        @keydown.space.prevent="onKeyHoldStart('enable', $event)"
-                        @keyup.space="onHoldCancel"
-                        @keydown.enter.prevent="onKeyHoldStart('enable', $event)"
-                        @keyup.enter="onHoldCancel"
-                        @blur="onHoldCancel"
-                        @contextmenu.prevent
-                    >
-                        <span
-                            class="chip-btn-progress"
-                            :class="{ 'opacity-100': isHoldTarget('enable') }"
-                            :style="holdProgressStyle('enable')"
-                            aria-hidden="true"
-                        ></span>
-                        <span v-if="loading && status.enabled" class="chip-spinner"></span>
-                        <span v-else class="flex items-center gap-2">
-                            <span>Enable</span>
-                            <span
-                                v-if="showCooldownIndicator && cooldownTarget === 'enable'"
-                                class="relative inline-flex h-5 w-5 items-center justify-center"
-                            >
-                                <svg viewBox="0 0 24 24" class="h-5 w-5 text-white/80" aria-hidden="true">
-                                    <circle cx="12" cy="12" r="9" class="fill-none stroke-white/20" stroke-width="2"></circle>
-                                    <circle
-                                        cx="12"
-                                        cy="12"
-                                        r="9"
-                                        class="fill-none stroke-white"
-                                        stroke-width="2.5"
-                                        :stroke-dasharray="cooldownCircumference"
-                                        :stroke-dashoffset="cooldownDashOffset"
-                                        transform="rotate(-90 12 12)"
-                                    ></circle>
-                                </svg>
-                            </span>
-                        </span>
-                    </button>
-                </div>
-                <div class="flex flex-wrap items-center gap-4 text-sm text-slate-300">
-                    <span class="inline-flex items-center gap-2">
-                        <span class="h-2 w-2 rounded-full bg-violet-400"></span>
-                        Hold for 3 seconds to confirm.
                     </span>
-                    <span v-if="formattedUpdatedAt" class="text-xs text-slate-400">
-                        Updated {{ formattedUpdatedAt }}
-                    </span>
+                    <span v-else class="chip-status__skeleton" aria-hidden="true"></span>
                 </div>
-                <p class="text-xs text-slate-400">
-                    Disabling pauses command responses but keeps the process alive.
-                </p>
             </div>
+
         </div>
     </div>
 </template>
 
 <script>
 import { formatDetailedDateTime } from "../../../utils/formatters"
-
-const COOLDOWN_CIRCUMFERENCE = 2 * Math.PI * 9
-const TOGGLE_HOLD_DURATION_MS = 3000
+import ChipToggle from "./ChipToggle.vue"
 
 export default {
     name: "BotStatusCard",
+    components: {
+        ChipToggle
+    },
     props: {
         status: {
             type: Object,
@@ -189,22 +116,14 @@ export default {
         },
         toggleHoldDuration: {
             type: Number,
-            default: TOGGLE_HOLD_DURATION_MS
+            default: 3000
         }
     },
     data() {
         return {
             forceUpdating: false,
             updatingTimeout: null,
-            hold: {
-                active: false,
-                target: null,
-                start: null,
-                progress: 0,
-                frameId: null,
-                timeoutId: null,
-                resetTimeout: null
-            }
+            optimisticStatus: null
         }
     },
     watch: {
@@ -220,46 +139,48 @@ export default {
                     this.updatingTimeout = null
                 }, 5000)
             }
-        },
-        cooldownActive(newVal) {
-            if (newVal) {
-                this.cancelHold(true)
+            if (!newVal && oldVal && this.optimisticStatus !== null) {
+                if (!this.statusAvailable || this.status.enabled !== this.optimisticStatus) {
+                    this.optimisticStatus = null
+                }
             }
         },
-        status() {
-            this.cancelHold(true)
+        "status.enabled"(value) {
+            if (this.optimisticStatus === null) return
+            if (typeof value === "boolean" && value === this.optimisticStatus) {
+                this.optimisticStatus = null
+            }
         }
     },
     beforeDestroy() {
         if (this.updatingTimeout) {
             clearTimeout(this.updatingTimeout)
         }
-        this.cancelHold(true)
     },
     computed: {
-        cooldownCircumference() {
-            return COOLDOWN_CIRCUMFERENCE
-        },
         statusAvailable() {
             return this.status && typeof this.status.enabled === "boolean"
+        },
+        displayStatusEnabled() {
+            if (this.optimisticStatus !== null) {
+                return this.optimisticStatus
+            }
+            if (this.statusAvailable) {
+                return this.status.enabled
+            }
+            return false
         },
         isUpdating() {
             return this.loading || this.forceUpdating || !this.statusAvailable
         },
         statusLabel() {
-            if (this.isUpdating) return "Updating"
-            return this.status.enabled ? "Online" : "Offline"
+            if (!this.statusAvailable && this.optimisticStatus === null) {
+                return "Loading…"
+            }
+            return this.displayStatusEnabled ? "Online" : "Offline"
         },
         cardStateClass() {
             return this.isUpdating ? "ring-1 ring-amber-400/30" : ""
-        },
-        statusPillClass() {
-            if (this.isUpdating) return "chip-pill-warning"
-            return this.status.enabled ? "chip-pill-success" : "chip-pill-danger"
-        },
-        statusKey() {
-            if (this.isUpdating) return "updating"
-            return this.status.enabled ? "enabled" : "disabled"
         },
         mysqlStatus() {
             const health = this.status && this.status.health
@@ -273,9 +194,8 @@ export default {
         metricsReady() {
             return this.statusAvailable
         },
-        statusMetrics() {
+        latencyMetrics() {
             const ready = this.metricsReady
-            const mysqlAlive = this.mysqlStatus
             const latencyValue = ready && typeof this.status.latency === "number"
                 ? Math.round(this.status.latency)
                 : null
@@ -283,154 +203,45 @@ export default {
                 {
                     key: "latency",
                     label: "Gateway latency",
+                    hint: "Discord websocket round-trip.",
                     display: ready ? (latencyValue !== null ? `${latencyValue} ms` : "N/A") : null,
-                    toneClass: latencyValue !== null && latencyValue > 250 ? "chip-text-warning" : "",
-                    ready
-                },
-                {
-                    key: "mysql",
-                    label: "MySQL",
-                    display: ready ? (mysqlAlive ? "Online" : "Offline") : null,
-                    toneClass: !mysqlAlive && ready ? "chip-text-danger" : "",
+                    toneClass: latencyValue !== null && latencyValue > 250 ? "chip-status__value--warn" : "chip-status__value--ok",
                     ready
                 },
                 {
                     key: "updated",
                     label: "Last update",
+                    hint: "Timestamp for the latest status poll.",
                     display: ready ? this.formattedUpdatedAt : null,
                     toneClass: "",
                     ready
                 }
             ]
         },
-        showCooldownIndicator() {
-            return this.cooldownActive && this.cooldownDuration > 0
+        mysqlBadgeLabel() {
+            if (!this.metricsReady) return "Loading…"
+            return this.mysqlStatus ? "Online" : "Offline"
         },
-        cooldownRatio() {
-            if (!this.showCooldownIndicator) return 0
-            const ratio = this.cooldownRemaining / this.cooldownDuration
-            return Math.min(1, Math.max(0, ratio))
+        statusToggleTone() {
+            if (this.isUpdating) return "warn"
+            return this.displayStatusEnabled ? "ok" : "danger"
         },
-        cooldownDashOffset() {
-            if (!this.showCooldownIndicator) return this.cooldownCircumference
-            return this.cooldownCircumference * (1 - this.cooldownRatio)
+        mysqlToggleTone() {
+            if (!this.metricsReady) return ""
+            return this.mysqlStatus ? "ok" : "danger"
         },
-        disableDisableButton() {
-            if (this.loading || this.cooldownActive) return true
-            if (!this.statusAvailable) return true
-            return !this.status.enabled
-        },
-        disableEnableButton() {
-            if (this.loading || this.cooldownActive) return true
-            if (!this.statusAvailable) return true
-            return this.status.enabled
-        },
-        holdDurationMs() {
-            const value = Number(this.toggleHoldDuration)
-            if (Number.isFinite(value) && value > 0) {
-                return value
-            }
-            return TOGGLE_HOLD_DURATION_MS
+        processToggleDisabled() {
+            if (this.loading || !this.statusAvailable) return true
+            return this.cooldownActive
         }
     },
     methods: {
-        toggle(enabled) {
-            this.$emit("toggle", enabled)
-        },
-        isHoldTarget(target) {
-            return this.hold.target === target && (this.hold.active || this.hold.progress > 0)
-        },
-        holdProgressStyle(target) {
-            const progress = this.hold.target === target ? this.hold.progress : 0
-            const clamped = Math.max(0, Math.min(1, progress))
-            return {
-                transform: `scaleX(${clamped})`
-            }
-        },
-        onHoldStart(target, event) {
-            if (event && event.buttons === 0 && event.pointerType === "mouse") {
-                return
-            }
-            if (this.isHoldDisabled(target)) return
-            if (this.hold.active) {
-                this.cancelHold(true)
-            }
-            this.hold.active = true
-            this.hold.target = target
-            this.hold.start = performance.now()
-            this.hold.progress = 0
-            if (this.hold.frameId) cancelAnimationFrame(this.hold.frameId)
-            if (this.hold.timeoutId) clearTimeout(this.hold.timeoutId)
-            if (this.hold.resetTimeout) {
-                clearTimeout(this.hold.resetTimeout)
-                this.hold.resetTimeout = null
-            }
-            const step = (timestamp) => {
-                if (!this.hold.active) return
-                const elapsed = timestamp - this.hold.start
-                const ratio = Math.min(1, elapsed / this.holdDurationMs)
-                this.hold.progress = ratio
-                if (ratio < 1) {
-                    this.hold.frameId = requestAnimationFrame(step)
-                }
-            }
-            this.hold.frameId = requestAnimationFrame(step)
-            this.hold.timeoutId = setTimeout(() => {
-                this.finishHold(true)
-            }, this.holdDurationMs)
-        },
-        onKeyHoldStart(target, event) {
-            if (event && event.repeat) return
-            this.onHoldStart(target)
-        },
-        onHoldCancel() {
-            if (this.hold.active) {
-                this.finishHold(false)
-            }
-        },
-        finishHold(triggerAction) {
-            if (this.hold.frameId) {
-                cancelAnimationFrame(this.hold.frameId)
-                this.hold.frameId = null
-            }
-            if (this.hold.timeoutId) {
-                clearTimeout(this.hold.timeoutId)
-                this.hold.timeoutId = null
-            }
-            const target = this.hold.target
-            const shouldTrigger = triggerAction && !!target
-            this.hold.active = false
-            if (shouldTrigger) {
-                this.hold.progress = 1
-                this.hold.resetTimeout = setTimeout(() => {
-                    this.resetHoldState()
-                }, 400)
-                this.toggle(target === "enable")
-            } else {
-                this.resetHoldState()
-            }
-            this.hold.target = null
-        },
-        cancelHold(force = false) {
-            if (!this.hold.active && !force) return
-            this.finishHold(false)
-        },
-        resetHoldState() {
-            this.hold.progress = 0
-            this.hold.active = false
-            if (this.hold.resetTimeout) {
-                clearTimeout(this.hold.resetTimeout)
-                this.hold.resetTimeout = null
-            }
-        },
-        isHoldDisabled(target) {
-            if (target === "enable") {
-                return this.disableEnableButton
-            }
-            if (target === "disable") {
-                return this.disableDisableButton
-            }
-            return true
+        handleProcessToggle(nextState) {
+            if (this.processToggleDisabled) return
+            const targetState =
+                typeof nextState === "boolean" ? nextState : !this.displayStatusEnabled
+            this.optimisticStatus = targetState
+            this.$emit("toggle", targetState)
         }
     }
 }

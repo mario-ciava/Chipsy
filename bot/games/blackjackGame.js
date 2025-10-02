@@ -117,6 +117,14 @@ function buildActionButtons(playerId, options) {
     return row.components.length > 0 ? row : null
 }
 
+function resolvePlayerStackDisplay(player) {
+    if (!player) return 0
+    if (Number.isFinite(player.stack) && player.stack > 0) return player.stack
+    if (Number.isFinite(player.pendingBuyIn) && player.pendingBuyIn > 0) return player.pendingBuyIn
+    if (Number.isFinite(player.buyInAmount) && player.buyInAmount > 0) return player.buyInAmount
+    return 0
+}
+
 function partitionBettingPlayers(players = []) {
     const summary = {
         withBets: [],
@@ -128,7 +136,7 @@ function partitionBettingPlayers(players = []) {
         if (hasBet) {
             summary.withBets.push(`${p} - ✅ ${setSeparator(p.bets.initial)}$`)
         } else {
-            summary.waitingDetailed.push(`${p} - ⏳ Waiting... (Stack: ${setSeparator(p.stack)}$)`)
+            summary.waitingDetailed.push(`${p} - ⏳ Waiting... (Stack: ${setSeparator(resolvePlayerStackDisplay(p))}$)`)
             summary.waitingStatus.push(`${p} - ⏳ Waiting...`)
         }
     })
@@ -152,6 +160,7 @@ module.exports = class BlackJack extends Game {
         this.betsPanelVersion = 0
         this.playersLeftDuringBets = []
         this.awaitingPlayerId = null
+        this.pendingJoins = new Map()
     }
 
     appendDealerTimeline(entry) {
@@ -178,6 +187,28 @@ module.exports = class BlackJack extends Game {
 
     resetBettingPhaseActivity() {
         this.playersLeftDuringBets = []
+    }
+
+    async waitForPendingJoin(playerId) {
+        if (!playerId || !this.pendingJoins?.has(playerId)) return
+        const pending = this.pendingJoins.get(playerId)
+        if (!pending) return
+        try {
+            await pending
+        } catch (error) {
+            logger.debug("Pending blackjack join rejected", {
+                scope: "blackjackGame",
+                playerId,
+                error: error.message
+            })
+        }
+    }
+
+    async waitForPendingJoins() {
+        if (!this.pendingJoins || this.pendingJoins.size === 0) return
+        const snapshot = Array.from(this.pendingJoins.values())
+        if (!snapshot.length) return
+        await Promise.allSettled(snapshot)
     }
 
     trackBettingDeparture(player) {
@@ -290,6 +321,11 @@ module.exports = class BlackJack extends Game {
                 ? `${user.username}#${user.discriminator || "0000"}`
                 : "Blackjack player"
 
+        const resolvedStack =
+            Number.isFinite(stackAmount) && stackAmount > 0
+                ? Math.floor(stackAmount)
+                : 0
+
         return {
             id: user.id,
             tag,
@@ -297,15 +333,48 @@ module.exports = class BlackJack extends Game {
             bot: user.bot,
             data: user.data ?? {},
             client: user.client,
-            stack:
-                Number.isFinite(stackAmount) && stackAmount > 0
-                    ? Math.floor(stackAmount)
-                    : 0,
+            stack: resolvedStack,
+            buyInAmount: resolvedStack,
+            pendingBuyIn: resolvedStack,
             newEntry: true,
             toString: safeToString,
             displayAvatarURL: safeDisplayAvatar,
             user
         }
+    }
+
+    resolveRefundableStack(player, options = {}) {
+        const includePending = Boolean(options.includePending)
+        const stackBalance = Number.isFinite(player?.stack) ? player.stack : 0
+        if (stackBalance > 0) {
+            return { amount: stackBalance, usedPending: false }
+        }
+        if (!includePending) {
+            return { amount: 0, usedPending: false }
+        }
+        const pendingAmount = Number.isFinite(player?.pendingBuyIn) ? player.pendingBuyIn : 0
+        const canUsePending = pendingAmount > 0 && (player?.newEntry || (!this.playing || this.hands < 1))
+        if (canUsePending) {
+            return { amount: pendingAmount, usedPending: true }
+        }
+        return { amount: 0, usedPending: false }
+    }
+
+    applyStackRefund(player, options = {}) {
+        if (!player) {
+            return { refunded: 0, usedPending: false }
+        }
+        const { includePending = false } = options
+        const { amount, usedPending } = this.resolveRefundableStack(player, { includePending })
+        if (amount <= 0) {
+            return { refunded: 0, usedPending: false }
+        }
+        player.stack = amount
+        bankrollManager.syncStackToBankroll(player)
+        if (usedPending || (player.pendingBuyIn > 0 && player.newEntry)) {
+            player.pendingBuyIn = 0
+        }
+        return { refunded: amount, usedPending }
     }
 
     async SendMessage(type, player, info) {
@@ -591,7 +660,7 @@ module.exports = class BlackJack extends Game {
                                 return !p.newEntry
                             })
                             .map((p) => {
-                                return `${p} - Stack: ${setSeparator(p.stack)}$`
+                                return `${p} - Stack: ${setSeparator(resolvePlayerStackDisplay(p))}$`
                             })
                             .join("\n") || "-"}`
                     })
@@ -885,6 +954,7 @@ module.exports = class BlackJack extends Game {
                         insurance: 0,
                         fromSplitAce: false
                     }
+                    player.pendingBuyIn = 0
                     player.hands = []
                     player.hands.push({
                         cards: await this.PickRandom(this.cards, 2),
@@ -1288,6 +1358,7 @@ module.exports = class BlackJack extends Game {
 
                 player.bets.initial = bet
                 player.bets.total += bet
+                player.pendingBuyIn = 0
 
                 if (player.newEntry) {
                     player.newEntry = false
@@ -2298,14 +2369,42 @@ module.exports = class BlackJack extends Game {
         return grossValue - parseInt(grossValue * (features.applyUpgrades("with-holding", player.data.withholding_upgrade, 0.0003 * 8, 0.00002 * 2.5)))
     }
 
+    async commitBuyIn(user, amount) {
+        const currentBankroll = bankrollManager.getBankroll(user)
+        if (currentBankroll < amount) {
+            const error = new Error("insufficient-bankroll")
+            error.code = "INSUFFICIENT_BANKROLL"
+            throw error
+        }
+        user.data.money = currentBankroll - amount
+        try {
+            await this.dataHandler.updateUserData(user.id, this.dataHandler.resolveDBUser(user))
+        } catch (error) {
+            user.data.money = currentBankroll
+            throw error
+        }
+        return true
+    }
+
     async AddPlayer(user, options = {}) {
-        if (!user || !user.id) return
+        if (!user || !user.id) {
+            return { ok: false, reason: "invalidUser" }
+        }
+        if (this.__stopping) {
+            logger.debug("Rejecting blackjack join while table is stopping", {
+                scope: "blackjackGame",
+                playerId: user.id
+            })
+            return { ok: false, reason: "stopping" }
+        }
         const maxSeats = Number.isFinite(this.maxPlayers) && this.maxPlayers > 0 ? this.maxPlayers : Infinity
         if (this.players.length >= maxSeats) {
             await this.SendMessage("maxPlayers", user)
-            return
+            return { ok: false, reason: "maxSeats" }
         }
-        if (this.GetPlayer(user.id)) return
+        if (this.GetPlayer(user.id)) {
+            return { ok: false, reason: "alreadySeated" }
+        }
         const requestedBuyIn =
             options.buyIn ?? options.requestedBuyIn ?? (typeof user.stack === "number" ? user.stack : undefined)
         const buyInResult = bankrollManager.normalizeBuyIn({
@@ -2316,24 +2415,50 @@ module.exports = class BlackJack extends Game {
         })
         if (!buyInResult.ok) {
             await this.SendMessage("noMoneyBet", user)
-            return
+            return { ok: false, reason: buyInResult.reason || "noMoney" }
         }
         const player = this.createPlayerSession(user, buyInResult.amount)
-        if (!player) return
-
-        // Subtract buy-in from user's bankroll (not from stack, as that's table-only)
-        const currentBankroll = bankrollManager.getBankroll(user)
-        if (currentBankroll < buyInResult.amount) {
-            await this.SendMessage("noMoneyBet", user)
-            return
+        if (!player) {
+            return { ok: false, reason: "sessionUnavailable" }
         }
-        user.data.money = currentBankroll - buyInResult.amount
-
-        // Save buy-in deduction to database immediately
-        await this.dataHandler.updateUserData(user.id, this.dataHandler.resolveDBUser(user))
 
         this.players.push(player)
-        // playerAdded message removed - lobby will handle the update
+
+        const buyInPromise = this.commitBuyIn(user, buyInResult.amount)
+        this.pendingJoins.set(player.id, buyInPromise)
+
+        try {
+            await buyInPromise
+        } catch (error) {
+            const index = this.players.indexOf(player)
+            if (index !== -1) this.players.splice(index, 1)
+            player.stack = 0
+
+            if (error?.code === "INSUFFICIENT_BANKROLL" || error?.code === "insufficient-bankroll") {
+                await this.SendMessage("noMoneyBet", user)
+            } else {
+                logger.error("Failed to finalize blackjack buy-in", {
+                    scope: "blackjackGame",
+                    playerId: user.id,
+                    error: error?.message
+                })
+                await this.SendMessage("noMoneyBet", user)
+            }
+            return { ok: false, reason: error?.code === "INSUFFICIENT_BANKROLL" ? "noMoney" : "buyInCommitFailed" }
+        } finally {
+            this.pendingJoins.delete(player.id)
+        }
+
+        if (this.__stopping) {
+            logger.debug("Blackjack table stopping during buy-in, refunding immediately", {
+                scope: "blackjackGame",
+                playerId: user.id
+            })
+            await this.RemovePlayer(player, { skipStop: true })
+            return { ok: false, reason: "stopping" }
+        }
+
+        return { ok: true, player }
     }
 
     async RemovePlayer(player, options = {}) {
@@ -2343,9 +2468,11 @@ module.exports = class BlackJack extends Game {
         const existing = this.GetPlayer(playerId)
         if (!existing) return false
 
+        await this.waitForPendingJoin(playerId)
+
         // Return stack to bankroll before removing player
-        if (existing.stack > 0) {
-            bankrollManager.syncStackToBankroll(existing)
+        const { refunded } = this.applyStackRefund(existing, { includePending: true })
+        if (refunded > 0) {
             await this.dataHandler.updateUserData(existing.id, this.dataHandler.resolveDBUser(existing))
         }
 
@@ -2404,6 +2531,7 @@ module.exports = class BlackJack extends Game {
             return null
         }
         this.__stopping = true
+        await this.waitForPendingJoins()
         if (typeof this.setRemoteMeta === "function") {
             this.setRemoteMeta({ paused: false, stoppedAt: new Date().toISOString() })
         }
@@ -2445,18 +2573,17 @@ module.exports = class BlackJack extends Game {
 
         // Sync all stacks to bankroll before stopping
         for (const player of this.players) {
-            if (player.stack > 0) {
-                bankrollManager.syncStackToBankroll(player)
-                try {
-                    await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
-                } catch (error) {
-                    logger.error("Failed to sync player stack on stop", {
-                        scope: "blackjackGame",
-                        channelId: this.channel?.id,
-                        playerId: player.id,
-                        error: error.message
-                    })
-                }
+            const { refunded } = this.applyStackRefund(player, { includePending: true })
+            if (refunded <= 0) continue
+            try {
+                await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
+            } catch (error) {
+                logger.error("Failed to sync player stack on stop", {
+                    scope: "blackjackGame",
+                    channelId: this.channel?.id,
+                    playerId: player.id,
+                    error: error.message
+                })
             }
         }
 

@@ -1,45 +1,90 @@
 <template>
-    <div class="chip-card space-y-6">
+    <div class="chip-card chip-stack h-full min-h-0">
         <div class="chip-card__header">
-            <div>
-                <h3 class="chip-card__title">Quick actions</h3>
-                <p class="chip-card__subtitle">
-                    Modular shell waiting for whatever remote commands we wire up next.
+            <div class="chip-stack">
+                <div class="flex items-center gap-2">
+                    <span class="chip-eyebrow">Quick actions</span>
+                    <span
+                        class="chip-info-dot"
+                        role="img"
+                        tabindex="0"
+                        aria-label="Command info"
+                        data-tooltip="Actions run through the admin API with CSRF protection."
+                    ></span>
+                </div>
+                <div class="flex items-center gap-3">
+                    <h3 class="chip-card__title">Remote controls</h3>
+                </div>
+                <p class="chip-card__subtitle chip-card__subtitle--tight">
+                    Trigger maintenance routines or shell scripts directly from the dashboard.
                 </p>
             </div>
         </div>
-        <div class="space-y-4">
-            <ul class="divide-y divide-white/5">
-                <li v-for="action in actions" :key="action.id" class="flex flex-wrap items-center justify-between gap-4 py-4">
+        <div class="chip-stack flex-1 overflow-hidden">
+            <div class="chip-divider chip-divider--strong my-1"></div>
+            <ul class="chip-scroll-hidden chip-stack divide-y divide-white/5 flex-1 pr-1">
+                <li
+                    v-for="action in actions"
+                    :key="action.id"
+                    class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-center lg:justify-between"
+                >
                     <div class="min-w-[200px] flex-1">
                         <h4 class="text-base font-semibold text-white">
                             {{ action.label }}
                         </h4>
-                        <p class="mt-1 text-sm text-slate-300">{{ action.description }}</p>
+                        <p class="mt-0.5 text-sm text-slate-300">{{ action.description }}</p>
                     </div>
-                    <button
-                        v-if="action.type === 'command'"
-                        class="chip-btn"
-                        :class="action.dangerous ? 'chip-btn-danger' : 'chip-btn-secondary'"
-                        :disabled="loading"
-                        @click="handleAction(action)"
-                    >
-                        <span v-if="loading" class="chip-spinner"></span>
-                        <span v-else>Execute</span>
-                    </button>
-                    <button v-else class="chip-btn chip-btn-ghost" disabled>
-                        {{ action.pendingLabel || "Coming soon" }}
-                    </button>
+                    <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
+                        <button
+                            v-if="action.type === 'command'"
+                            class="chip-btn chip-btn-fixed"
+                            :class="action.dangerous ? 'chip-btn-danger' : 'chip-btn-secondary'"
+                            :disabled="loading"
+                            @click="handleAction(action)"
+                        >
+                            <span v-if="loading" class="chip-spinner"></span>
+                            <span v-else>Execute</span>
+                        </button>
+                        <button v-else class="chip-btn chip-btn-secondary chip-btn-fixed" disabled>
+                            {{ action.pendingLabel || "Soon" }}
+                        </button>
+                    </div>
+                </li>
+                <li class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="min-w-[200px] flex-1">
+                        <h4 class="text-base font-semibold text-white">Drift mode</h4>
+                        <p class="mt-0.5 text-sm text-slate-300">
+                            Fire a “chaos” routine to stress test commands and log anomalies.
+                        </p>
+                    </div>
+                    <div class="inline-flex w-full items-start justify-start lg:w-auto">
+                        <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
+                            Soon
+                        </button>
+                    </div>
+                </li>
+                <li class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="min-w-[200px] flex-1">
+                        <h4 class="text-base font-semibold text-white">Cache purge</h4>
+                        <p class="mt-0.5 text-sm text-slate-300">
+                            Flush stale panel caches and refresh runtime keys across all regions.
+                        </p>
+                    </div>
+                    <div class="inline-flex w-full items-start justify-start lg:w-auto">
+                        <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
+                            Pending
+                        </button>
+                    </div>
                 </li>
             </ul>
-            <p v-if="!actions.length" class="chip-empty">
-                No remote actions configured yet. Ship them server-side before expecting magic here.
+            <p v-if="!actions.length" class="chip-field-hint text-slate-400">
+                Add at least one server-side action to unlock the controls above.
             </p>
         </div>
 
         <transition name="fade">
             <div v-if="showConfirm" class="chip-modal-overlay" @click.self="cancelConfirm">
-                <div class="chip-modal space-y-4">
+                <div class="chip-modal chip-stack">
                     <div>
                         <h3 class="text-xl font-semibold text-white">{{ confirmTitle }}</h3>
                         <p class="mt-2 text-sm text-slate-300">{{ confirmMessage }}</p>

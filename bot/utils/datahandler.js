@@ -62,7 +62,12 @@ const createDataHandler = (pool) => {
     const resolveDBUser = (user) => {
         if (!user || !user.data) throw new Error("User data is required to resolve the database payload.")
         const normalized = normalizeUserExperience(user.data)
-        user.data = { ...user.data, ...normalized }
+
+        if (user.data && typeof user.data === "object") {
+            Object.assign(user.data, normalized)
+        } else {
+            user.data = { ...normalized }
+        }
 
         return {
             money: user.data.money,
@@ -126,13 +131,25 @@ const createDataHandler = (pool) => {
         const filters = []
         const params = []
 
+        const searchClauses = []
         if (Array.isArray(userIds) && userIds.length > 0) {
             const placeholders = userIds.map(() => "?").join(", ")
-            filters.push(`u.\`id\` IN (${placeholders})`)
-            params.push(...userIds)
-        } else if (typeof search === "string" && search.trim().length > 0) {
-            filters.push("u.`id` LIKE ?")
-            params.push(`%${search.trim()}%`)
+            searchClauses.push({
+                clause: `u.\`id\` IN (${placeholders})`,
+                values: userIds
+            })
+        }
+        if (typeof search === "string" && search.trim().length > 0) {
+            searchClauses.push({
+                clause: "u.`id` LIKE ?",
+                values: [`%${search.trim()}%`]
+            })
+        }
+        if (searchClauses.length > 0) {
+            filters.push(`(${searchClauses.map((entry) => entry.clause).join(" OR ")})`)
+            searchClauses.forEach((entry) => {
+                params.push(...entry.values)
+            })
         }
 
         const normalizedMinLevel = clampNumber(minLevel, { min: 0, max: 500, integer: true })

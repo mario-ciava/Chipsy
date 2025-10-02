@@ -9,7 +9,6 @@ const initialPagination = () => ({
 
 const defaultFilters = () => ({
     search: "",
-    searchField: "id",
     role: "all",
     list: "all",
     minLevel: "",
@@ -44,7 +43,6 @@ const buildRequestFilters = (filters) => {
     if (filters.search) {
         payload.search = filters.search
     }
-    payload.searchField = filters.searchField || "id"
 
     if (filters.role && filters.role !== "all") {
         payload.role = filters.role

@@ -9,6 +9,7 @@ import LogoutPage from "../features/auth/LogoutPage.vue"
 import DashboardPage from "../features/dashboard/DashboardPage.vue"
 import UserDetailPage from "../features/users/UserDetailPage.vue"
 import LogsPage from "../features/logs/LogsPage.vue"
+import TablesPage from "../features/tables/TablesPage.vue"
 
 Vue.use(Router)
 
@@ -50,6 +51,15 @@ const router = new Router({
             path: "/logs",
             name: "Logs",
             component: LogsPage,
+            meta: {
+                requiresAuth: true,
+                requiresLogs: true
+            }
+        },
+        {
+            path: "/tables",
+            name: "Tables",
+            component: TablesPage,
             meta: {
                 requiresAuth: true,
                 requiresLogs: true

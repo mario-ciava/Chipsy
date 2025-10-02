@@ -82,7 +82,6 @@ const adminSchemas = {
 // User schemas
 const roleValues = ["MASTER", "ADMIN", "MODERATOR", "USER"]
 const listFilters = ["all", "whitelisted", "blacklisted", "neutral"]
-const searchFields = ["id", "username"]
 const activityFilters = ["any", "7d", "30d", "90d"]
 const sortColumns = ["last_played", "balance", "level"]
 const sortDirections = ["asc", "desc"]
@@ -109,7 +108,6 @@ const userSchemas = {
                 allowedTags: [],
                 allowedAttributes: {}
             }) : undefined),
-        searchField: z.enum(searchFields).default("id"),
         role: z.enum(roleValues).optional(),
         list: z.enum(listFilters).default("all"),
         minLevel: z.coerce.number().int().min(0).max(500).optional(),

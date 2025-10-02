@@ -599,7 +599,7 @@ describe("Express API integration", () => {
             ])
         }
 
-        const listResponse = await agent.requestJson("/api/users?search=lucky&searchField=username", {
+        const listResponse = await agent.requestJson("/api/users?search=lucky", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -607,7 +607,7 @@ describe("Express API integration", () => {
         expect(listResponse.response.status).toBe(200)
         expect(client.dataHandler.listUsers).toHaveBeenCalledWith(expect.objectContaining({
             userIds: ["user-1"],
-            search: undefined
+            search: "lucky"
         }))
 
         client.users = undefined

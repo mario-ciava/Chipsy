@@ -27,8 +27,43 @@ export const PANEL_DEFAULTS = Object.freeze({
         optionHover: "rgba(99, 102, 241, 0.35)",
         optionActive: "rgba(124, 58, 237, 0.45)",
         optionText: "#f8fafc"
+    },
+    userStats: {
+        densityModes: [
+            { label: "Comfort", value: "comfortable" },
+            { label: "Compact", value: "compact" }
+        ],
+        kpis: {
+            maxCards: 5,
+            veteranLevelThreshold: 40,
+            vipBalanceThreshold: 250000,
+            recentActivityWindowDays: 14
+        }
     }
 })
+
+const sanitizeDensityModes = (modes = []) => {
+    if (!Array.isArray(modes)) {
+        return PANEL_DEFAULTS.userStats.densityModes
+    }
+    const cleaned = modes
+        .map((mode) => {
+            const label = typeof mode?.label === "string" ? mode.label.trim() : ""
+            const value = typeof mode?.value === "string" ? mode.value.trim() : ""
+            if (!label || !value) {
+                return null
+            }
+            return { label, value }
+        })
+        .filter(Boolean)
+
+    return cleaned.length ? cleaned : PANEL_DEFAULTS.userStats.densityModes
+}
+
+const toPositiveNumber = (value, fallback) => {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback
+}
 
 export const getPanelConfig = (panel = {}) => ({
     http: {
@@ -62,5 +97,23 @@ export const getPanelConfig = (panel = {}) => ({
         optionHover: panel?.dropdown?.optionHover || PANEL_DEFAULTS.dropdown.optionHover,
         optionActive: panel?.dropdown?.optionActive || PANEL_DEFAULTS.dropdown.optionActive,
         optionText: panel?.dropdown?.optionText || PANEL_DEFAULTS.dropdown.optionText
+    },
+    userStats: {
+        densityModes: sanitizeDensityModes(panel?.userStats?.densityModes),
+        kpis: {
+            maxCards: toPositiveNumber(panel?.userStats?.kpis?.maxCards, PANEL_DEFAULTS.userStats.kpis.maxCards),
+            veteranLevelThreshold: toPositiveNumber(
+                panel?.userStats?.kpis?.veteranLevelThreshold,
+                PANEL_DEFAULTS.userStats.kpis.veteranLevelThreshold
+            ),
+            vipBalanceThreshold: toPositiveNumber(
+                panel?.userStats?.kpis?.vipBalanceThreshold,
+                PANEL_DEFAULTS.userStats.kpis.vipBalanceThreshold
+            ),
+            recentActivityWindowDays: toPositiveNumber(
+                panel?.userStats?.kpis?.recentActivityWindowDays,
+                PANEL_DEFAULTS.userStats.kpis.recentActivityWindowDays
+            )
+        }
     }
 })

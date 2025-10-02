@@ -1,16 +1,31 @@
 <template>
     <div class="chip-shell">
         <header class="chip-shell__nav">
-            <router-link to="/" class="text-2xl font-semibold tracking-tight text-white">
-                Chipsy
+            <router-link to="/" class="chip-shell__brand">
+                <div class="flex items-center gap-3">
+                    <div class="chip-brand-avatar">
+                        <img
+                            v-if="brandAvatarUrl"
+                            :src="brandAvatarUrl"
+                            :alt="`${brandInitial} avatar`"
+                            class="chip-brand-avatar__image"
+                        />
+                        <span v-else class="chip-brand-avatar__initial">{{ brandInitial }}</span>
+                    </div>
+                    <div class="flex flex-col leading-tight">
+                        <span class="text-2xl font-semibold text-white">Chipsy</span>
+                        <span class="chip-label text-[0.58rem] tracking-[0.25em]">Control Center</span>
+                    </div>
+                </div>
             </router-link>
-            <nav class="flex flex-wrap items-center justify-center gap-2 text-sm font-semibold text-slate-300">
+            <nav class="chip-shell__menu" aria-label="Main navigation">
                 <router-link exact to="/" class="chip-nav__link">Home</router-link>
                 <router-link v-if="isAdmin" to="/control_panel" class="chip-nav__link">Panel</router-link>
                 <router-link v-if="canViewLogs" to="/logs" class="chip-nav__link">Logs</router-link>
+                <router-link v-if="canViewLogs" to="/tables" class="chip-nav__link">Tables</router-link>
             </nav>
-            <div class="flex flex-wrap items-center justify-center gap-3 text-sm text-slate-300">
-                <span v-if="isAuthenticated">
+            <div class="chip-shell__actions">
+                <span v-if="isAuthenticated" class="text-sm">
                     Welcome <span class="font-semibold text-white">{{ userName }}</span>
                 </span>
                 <router-link
@@ -30,7 +45,7 @@
             </div>
         </header>
 
-        <main class="mx-auto flex w-full max-w-shell flex-1 flex-col gap-6">
+        <main class="chip-section flex-1">
             <router-view v-slot="{ Component, route }">
                 <transition :name="route.meta.transition || 'fade'" mode="out-in">
                     <component :is="Component" :key="route.path" />
@@ -49,6 +64,19 @@
 <script>
 import { mapGetters } from "vuex"
 
+const DEFAULT_BRAND_INITIAL = "C"
+const DEFAULT_BRAND_AVATAR = "https://cdn.discordapp.com/embed/avatars/0.png"
+
+const buildDiscordAvatarUrl = (user, size = 64) => {
+    if (!user?.id) return ""
+    if (user.avatar) {
+        return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=${size}`
+    }
+    const discriminator = Number(user.discriminator) || 0
+    const fallbackIndex = discriminator % 5
+    return `https://cdn.discordapp.com/embed/avatars/${fallbackIndex}.png?size=${size}`
+}
+
 export default {
     name: "App",
     data() {
@@ -61,9 +89,23 @@ export default {
         }
     },
     computed: {
-        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs"]),
+        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "panelConfig"]),
         userName() {
             return this.user && this.user.username ? this.user.username : ""
+        },
+        brandInitial() {
+            const name = this.panelConfig?.branding?.name || "Chipsy"
+            const initial = name?.trim?.()?.charAt(0)
+            return initial ? initial.toUpperCase() : DEFAULT_BRAND_INITIAL
+        },
+        brandAvatarUrl() {
+            const discordAvatar = buildDiscordAvatarUrl(this.user, 64)
+            if (discordAvatar) {
+                return discordAvatar
+            }
+            const configUrl = this.panelConfig?.branding?.avatarUrl
+            const envUrl = process.env.VUE_APP_BRAND_AVATAR_URL
+            return configUrl || envUrl || DEFAULT_BRAND_AVATAR
         }
     },
     mounted() {

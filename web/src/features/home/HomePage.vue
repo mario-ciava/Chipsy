@@ -43,78 +43,82 @@
 
         <section v-if="isAuthenticated" class="space-y-8">
             <div class="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-                <article class="chip-card space-y-6">
-                    <header class="flex items-center justify-between gap-3">
-                        <div>
-                            <h2 class="chip-card__title">Your Chipsy profile</h2>
-                            <p class="chip-card__subtitle">
-                                The same data exposed by the in-Discord <code>/profile</code> command.
+                <ProfileOverviewCard
+                    :username="userName"
+                    :metrics="profileMetrics"
+                    :extra-metrics="profileExtraMetrics"
+                    :has-profile="hasProfileStats"
+                    :next-reward="profileNextReward"
+                    :refreshing="profileRefreshing"
+                    :empty-copy="profileEmptyCopy"
+                    :avatar-url="profileAvatarUrl"
+                    @refresh="refreshProfile"
+                />
+                <article class="chip-card chip-stack">
+                    <header class="chip-card__header">
+                        <div class="chip-stack">
+                            <div class="flex items-center gap-2">
+                                <span class="chip-eyebrow">Quick actions</span>
+                                <span
+                                    class="chip-info-dot"
+                                    role="img"
+                                    tabindex="0"
+                                    aria-label="Shortcut info"
+                                    data-tooltip="Single-click helpers for invite flows and access reviews."
+                                ></span>
+                            </div>
+                            <h2 class="chip-card__title">Handy shortcuts</h2>
+                            <p class="chip-card__subtitle chip-card__subtitle--tight">
+                                Trigger your go-to admin gestures without loading the full dashboard.
                             </p>
                         </div>
-                        <span class="chip-pill chip-pill-ghost">@{{ userName || 'unknown' }}</span>
                     </header>
-                    <div v-if="profileStats" class="grid gap-4 md:grid-cols-2">
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p class="chip-label">Balance</p>
-                            <p class="text-2xl font-semibold text-white">{{ formattedBalance }}</p>
-                        </div>
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p class="chip-label">Gold</p>
-                            <p class="text-2xl font-semibold text-white">{{ profileStats.gold || 0 }}</p>
-                            <p class="text-xs text-slate-400">Premium currency</p>
-                        </div>
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p class="chip-label">Level</p>
-                            <p class="text-2xl font-semibold text-white">Lv. {{ profileStats.level || 1 }}</p>
-                            <p class="text-xs text-slate-400">{{ formattedExp }}</p>
-                        </div>
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p class="chip-label">Last activity</p>
-                            <p class="text-base font-semibold text-white">{{ profileLastPlayed }}</p>
-                            <p class="text-xs text-slate-400">Next reward {{ profileNextReward }}</p>
-                        </div>
-                    </div>
-                    <p v-else class="chip-empty">
-                        We could not find Chipsy stats for this account yet. Play a game to create the profile.
-                    </p>
-                    <div class="flex justify-end">
-                        <button class="chip-btn chip-btn-ghost" type="button" :disabled="profileRefreshing" @click="refreshProfile">
-                            <span v-if="profileRefreshing" class="chip-spinner"></span>
-                            <span v-else>Refresh info</span>
-                        </button>
-                    </div>
-                </article>
-                <article class="chip-card space-y-4">
-                    <h2 class="chip-card__title">Handy shortcuts</h2>
-                    <ul class="space-y-3 text-sm text-slate-200">
-                        <li class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p class="font-semibold text-white">Invite Chipsy</p>
-                            <p class="text-slate-300">Open Discord&apos;s OAuth flow and pick one of your managed servers.</p>
-                            <button class="chip-btn chip-btn-secondary mt-3 w-full" type="button" @click="openGenericInvite">
-                                Launch invite
-                            </button>
+                    <div class="chip-divider chip-divider--strong my-1.5"></div>
+                    <ul class="chip-stack divide-y divide-white/5">
+                        <li class="flex flex-col gap-2 pt-3 first:pt-0 lg:flex-row lg:items-center lg:justify-between">
+                            <div class="flex-1">
+                                <h4 class="text-base font-semibold text-white">Invite Chipsy</h4>
+                                <p class="text-sm text-slate-300">
+                                    Drop the bot into any server where you already have permissions.
+                                </p>
+                            </div>
+                            <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
+                                <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" @click="openGenericInvite">
+                                    Launch
+                                </button>
+                            </div>
                         </li>
-                        <li class="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p class="font-semibold text-white">Review panel policy</p>
-                            <p class="text-slate-300">Check whitelist enforcement and server permissions.</p>
-                            <router-link to="/control_panel" class="chip-btn chip-btn-ghost mt-3 w-full">
-                                Open dashboard
-                            </router-link>
+                        <li class="flex flex-col gap-2 pt-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div class="flex-1">
+                                <h4 class="text-base font-semibold text-white">Moderator toolkit</h4>
+                                <p class="text-sm text-slate-300">
+                                    Quick macros for mod-level tasks, rolling out soon.
+                                </p>
+                            </div>
+                            <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
+                                <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
+                                    Soon
+                                </button>
+                            </div>
+                        </li>
+                        <li class="flex flex-col gap-2 pt-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div class="flex-1">
+                                <h4 class="text-base font-semibold text-white">Audit queue</h4>
+                                <p class="text-sm text-slate-300">
+                                    Placeholder for on-demand reports and status digests.
+                                </p>
+                            </div>
+                            <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
+                                <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
+                                    Locked
+                                </button>
+                            </div>
                         </li>
                     </ul>
                 </article>
             </div>
 
             <section class="space-y-3">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h3 class="text-xl font-semibold text-white">Servers you can manage</h3>
-                        <p class="text-sm text-slate-300">Active and invite-ready guilds pulled straight from Discord.</p>
-                    </div>
-                    <span class="chip-pill chip-pill-ghost">
-                        {{ guilds.added.length }} active · {{ guilds.available.length }} invite-ready
-                    </span>
-                </div>
                 <div v-if="guildNotice" class="chip-notice chip-notice-warning">
                     {{ guildNotice }}
                 </div>
@@ -170,16 +174,19 @@
 import { mapGetters } from "vuex"
 import { getRoleLabel } from "../../constants/roles"
 import GuildOverview from "../dashboard/components/GuildOverview.vue"
+import ProfileOverviewCard from "./components/ProfileOverviewCard.vue"
 import api from "../../services/api"
 import { formatCurrency, formatExpRange, formatFriendlyDateTime } from "../../utils/formatters"
 import { getControlPanelRedirect } from "../../utils/runtime"
 
 const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
+const PROFILE_REFRESH_INTERVAL_MS = 20000
 
 export default {
     name: "HomePage",
     components: {
-        GuildOverview
+        GuildOverview,
+        ProfileOverviewCard
     },
     data() {
         return {
@@ -192,11 +199,13 @@ export default {
             guildsMeta: null,
             guildsLoading: false,
             guildNotice: null,
-            profileRefreshing: false
+            profileRefreshing: false,
+            profileAutoRefreshing: false,
+            profileAutoRefreshId: null
         }
     },
     computed: {
-        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "role"]),
+        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "role", "panelConfig"]),
         loginState() {
             return this.$route.query.state || null
         },
@@ -227,8 +236,117 @@ export default {
             return formatFriendlyDateTime(this.profileStats.lastPlayed)
         },
         profileNextReward() {
-            if (!this.profileStats?.nextReward) return "queued"
+            if (!this.profileStats?.nextReward) return "Available"
             return formatFriendlyDateTime(this.profileStats.nextReward)
+        },
+        profileAvatarUrl() {
+            if (!this.user?.id) return ""
+            const userData = this.user
+            if (userData.avatar) {
+                return `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png?size=80`
+            }
+            const discriminator = Number(userData.discriminator) || 0
+            const fallbackIndex = discriminator % 5
+            return `https://cdn.discordapp.com/embed/avatars/${fallbackIndex}.png?size=80`
+        },
+        hasProfileStats() {
+            return Boolean(this.profileStats)
+        },
+        profileMetrics() {
+            if (!this.profileStats) return []
+            return [
+                {
+                    key: "balance",
+                    label: "Balance",
+                    display: this.formattedBalance,
+                    hint: "Spendable chips",
+                    toneClass: "chip-status__value--primary"
+                },
+                {
+                    key: "gold",
+                    label: "Gold",
+                    display: `${this.profileStats.gold || 0}`,
+                    hint: "Premium currency",
+                    toneClass: "chip-status__value--accent"
+                },
+                {
+                    key: "level",
+                    label: "Level",
+                    display: `${this.profileStats.level || 1}`,
+                    hint: this.formattedExp,
+                    toneClass: "chip-status__value--info"
+                },
+                {
+                    key: "activity",
+                    label: "Last activity",
+                    display: this.profileLastPlayed,
+                    hint: "Reward timeline below"
+                }
+            ]
+        },
+        profileExtraMetrics() {
+            if (!this.profileStats) return []
+            const handsPlayed = Number(this.profileStats.handsPlayed) || 0
+            const handsWon = Number(this.profileStats.handsWon) || 0
+            const winRate = handsPlayed > 0 ? (handsWon / handsPlayed) * 100 : null
+            const biggestBet = Number(this.profileStats.biggestBet) || 0
+            const biggestWon = Number(this.profileStats.biggestWon) || 0
+            let playerSince = "Unknown"
+            if (this.profileStats.joinDate) {
+                const formattedJoin = formatFriendlyDateTime(this.profileStats.joinDate)
+                playerSince = formattedJoin.includes(" at ")
+                    ? formattedJoin.split(" at ")[0]
+                    : formattedJoin
+            }
+
+            return [
+                {
+                    key: "hands-played",
+                    label: "Hands played",
+                    display: handsPlayed.toLocaleString(),
+                    hint: "Lifetime rounds"
+                },
+                {
+                    key: "hands-won",
+                    label: "Hands won",
+                    display: handsWon.toLocaleString(),
+                    hint: "Across all games"
+                },
+                {
+                    key: "biggest-bet",
+                    label: "Biggest bet",
+                    display: formatCurrency(biggestBet, { currencySymbol: "chips" }),
+                    hint: "Single wager"
+                },
+                {
+                    key: "biggest-win",
+                    label: "Biggest win",
+                    display: formatCurrency(biggestWon, { currencySymbol: "chips" }),
+                    hint: "Largest payout"
+                },
+                {
+                    key: "win-rate",
+                    label: "W/L ratio",
+                    display: winRate !== null ? `${winRate.toFixed(1)}%` : "N/A",
+                    hint: "Win percentage"
+                },
+                {
+                    key: "player-since",
+                    label: "Player since",
+                    display: playerSince,
+                    hint: "First Chipsy session"
+                }
+            ]
+        },
+        profileEmptyCopy() {
+            return "We could not find Chipsy stats for this account yet. Play a game to create the profile."
+        },
+        profileRefreshInterval() {
+            const customInterval = this.panelConfig?.experience?.profileRefreshIntervalMs
+            if (typeof customInterval === "number" && customInterval > 0) {
+                return customInterval
+            }
+            return PROFILE_REFRESH_INTERVAL_MS
         }
     },
     watch: {
@@ -241,6 +359,9 @@ export default {
             if (newValue) {
                 this.onAuthenticated()
                 this.loadHomeData()
+                this.startProfileAutoRefresh()
+            } else {
+                this.stopProfileAutoRefresh()
             }
         },
         user(newValue, oldValue) {
@@ -254,7 +375,13 @@ export default {
             this.handleOAuthCode(this.loginCode)
         } else if (this.isAuthenticated) {
             this.loadHomeData()
+            this.startProfileAutoRefresh()
         }
+        document.addEventListener("visibilitychange", this.handleVisibilityChange)
+    },
+    beforeDestroy() {
+        this.stopProfileAutoRefresh()
+        document.removeEventListener("visibilitychange", this.handleVisibilityChange)
     },
     methods: {
         onAuthenticated() {
@@ -346,18 +473,51 @@ export default {
             if (url === "#") return
             window.open(url, "_blank", "noopener,noreferrer")
         },
-        async refreshProfile() {
-            if (this.profileRefreshing) return
-            this.profileRefreshing = true
+        async refreshProfile({ silent = false } = {}) {
+            if (silent) {
+                if (this.profileAutoRefreshing || this.profileRefreshing) return
+                this.profileAutoRefreshing = true
+            } else {
+                if (this.profileRefreshing || this.profileAutoRefreshing) return
+                this.profileRefreshing = true
+            }
             try {
                 await this.$store.dispatch("session/refreshSession")
-                this.pushToast("Profile information updated.")
+                if (!silent) {
+                    this.pushToast("Profile information updated.")
+                }
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to refresh profile", error)
-                this.pushToast("Unable to refresh profile information.")
+                if (!silent) {
+                    this.pushToast("Unable to refresh profile information.")
+                }
             } finally {
-                this.profileRefreshing = false
+                if (silent) {
+                    this.profileAutoRefreshing = false
+                } else {
+                    this.profileRefreshing = false
+                }
+            }
+        },
+        startProfileAutoRefresh() {
+            if (this.profileAutoRefreshId || !this.isAuthenticated) return
+            this.refreshProfile({ silent: true })
+            this.profileAutoRefreshId = setInterval(() => {
+                if (document.hidden || this.profileRefreshing) return
+                this.refreshProfile({ silent: true })
+            }, this.profileRefreshInterval)
+        },
+        stopProfileAutoRefresh() {
+            if (this.profileAutoRefreshId) {
+                clearInterval(this.profileAutoRefreshId)
+                this.profileAutoRefreshId = null
+            }
+            this.profileAutoRefreshing = false
+        },
+        handleVisibilityChange() {
+            if (!document.hidden) {
+                this.refreshProfile({ silent: true })
             }
         },
         goToLogin() {
@@ -366,4 +526,3 @@ export default {
     }
 }
 </script>
-

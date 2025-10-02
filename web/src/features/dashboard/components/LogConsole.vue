@@ -1,14 +1,14 @@
 <template>
-    <div class="chip-card flex flex-col gap-4">
-        <div class="chip-card__header">
+    <div :class="containerClasses" :style="panelStyle">
+        <div v-if="showHeader" :class="headerClasses">
             <div>
-                <h3 class="chip-card__title">{{ title }}</h3>
-                <p class="chip-card__subtitle">
+                <h3 :class="titleClasses">{{ title }}</h3>
+                <p :class="subtitleClasses">
                     {{ subtitle }}
                 </p>
             </div>
         </div>
-        <div class="chip-scroll" :style="consoleStyle" ref="scrollContainer">
+        <div :class="scrollClasses" :style="consoleStyle" ref="scrollContainer">
             <transition-group name="log-entry" tag="ul" class="chip-log-lines">
                 <li
                     v-for="entry in formattedLogs"
@@ -76,9 +76,67 @@ export default {
         fixedHeight: {
             type: [String, Number],
             default: null
+        },
+        variant: {
+            type: String,
+            default: "card",
+            validator: (value) => ["card", "embedded"].includes(value)
+        },
+        showHeader: {
+            type: Boolean,
+            default: true
+        },
+        panelHeight: {
+            type: [String, Number],
+            default: null
         }
     },
     computed: {
+        isEmbedded() {
+            return this.variant === "embedded"
+        },
+        titleClasses() {
+            return this.isEmbedded ? "text-2xl font-semibold text-white" : "chip-card__title"
+        },
+        subtitleClasses() {
+            return this.isEmbedded ? "chip-card__subtitle chip-card__subtitle--tight text-sm text-slate-400" : "chip-card__subtitle"
+        },
+        panelStyle() {
+            if (!this.panelHeight) return null
+            const value = typeof this.panelHeight === "number" ? `${this.panelHeight}px` : String(this.panelHeight)
+            return {
+                minHeight: value,
+                maxHeight: value
+            }
+        },
+        containerClasses() {
+            if (this.isEmbedded) {
+                const classes = ["chip-stack", "gap-3"]
+                if (this.panelHeight) {
+                    classes.push("flex", "flex-col", "h-full")
+                }
+                return classes.join(" ")
+            }
+            const classes = ["chip-card", "flex", "flex-col", "gap-4"]
+            if (this.panelHeight) {
+                classes.push("h-full")
+            }
+            return classes.join(" ")
+        },
+        headerClasses() {
+            const classes = this.isEmbedded ? ["chip-stack", "gap-1"] : ["chip-card__header"]
+            if (this.panelHeight) {
+                classes.push("shrink-0")
+            }
+            return classes.join(" ")
+        },
+        scrollClasses() {
+            const classes = ["chip-scroll"]
+            if (this.panelHeight) {
+                classes.push("flex-1", "min-h-0")
+            }
+            return classes.join(" ")
+        },
         formattedLogs() {
             const sorted = [...this.logs].sort((a, b) => timestampValue(a) - timestampValue(b))
             return sorted.map((entry) => {
@@ -97,8 +155,7 @@ export default {
             const value = typeof this.fixedHeight === "number" ? `${this.fixedHeight}px` : String(this.fixedHeight)
             return {
                 height: value,
-                maxHeight: value,
-                overflow: "hidden"
+                maxHeight: value
             }
         }
     },

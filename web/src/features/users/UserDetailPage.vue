@@ -71,7 +71,7 @@
                 <label class="chip-label">Role</label>
                 <select
                     v-model="roleForm.pending"
-                    class="chip-input"
+                    class="chip-select"
                     :disabled="!canEditRole || roleForm.saving"
                 >
                     <option v-for="option in availableRoleOptions" :key="option.value" :value="option.value">

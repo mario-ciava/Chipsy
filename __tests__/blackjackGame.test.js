@@ -259,6 +259,8 @@ const buildPlayer = (game, overrides = {}) => {
 
     const player = game.createPlayerSession(baseUser, overrides.stack ?? 5000)
     player.stack = overrides.stack ?? 5000
+    player.buyInAmount = player.stack
+    player.pendingBuyIn = 0
     player.newEntry = false
     player.status = {
         current: overrides.current ?? false,
@@ -389,5 +391,129 @@ describe("BlackJack dealer showdown", () => {
         expect(game.handlePlayersOutOfFunds).not.toHaveBeenCalled()
         expect(nextHandSpy).toHaveBeenCalledTimes(1)
         expect(stopSpy).not.toHaveBeenCalled()
+    })
+})
+
+describe("BlackJack lobby safety nets", () => {
+    test("Stop waits for pending joins before refunding buy-ins", async() => {
+        const { game, dataHandler } = createTestGame()
+        const mockUser = {
+            id: "player-safe",
+            tag: "Player#SAFE",
+            username: "Player",
+            bot: false,
+            client: game.client,
+            displayAvatarURL: jest.fn(() => "https://avatar.png"),
+            data: {
+                money: 10_000,
+                gold: 0,
+                current_exp: 0,
+                required_exp: 100,
+                level: 1,
+                hands_played: 0,
+                hands_won: 0,
+                biggest_won: 0,
+                biggest_bet: 0,
+                withholding_upgrade: 0,
+                reward_amount_upgrade: 0,
+                reward_time_upgrade: 0,
+                next_reward: null,
+                last_played: null
+            }
+        }
+
+        let resolveFirstUpdate
+        const pendingUpdate = new Promise((resolve) => {
+            resolveFirstUpdate = resolve
+        })
+        dataHandler.updateUserData
+            .mockImplementationOnce(() => pendingUpdate)
+            .mockResolvedValue(undefined)
+
+        const joinPromise = game.AddPlayer(mockUser, { buyIn: 1000 })
+        const stopPromise = game.Stop({ notify: false, reason: "canceled" })
+
+        resolveFirstUpdate()
+        await Promise.all([joinPromise, stopPromise])
+
+        expect(dataHandler.updateUserData).toHaveBeenCalledTimes(2)
+        expect(mockUser.data.money).toBe(10_000)
+        expect(game.pendingJoins.size).toBe(0)
+    })
+
+    test("AddPlayer aborts with stopping reason if the table shuts down mid-join", async() => {
+        const { game } = createTestGame()
+        const mockUser = {
+            id: "player-stop",
+            tag: "Player#STOP",
+            username: "Player",
+            bot: false,
+            client: game.client,
+            displayAvatarURL: jest.fn(() => "https://avatar.png"),
+            data: {
+                money: 5_000,
+                gold: 0,
+                current_exp: 0,
+                required_exp: 100,
+                level: 1,
+                hands_played: 0,
+                hands_won: 0,
+                biggest_won: 0,
+                biggest_bet: 0,
+                withholding_upgrade: 0,
+                reward_amount_upgrade: 0,
+                reward_time_upgrade: 0,
+                next_reward: null,
+                last_played: null
+            }
+        }
+
+        const joinPromise = game.AddPlayer(mockUser, { buyIn: 1000 })
+        const stopPromise = game.Stop({ notify: false, reason: "canceled" })
+
+        const [joinResult] = await Promise.all([joinPromise, stopPromise])
+
+        expect(joinResult.ok).toBe(false)
+        expect(joinResult.reason).toBe("stopping")
+        expect(mockUser.data.money).toBe(5_000)
+        expect(game.players.length).toBe(0)
+    })
+
+    test("Stop restores lobby buy-ins even if stack was zeroed prematurely", async() => {
+        const { game } = createTestGame()
+        const mockUser = {
+            id: "player-lobby",
+            tag: "Player#LOBBY",
+            username: "Player",
+            bot: false,
+            client: game.client,
+            displayAvatarURL: jest.fn(() => "https://avatar.png"),
+            data: {
+                money: 10_000,
+                gold: 0,
+                current_exp: 0,
+                required_exp: 100,
+                level: 1,
+                hands_played: 0,
+                hands_won: 0,
+                biggest_won: 0,
+                biggest_bet: 0,
+                withholding_upgrade: 0,
+                reward_amount_upgrade: 0,
+                reward_time_upgrade: 0,
+                next_reward: null,
+                last_played: null
+            }
+        }
+
+        await game.AddPlayer(mockUser, { buyIn: 2_000 })
+        const lobbyPlayer = game.players[0]
+        lobbyPlayer.stack = 0
+        lobbyPlayer.pendingBuyIn = 2_000
+        lobbyPlayer.newEntry = true
+
+        await game.Stop({ notify: false, reason: "canceled" })
+
+        expect(mockUser.data.money).toBe(10_000)
     })
 })

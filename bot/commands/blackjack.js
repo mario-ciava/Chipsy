@@ -38,6 +38,14 @@ const buildStopLogHandler = (channelId, reason) => (error) => {
     return null
 }
 
+const resolveLobbyStackValue = (player) => {
+    if (!player) return 0
+    if (Number.isFinite(player.stack) && player.stack > 0) return player.stack
+    if (Number.isFinite(player.pendingBuyIn) && player.pendingBuyIn > 0) return player.pendingBuyIn
+    if (Number.isFinite(player.buyInAmount) && player.buyInAmount > 0) return player.buyInAmount
+    return 0
+}
+
 /**
  * Run blackjack game - uses Discord.js native interaction API.
  * Clean, simple, no abstractions.
@@ -168,7 +176,7 @@ const runBlackjack = async(interaction, client) => {
             return players
                 .map((player) => {
                     const mention = player?.id ? `<@${player.id}>` : String(player)
-                    const stack = Number.isFinite(player?.stack) ? setSeparator(player.stack) : '0'
+                    const stack = setSeparator(resolveLobbyStackValue(player))
                     return `${mention} - ${stack}$`
                 })
                 .join("\n")
@@ -394,6 +402,16 @@ const runBlackjack = async(interaction, client) => {
                 return
             }
 
+            if (ctx.__stopping) {
+                await interactionComponent.reply({
+                    content: "❌ This table is closing. Please wait for the next lobby.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about stopping table")
+                )
+                return
+            }
+
             try {
                 await ensureUserData(interactionComponent.user)
             } catch (error) {
@@ -478,6 +496,18 @@ const runBlackjack = async(interaction, client) => {
                 return
             }
 
+            if (ctx.__stopping) {
+                await submission.reply({
+                    content: "❌ This table has just been closed. Please join the next lobby.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    buildCommandInteractionLog(submission, "Failed to notify about stopping table post-modal", {
+                        phase: "lobby"
+                    })
+                )
+                return
+            }
+
             const rawBuyIn = submission.fields.getTextInputValue("buyin")?.trim()
             const parsedBuyIn = rawBuyIn ? features.inputConverter(rawBuyIn) : ctx.minBuyIn
             if (!Number.isFinite(parsedBuyIn) || parsedBuyIn <= 0) {
@@ -511,7 +541,21 @@ const runBlackjack = async(interaction, client) => {
                 return
             }
 
-            await ctx.AddPlayer(submission.user, { buyIn: buyInResult.amount })
+            const addResult = await ctx.AddPlayer(submission.user, { buyIn: buyInResult.amount })
+            if (!addResult?.ok) {
+                await submission.reply({
+                    content: addResult?.reason === "stopping"
+                        ? "❌ The table was closed before we could seat you. No chips were taken."
+                        : "❌ Unable to seat you right now. Please try again.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    buildCommandInteractionLog(submission, "Failed to reply about rejected blackjack join", {
+                        phase: "lobby",
+                        reason: addResult?.reason || "unknown"
+                    })
+                )
+                return
+            }
             queueAutoStart()
 
             // Acknowledge submission silently

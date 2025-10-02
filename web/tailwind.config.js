@@ -1,4 +1,46 @@
-const uiTheme = require("../config/uiTheme")
+const ensureEnv = (key, fallback) => {
+    if (!process.env[key] && fallback !== undefined) {
+        process.env[key] = fallback
+    }
+}
+
+const requiredEnvDefaults = {
+    DISCORD_CLIENT_ID: "ui-theme",
+    DISCORD_CLIENT_SECRET: "ui-theme",
+    DISCORD_BOT_TOKEN: "ui-theme",
+    DISCORD_OWNER_ID: "ui-theme",
+    COMMAND_PREFIX: "!",
+    MYSQL_HOST: "localhost",
+    MYSQL_PORT: "3306",
+    MYSQL_DATABASE: "app_data"
+}
+
+for (const [key, value] of Object.entries(requiredEnvDefaults)) {
+    ensureEnv(key, value)
+}
+
+const { designTokens, uiTheme: legacyTheme } = require("../config")
+const uiTheme = legacyTheme || designTokens?.theme || designTokens
+
+const buildRoleBadgeColors = (tokens = {}) => {
+    const palette = {}
+    const badgeMap = tokens.roleBadges || {}
+    for (const [role, values] of Object.entries(badgeMap)) {
+        if (!values) continue
+        if (values.start) {
+            palette[`${role}Start`] = values.start
+        }
+        if (values.end) {
+            palette[`${role}End`] = values.end
+        }
+        if (values.text) {
+            palette[`${role}Text`] = values.text
+        }
+    }
+    return palette
+}
+
+const roleBadgeColors = buildRoleBadgeColors(designTokens)
 
 const px = (value) => `${value}px`
 
@@ -25,7 +67,8 @@ module.exports = {
                     success: uiTheme.colors.success,
                     warning: uiTheme.colors.warning,
                     danger: uiTheme.colors.danger
-                }
+                },
+                roleBadge: roleBadgeColors
             },
             fontFamily: {
                 sans: [uiTheme.fonts.sans, "sans-serif"],

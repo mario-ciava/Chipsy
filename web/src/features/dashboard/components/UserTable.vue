@@ -1,269 +1,304 @@
 <template>
-    <div class="chip-card space-y-6">
-        <header class="chip-card__header flex-wrap gap-4">
-            <div>
-                <h3 class="chip-card__title">User stats</h3>
-                <p class="chip-card__subtitle">
+    <section class="chip-card chip-stack chip-table-shell" aria-labelledby="user-table-title">
+        <header class="chip-card__header items-start">
+            <div class="chip-stack">
+                <div class="flex items-center gap-2">
+                    <span class="chip-eyebrow">User stats</span>
+                    <span
+                        class="chip-info-dot"
+                        role="img"
+                        tabindex="0"
+                        aria-label="User metrics"
+                        :data-tooltip="`Data pulled from MySQL snapshots (${pagination.total || 0} indexed).`"
+                    ></span>
+                </div>
+                <h3 id="user-table-title" class="chip-card__title">User intelligence</h3>
+                <p class="chip-card__subtitle chip-card__subtitle--tight">
                     Review the data stored in MySQL to monitor balances and progress.
                 </p>
             </div>
-            <div class="flex flex-wrap items-center gap-4">
-                <div>
-                    <p class="chip-label">Quick glimpse</p>
-                    <span class="text-base font-semibold text-white">
-                        {{ pagination.total || 0 }} users indexed
-                    </span>
-                </div>
-                <div class="chip-segmented" role="group" aria-label="Table density">
-                    <button
-                        v-for="option in viewOptions"
-                        :key="option.value"
-                        type="button"
-                        class="chip-segmented__option"
-                        :class="{ 'chip-segmented__option--active': viewMode === option.value }"
-                        @click="setViewMode(option.value)"
-                    >
-                        {{ option.label }}
-                    </button>
-                </div>
-            </div>
         </header>
 
-        <section class="space-y-4" aria-label="User filters">
-            <div class="space-y-3">
-                <label class="chip-label flex items-center gap-2">
-                    Search
-                    <span class="chip-field-hint">Press enter to apply</span>
-                </label>
-                <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div class="chip-divider chip-divider--strong my-1"></div>
+
+        <form class="chip-filter-form chip-stack gap-5" aria-label="User filters" novalidate @submit.prevent="applyFilters">
+            <div class="chip-search-toolbar">
+                <div class="chip-toolbar__group">
+                    <label class="sr-only" for="user-table-search">Search</label>
                     <input
+                        id="user-table-search"
                         v-model="filtersDraft.search"
-                        class="chip-input flex-1"
+                        class="chip-input chip-input--bright-placeholder flex-1"
                         type="search"
                         :placeholder="searchPlaceholder"
+                        autocomplete="off"
                         @keyup.enter="applyFilters"
                     />
-                    <div class="chip-segmented" role="group" aria-label="Search mode">
-                        <button
-                            v-for="option in searchOptions"
-                            :key="option.value"
-                            type="button"
-                            class="chip-segmented__option"
-                            :class="{ 'chip-segmented__option--active': filtersDraft.searchField === option.value }"
-                            @click="selectSearchField(option.value)"
-                        >
-                            {{ option.label }}
-                        </button>
-                    </div>
                 </div>
-            </div>
-
-            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <label class="flex flex-col gap-2 text-sm text-slate-200">
-                    <span class="chip-label">Role</span>
-                    <select v-model="filtersDraft.role" class="chip-input" :style="dropdownSelectStyle">
-                        <option value="all">All roles</option>
-                        <option value="MASTER">Master</option>
-                        <option value="ADMIN">Admin</option>
-                        <option value="MODERATOR">Moderator</option>
-                        <option value="USER">User</option>
-                    </select>
-                </label>
-                <label class="flex flex-col gap-2 text-sm text-slate-200">
-                    <span class="chip-label">Access</span>
-                    <select v-model="filtersDraft.list" class="chip-input" :style="dropdownSelectStyle">
-                        <option value="all">Any</option>
-                        <option value="whitelisted">Whitelisted</option>
-                        <option value="neutral">Neutral</option>
-                        <option value="blacklisted">Blacklisted</option>
-                    </select>
-                </label>
-                <div class="flex flex-col gap-2 text-sm text-slate-200">
-                    <span class="chip-label">Level range</span>
-                    <div class="flex items-center gap-2">
-                        <input v-model="filtersDraft.minLevel" class="chip-input" type="number" min="0" placeholder="Min" />
-                        <span class="text-slate-500">—</span>
-                        <input v-model="filtersDraft.maxLevel" class="chip-input" type="number" min="0" placeholder="Max" />
-                    </div>
-                </div>
-                <div class="flex flex-col gap-2 text-sm text-slate-200">
-                    <span class="chip-label">Balance range</span>
-                    <div class="flex items-center gap-2">
-                        <input v-model="filtersDraft.minBalance" class="chip-input" type="number" min="0" placeholder="Min" />
-                        <span class="text-slate-500">—</span>
-                        <input v-model="filtersDraft.maxBalance" class="chip-input" type="number" min="0" placeholder="Max" />
-                    </div>
-                </div>
-                <label class="flex flex-col gap-2 text-sm text-slate-200">
-                    <span class="chip-label">Activity</span>
-                    <select v-model="filtersDraft.activity" class="chip-input" :style="dropdownSelectStyle">
-                        <option value="any">Any time</option>
-                        <option value="7d">Last 7 days</option>
-                        <option value="30d">Last 30 days</option>
-                        <option value="90d">Last 90 days</option>
-                    </select>
-                </label>
-                <div class="flex flex-col gap-2 text-sm text-slate-200">
-                    <span class="chip-label">Sort by</span>
-                    <div class="flex items-center gap-2">
-                        <select v-model="filtersDraft.sortBy" class="chip-input flex-1" :style="dropdownSelectStyle">
-                            <option value="last_played">Last played</option>
-                            <option value="balance">Balance</option>
-                            <option value="level">Level</option>
-                        </select>
-                        <button
-                            class="chip-btn chip-btn-ghost px-3 py-2"
-                            type="button"
-                            :aria-label="sortDirectionLabel"
-                            @click="toggleSortDirection"
-                        >
-                            <svg viewBox="0 0 24 24" class="h-4 w-4" aria-hidden="true">
-                                <path
-                                    v-if="filtersDraft.sortDirection === 'desc'"
-                                    d="M12 6l6 6H6z"
-                                    fill="currentColor"
-                                />
-                                <path
-                                    v-else
-                                    d="M12 18l-6-6h12z"
-                                    fill="currentColor"
-                                />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-3" aria-live="polite">
-                <button
-                    v-for="chip in activeFilterChips"
-                    :key="chip.id"
-                    type="button"
-                    class="chip-filter"
-                    @click="clearFilter(chip.keys)"
-                >
-                    <span>{{ chip.label }}</span>
-                    <span class="chip-filter__remove" aria-hidden="true">×</span>
-                </button>
-                <div class="flex flex-wrap gap-2">
+                <div class="chip-toolbar__actions">
+                    <span class="chip-icon-counter" :aria-label="indexedUsersAriaLabel">
+                        {{ indexedUsersLabel }}
+                    </span>
                     <button
-                        class="chip-btn chip-btn-secondary"
+                        class="chip-icon-btn relative"
+                        :class="filtersButtonTone"
+                        type="button"
+                        :aria-expanded="filtersOpen"
+                        :aria-label="filtersButtonAriaLabel"
+                        :title="filtersButtonAriaLabel"
+                        aria-controls="user-table-filters"
+                        @click="toggleFilters"
+                    >
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 5h18" stroke-linecap="round" />
+                            <path d="M6 12h12" stroke-linecap="round" />
+                            <path d="M10 19h4" stroke-linecap="round" />
+                        </svg>
+                        <span
+                            v-if="advancedFilterCount"
+                            class="chip-filter-indicator"
+                            aria-hidden="true"
+                        ></span>
+                    </button>
+                    <button
+                        class="chip-icon-btn"
                         type="button"
                         :disabled="loading"
-                        @click="applyFilters"
+                        aria-label="Refresh users"
+                        title="Refresh users"
+                        @click="refresh"
                     >
                         <span v-if="loading" class="chip-spinner"></span>
-                        <span v-else>{{ applyButtonLabel }}</span>
-                    </button>
-                    <button
-                        class="chip-btn chip-btn-ghost"
-                        type="button"
-                        :disabled="loading || !hasChanges"
-                        @click="resetFilters"
-                    >
-                        Reset
-                    </button>
-                    <button class="chip-btn chip-btn-ghost" type="button" :disabled="loading" @click="refresh">
-                        Refresh
+                        <span v-else aria-hidden="true">↻</span>
                     </button>
                 </div>
             </div>
-        </section>
 
-        <div class="overflow-x-auto rounded-3xl border border-white/10 bg-white/5">
-            <table class="chip-table" :class="{ 'text-xs': isCompactView }">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>ID</th>
-                        <th>Role</th>
-                        <th>Balance</th>
-                        <th>Level</th>
-                        <th>Last activity</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-if="loading">
-                        <td colspan="7" class="py-6 text-center text-slate-300">Loading data…</td>
-                    </tr>
-                    <tr v-else-if="!formattedUsers.length">
-                        <td colspan="7" class="py-6 text-center text-slate-400">
-                            No users match the current filters.
-                        </td>
-                    </tr>
-                    <tr v-else v-for="user in formattedUsers" :key="user.id" class="transition hover:bg-white/5">
-                        <td>
-                            <div class="flex flex-col">
-                                <span class="font-semibold text-white">{{ user.username }}</span>
-                                <span v-if="user.tag" class="text-xs text-slate-400">{{ user.tag }}</span>
-                            </div>
-                        </td>
-                        <td class="font-mono text-sm text-slate-300">
-                            {{ user.id }}
-                        </td>
-                        <td>
-                            <span class="chip-pill" :class="user.roleClass">
-                                {{ user.roleLabel }}
-                            </span>
-                        </td>
-                        <td class="font-semibold text-white">{{ user.balance }}</td>
-                        <td>
-                            <div class="flex flex-col">
-                                <span class="font-semibold text-white">{{ user.level }}</span>
-                                <span class="chip-table__meta">{{ user.exp }}</span>
-                            </div>
-                        </td>
-                        <td class="text-slate-200">{{ user.lastPlayed }}</td>
-                        <td>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <button
-                                    type="button"
-                                    class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
-                                    title="Copy ID"
-                                    @click="copyId(user.id)"
-                                >
-                                    Copy
-                                </button>
-                                <button
-                                    type="button"
-                                    class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
-                                    @click="openDetails(user.id)"
-                                >
-                                    Details
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-300">
-            <span v-if="pagination.total">
-                {{ pagination.total }} users
-            </span>
-            <div class="flex flex-wrap items-center gap-2">
-                <button
-                    class="chip-btn chip-btn-ghost px-4 py-2"
-                    :disabled="loading || pagination.page <= 1"
-                    @click="changePage(pagination.page - 1)"
+            <div
+                v-if="userKpis.length"
+                class="chip-search-stats"
+                aria-label="User highlights"
+                aria-live="polite"
+            >
+                <div
+                    v-for="(column, columnIndex) in kpiColumns"
+                    :key="`user-kpi-column-${columnIndex}`"
+                    class="chip-search-column"
                 >
-                    ← Previous
-                </button>
-                <span class="text-slate-200">
-                    Page {{ pagination.page }} of {{ pagination.totalPages }}
-                </span>
-                <button
-                    class="chip-btn chip-btn-ghost px-4 py-2"
-                    :disabled="loading || pagination.page >= pagination.totalPages"
-                    @click="changePage(pagination.page + 1)"
-                >
-                    Next →
-                </button>
+                    <article
+                        v-for="metric in column"
+                        :key="metric.id"
+                        class="chip-search-stat"
+                    >
+                        <div class="chip-search-stat__text">
+                            <span class="chip-search-stat__label">{{ metric.label }}</span>
+                            <span
+                                v-if="metric.hint"
+                                class="chip-field-hint chip-search-stat__hint"
+                            >{{ metric.hint }}</span>
+                        </div>
+                        <span class="chip-search-stat__value">
+                            {{ metric.value }}
+                        </span>
+                    </article>
+                </div>
             </div>
-        </div>
-    </div>
+
+            <transition name="fade">
+                <section
+                    v-if="filtersOpen"
+                    id="user-table-filters"
+                    class="chip-filter-panel"
+                    aria-label="Advanced filters"
+                >
+                    <div class="chip-grid chip-grid--filters">
+                        <label class="chip-filter-panel__field">
+                            <span class="chip-label">Role</span>
+                            <select v-model="filtersDraft.role" class="chip-select" :style="dropdownSelectStyle">
+                                <option value="all">All roles</option>
+                                <option value="MASTER">Master</option>
+                                <option value="ADMIN">Admin</option>
+                                <option value="MODERATOR">Moderator</option>
+                                <option value="USER">User</option>
+                            </select>
+                        </label>
+                        <label class="chip-filter-panel__field">
+                            <span class="chip-label">Access list</span>
+                            <select v-model="filtersDraft.list" class="chip-select" :style="dropdownSelectStyle">
+                                <option value="all">Any</option>
+                                <option value="whitelisted">Whitelisted</option>
+                                <option value="neutral">Neutral</option>
+                                <option value="blacklisted">Blacklisted</option>
+                            </select>
+                        </label>
+                        <div class="chip-filter-panel__field">
+                            <span class="chip-label">Level range</span>
+                            <div class="chip-filter-panel__range">
+                                <input v-model="filtersDraft.minLevel" class="chip-input" type="number" min="0" placeholder="Min" />
+                                <span class="chip-filter-panel__divider">—</span>
+                                <input v-model="filtersDraft.maxLevel" class="chip-input" type="number" min="0" placeholder="Max" />
+                            </div>
+                        </div>
+                        <div class="chip-filter-panel__field">
+                            <span class="chip-label">Balance range</span>
+                            <div class="chip-filter-panel__range">
+                                <input v-model="filtersDraft.minBalance" class="chip-input" type="number" min="0" placeholder="Min" />
+                                <span class="chip-filter-panel__divider">—</span>
+                                <input v-model="filtersDraft.maxBalance" class="chip-input" type="number" min="0" placeholder="Max" />
+                            </div>
+                        </div>
+                        <label class="chip-filter-panel__field">
+                            <span class="chip-label">Recent activity</span>
+                            <select v-model="filtersDraft.activity" class="chip-select" :style="dropdownSelectStyle">
+                                <option value="any">Any</option>
+                                <option value="7d">Last 7 days</option>
+                                <option value="30d">Last 30 days</option>
+                                <option value="90d">Last 90 days</option>
+                            </select>
+                        </label>
+                        <label class="chip-filter-panel__field">
+                            <span class="chip-label">Sort by</span>
+                            <select v-model="filtersDraft.sortBy" class="chip-select" :style="dropdownSelectStyle">
+                                <option value="last_played">Last activity</option>
+                                <option value="balance">Balance</option>
+                                <option value="level">Level</option>
+                            </select>
+                        </label>
+                        <label class="chip-filter-panel__field">
+                            <span class="chip-label">Sort direction</span>
+                            <select v-model="filtersDraft.sortDirection" class="chip-select" :style="dropdownSelectStyle">
+                                <option value="desc">Descending</option>
+                                <option value="asc">Ascending</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="chip-filter-panel__footer">
+                        <div class="chip-filter-panel__chips" aria-live="polite">
+                            <button
+                                v-for="chip in activeFilterChips"
+                                :key="chip.id"
+                                type="button"
+                                class="chip-filter"
+                                @click="clearFilter(chip.keys)"
+                            >
+                                <span>{{ chip.label }}</span>
+                                <span class="chip-filter__remove" aria-hidden="true">×</span>
+                            </button>
+                            <span v-if="!activeFilterChips.length" class="chip-field-hint text-slate-500">
+                                No filters applied
+                            </span>
+                        </div>
+                        <div class="chip-filter-panel__cta">
+                            <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="submit" :disabled="loading">
+                                <span v-if="loading" class="chip-spinner"></span>
+                                <span v-else>{{ applyButtonLabel }}</span>
+                            </button>
+                            <button
+                                class="chip-btn chip-btn-ghost"
+                                type="button"
+                                :disabled="loading || !hasChanges"
+                                @click="resetFilters"
+                            >
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </transition>
+        </form>
+
+        <table :id="tableId" class="chip-table">
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>ID</th>
+                    <th>Role</th>
+                    <th>Balance</th>
+                    <th>Level</th>
+                    <th>Last activity</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-if="loading">
+                    <td colspan="7" class="py-6 text-center text-slate-300">Loading data…</td>
+                </tr>
+                <tr v-else-if="!formattedUsers.length">
+                    <td colspan="7" class="py-6 text-center text-slate-400">
+                        No users match the current filters.
+                    </td>
+                </tr>
+                <tr v-else v-for="user in formattedUsers" :key="user.id" class="transition hover:bg-white/5">
+                    <td>
+                        <div class="chip-table__username">
+                            <span class="font-semibold text-white">{{ user.username }}</span>
+                            <span v-if="user.tag" class="chip-table__meta">{{ user.tag }}</span>
+                        </div>
+                    </td>
+                    <td class="font-mono text-sm text-slate-300">
+                        {{ user.id }}
+                    </td>
+                    <td>
+                        <span class="chip-role-badge" :class="user.roleClass">
+                            {{ user.roleLabel }}
+                        </span>
+                    </td>
+                    <td class="font-semibold chip-text-warning">{{ user.balance }}</td>
+                    <td>
+                        <div class="chip-table__username">
+                            <span class="font-semibold text-white">{{ user.level }}</span>
+                            <span class="chip-table__meta">{{ user.exp }}</span>
+                        </div>
+                    </td>
+                    <td class="text-slate-200">{{ user.lastPlayed }}</td>
+                    <td>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
+                                title="Copy ID"
+                                @click="copyId(user.id)"
+                            >
+                                Copy ID
+                            </button>
+                            <button
+                                type="button"
+                                class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
+                                @click="openDetails(user.id)"
+                            >
+                                Details
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <nav class="chip-pagination" aria-label="User pagination">
+            <button
+                class="chip-btn chip-btn-secondary"
+                :disabled="loading || pagination.page <= 1"
+                :aria-controls="tableId"
+                aria-label="Go to previous page"
+                @click="changePage(pagination.page - 1)"
+            >
+                Previous
+            </button>
+            <span class="chip-pagination__meta text-slate-200" aria-live="polite">
+                Page {{ pagination.page }} of {{ pagination.totalPages }}
+            </span>
+            <button
+                class="chip-btn chip-btn-secondary"
+                :disabled="loading || pagination.page >= pagination.totalPages"
+                :aria-controls="tableId"
+                aria-label="Go to next page"
+                @click="changePage(pagination.page + 1)"
+            >
+                Next
+            </button>
+        </nav>
+    </section>
 </template>
 
 <script>
@@ -273,9 +308,23 @@ import { showToast } from "../../../utils/toast"
 import { copyToClipboard } from "../../../utils/clipboard"
 import { PANEL_DEFAULTS } from "../../../config/panelDefaults"
 
-const VIEW_MODES = [
-    { label: "Comfort", value: "comfortable" },
-    { label: "Compact", value: "compact" }
+const toPositiveNumber = (value, fallback) => {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback
+}
+
+const KPI_COLUMN_COUNT = 2
+
+const ADVANCED_FILTER_KEYS = [
+    "role",
+    "list",
+    "minLevel",
+    "maxLevel",
+    "minBalance",
+    "maxBalance",
+    "activity",
+    "sortBy",
+    "sortDirection"
 ]
 
 export default {
@@ -304,34 +353,51 @@ export default {
         }
     },
     data() {
+        const normalized = this.normalizeFilters(this.filters)
+        const defaults = this.normalizeFilters({})
+        const hasAdvanced = ADVANCED_FILTER_KEYS.some((key) => normalized[key] !== defaults[key])
         return {
-            filtersDraft: this.normalizeFilters(this.filters),
-            viewMode: "comfortable"
+            filtersDraft: normalized,
+            filtersOpen: hasAdvanced,
+            filtersCollapsedManually: false
         }
     },
     computed: {
-        searchOptions() {
-            return [
-                { label: "IDs", value: "id" },
-                { label: "Names", value: "username" }
-            ]
+        tableId() {
+            return "user-table"
         },
         normalizedFilters() {
             return this.normalizeFilters(this.filters)
+        },
+        kpiColumns() {
+            const columns = Array.from({ length: KPI_COLUMN_COUNT }, () => [])
+            this.userKpis.forEach((metric, index) => {
+                const columnIndex = index % KPI_COLUMN_COUNT
+                columns[columnIndex].push(metric)
+            })
+            return columns.filter((column) => column.length)
         },
         hasChanges() {
             const keys = Object.keys(this.filtersDraft)
             return keys.some((key) => this.filtersDraft[key] !== this.normalizedFilters[key])
         },
         searchPlaceholder() {
-            return this.filtersDraft.searchField === "username"
-                ? "Search by username, tag, or nickname…"
-                : "Search by user ID…"
+            return "Search by user ID or username…"
         },
-        sortDirectionLabel() {
-            return this.filtersDraft.sortDirection === "desc" ? "Sorted descending" : "Sorted ascending"
+        indexedUsersLabel() {
+            const total = Number(this.pagination?.total) || 0
+            const formatted = total.toLocaleString()
+            return formatted
+        },
+        indexedUsersAriaLabel() {
+            return `Indexed users: ${this.indexedUsersLabel}`
         },
         formattedUsers() {
+            const roleToneMap = {
+                master: "chip-role-master",
+                admin: "chip-role-admin",
+                moderator: "chip-role-moderator"
+            }
             return this.users.map((user) => {
                 const rawUsername = user.username || "N/A"
                 let tag = user.tag || null
@@ -341,7 +407,11 @@ export default {
                     if (namePart) baseName = namePart
                     if (discriminator) tag = `#${discriminator}`
                 }
-                const roleKey = (user.panelRole || user.access?.role || "USER").toLowerCase()
+                const normalizedRole = (user.panelRole || user.access?.role || "USER")
+                    .toString()
+                    .trim()
+                    .toLowerCase()
+                const roleClass = roleToneMap[normalizedRole] || "chip-role-user"
                 return {
                     id: user.id,
                     balance: formatCurrency(user.money),
@@ -356,7 +426,7 @@ export default {
                     username: baseName || "N/A",
                     tag,
                     roleLabel: getRoleLabel(user.panelRole || user.access?.role),
-                    roleClass: `chip-role-${roleKey}`
+                    roleClass
                 }
             })
         },
@@ -372,11 +442,105 @@ export default {
                 color: theme.optionText
             }
         },
-        viewOptions() {
-            return VIEW_MODES
+        panelUserStatsTokens() {
+            const config = this.$store?.getters?.["session/panelConfig"]
+            return config?.userStats?.kpis || PANEL_DEFAULTS.userStats.kpis
         },
-        isCompactView() {
-            return this.viewMode === "compact"
+        kpiSettings() {
+            const defaults = PANEL_DEFAULTS.userStats.kpis
+            const settings = this.panelUserStatsTokens || defaults
+            return {
+                maxCards: toPositiveNumber(settings.maxCards, defaults.maxCards),
+                veteranLevelThreshold: toPositiveNumber(
+                    settings.veteranLevelThreshold,
+                    defaults.veteranLevelThreshold
+                ),
+                vipBalanceThreshold: toPositiveNumber(settings.vipBalanceThreshold, defaults.vipBalanceThreshold),
+                recentActivityWindowDays: toPositiveNumber(
+                    settings.recentActivityWindowDays,
+                    defaults.recentActivityWindowDays
+                )
+            }
+        },
+        userKpis() {
+            const dataset = Array.isArray(this.users) ? this.users : []
+            if (!dataset.length) {
+                return [
+                    {
+                        id: "user-data",
+                        label: this.loading ? "Sync in progress" : "User data",
+                        value: this.loading ? "Loading…" : "No records",
+                        hint: this.loading ? "Fetching the latest snapshot" : "Adjust filters or refresh"
+                    }
+                ]
+            }
+            const settings = this.kpiSettings
+            const cards = []
+            const totalBalance = dataset.reduce((sum, user) => sum + (Number(user.money) || 0), 0)
+            const avgBalance = dataset.length ? totalBalance / dataset.length : 0
+            cards.push({
+                id: "avg-balance",
+                label: "Avg balance",
+                value: formatCurrency(Math.round(avgBalance)),
+                hint: "Per indexed user"
+            })
+
+            const veteranCount = dataset.reduce((count, user) => {
+                const level = Number(user.level)
+                return count + (Number.isFinite(level) && level >= settings.veteranLevelThreshold ? 1 : 0)
+            }, 0)
+            cards.push({
+                id: "veterans",
+                label: "Veteran players",
+                value: `${veteranCount}`,
+                hint: `Level ${settings.veteranLevelThreshold}+`
+            })
+
+            const windowMs = settings.recentActivityWindowDays * 24 * 60 * 60 * 1000
+            const now = Date.now()
+            const recentCount = dataset.reduce((count, user) => {
+                const lastValue = user.last_played !== undefined ? user.last_played : user.lastPlayed
+                if (!lastValue) return count
+                const timestamp = new Date(lastValue).getTime()
+                if (Number.isNaN(timestamp)) return count
+                return now - timestamp <= windowMs ? count + 1 : count
+            }, 0)
+            const recentRatio = dataset.length ? Math.round((recentCount / dataset.length) * 100) : 0
+            cards.push({
+                id: "recent-activity",
+                label: "Recently active",
+                value: `${recentRatio}%`,
+                hint: `≤ ${settings.recentActivityWindowDays}d`
+            })
+
+            const highRoller = dataset.reduce(
+                (winner, user) => {
+                    const balance = Number(user.money) || 0
+                    if (!winner || balance > winner.balance) {
+                        return {
+                            balance,
+                            username:
+                                user.username
+                                || user.displayName
+                                || user.tag
+                                || (user.id ? `#${user.id}` : "Unknown user")
+                        }
+                    }
+                    return winner
+                },
+                null
+            )
+            if (highRoller && highRoller.balance >= settings.vipBalanceThreshold) {
+                cards.push({
+                    id: "high-roller",
+                    label: "High roller",
+                    value: highRoller.username,
+                    hint: formatCurrency(highRoller.balance)
+                })
+            }
+
+            const maxCards = settings.maxCards || cards.length
+            return cards.slice(0, maxCards)
         },
         activeFilterChips() {
             const chips = []
@@ -398,15 +562,6 @@ export default {
 
             if (filtersDraft.role !== defaults.role) {
                 pushChip("role", `Role: ${getRoleLabel(filtersDraft.role)}`, "role")
-            }
-
-            if (filtersDraft.list !== defaults.list) {
-                const listLabels = {
-                    whitelisted: "Whitelisted",
-                    blacklisted: "Blacklisted",
-                    neutral: "Neutral"
-                }
-                pushChip("list", `Access: ${listLabels[filtersDraft.list] || filtersDraft.list}`, "list")
             }
 
             const hasLevelMin = filtersDraft.minLevel !== "" && filtersDraft.minLevel !== null
@@ -460,6 +615,24 @@ export default {
 
             return chips
         },
+        advancedFilterCount() {
+            return this.activeFilterChips.filter((chip) => chip.id !== "search").length
+        },
+        filtersButtonTone() {
+            if (this.filtersOpen || this.advancedFilterCount) {
+                return "chip-icon-btn--active"
+            }
+            return ""
+        },
+        filtersButtonAriaLabel() {
+            if (this.filtersOpen) {
+                return "Hide filters"
+            }
+            if (this.advancedFilterCount) {
+                return `Show filters (${this.advancedFilterCount} active)`
+            }
+            return "Show filters"
+        },
         applyButtonLabel() {
             const count = this.activeFilterChips.length
             return count ? `Apply filters (${count})` : "Apply filters"
@@ -469,7 +642,15 @@ export default {
         filters: {
             deep: true,
             handler(newValue) {
-                this.filtersDraft = this.normalizeFilters(newValue)
+                const normalized = this.normalizeFilters(newValue)
+                this.filtersDraft = normalized
+                const advancedActive = this.hasActiveAdvancedFilters(normalized)
+                if (!advancedActive) {
+                    this.filtersCollapsedManually = false
+                }
+                if (advancedActive && !this.filtersCollapsedManually) {
+                    this.filtersOpen = true
+                }
             }
         }
     },
@@ -477,7 +658,6 @@ export default {
         normalizeFilters(filters = {}) {
             return {
                 search: filters.search || "",
-                searchField: filters.searchField || "id",
                 role: filters.role || "all",
                 list: filters.list || "all",
                 minLevel: filters.minLevel ?? "",
@@ -489,20 +669,23 @@ export default {
                 sortDirection: filters.sortDirection || "desc"
             }
         },
-        selectSearchField(field) {
-            this.filtersDraft.searchField = field
-        },
-        setViewMode(mode) {
-            if (!VIEW_MODES.some((option) => option.value === mode)) return
-            this.viewMode = mode
-        },
-        toggleSortDirection() {
-            this.filtersDraft.sortDirection = this.filtersDraft.sortDirection === "desc" ? "asc" : "desc"
-        },
         buildPayload() {
             const next = this.normalizeFilters(this.filtersDraft)
             next.search = next.search.trim()
             return next
+        },
+        toggleFilters() {
+            const nextState = !this.filtersOpen
+            this.filtersOpen = nextState
+            if (!nextState && this.advancedFilterCount > 0) {
+                this.filtersCollapsedManually = true
+            } else if (nextState) {
+                this.filtersCollapsedManually = false
+            }
+        },
+        hasActiveAdvancedFilters(filters = this.filtersDraft) {
+            const defaults = this.normalizeFilters({})
+            return ADVANCED_FILTER_KEYS.some((key) => filters[key] !== defaults[key])
         },
         clearFilter(keys) {
             const defaults = this.normalizeFilters({})

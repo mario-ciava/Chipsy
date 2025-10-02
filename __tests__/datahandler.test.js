@@ -173,6 +173,36 @@ describe("data handler experience persistence", () => {
         expect(persisted.money).toBeGreaterThanOrEqual(5000)
     })
 
+    test("resolveDBUser keeps shared data references in sync", () => {
+        const connection = createMockConnection([])
+        const dataHandler = createDataHandler(connection)
+        const baseData = {
+            money: 25_000,
+            gold: 3,
+            current_exp: 0,
+            required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
+            level: DEFAULT_PLAYER_LEVEL,
+            hands_played: 0,
+            hands_won: 0,
+            biggest_won: 0,
+            biggest_bet: 0,
+            withholding_upgrade: 0,
+            reward_amount_upgrade: 0,
+            reward_time_upgrade: 0,
+            next_reward: null,
+            last_played: null
+        }
+
+        const discordUser = { id: "sync-user", data: { ...baseData } }
+        const session = { id: discordUser.id, data: discordUser.data, user: discordUser }
+
+        const payload = dataHandler.resolveDBUser(session)
+        expect(payload.money).toBe(baseData.money)
+
+        session.data.money = 123
+        expect(discordUser.data.money).toBe(123)
+    })
+
     test("getUserData converts BIGINT columns returned as strings", async() => {
         const userId = "string-values"
         const connection = createMockConnection([

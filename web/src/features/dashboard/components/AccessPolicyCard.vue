@@ -1,67 +1,92 @@
 <template>
-    <div class="chip-card space-y-6">
-        <header class="chip-card__header">
-            <div>
-                <p class="chip-label">Bot access policy</p>
+    <div class="chip-card chip-stack">
+        <header class="chip-card__header items-start">
+            <div class="chip-stack">
+                <div class="flex items-center gap-2">
+                    <span class="chip-eyebrow">Access policy</span>
+                    <span
+                        class="chip-info-dot"
+                        role="img"
+                        tabindex="0"
+                        aria-label="Whitelist rules"
+                        :data-tooltip="policyInfo"
+                    ></span>
+                </div>
                 <h3 class="chip-card__title">Whitelist protection</h3>
-                <p class="chip-card__subtitle">
-                    Blacklist always blocks the bot. When whitelist mode is active only whitelisted users and admins can use Chipsy.
+                <p class="chip-card__subtitle chip-card__subtitle--tight">
+                    Keep Discord commands scoped to trusted IDs and admins whenever you need to lock things down.
                 </p>
-            </div>
-            <div class="flex flex-col items-end gap-2 text-right">
-                <span class="text-xs font-semibold uppercase tracking-wide text-slate-400">Enable whitelist</span>
-                <button
-                    type="button"
-                    role="switch"
-                    :aria-checked="isActive"
-                    class="inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 transition hover:border-violet-400/40"
-                    :class="{ 'cursor-not-allowed opacity-60': toggleDisabled }"
-                    :disabled="toggleDisabled"
-                    @click="handleToggle"
-                >
-                    <span class="relative inline-flex h-6 w-12 items-center rounded-full bg-slate-800/80 transition" :class="isActive ? 'bg-emerald-500/40' : ''">
-                        <span
-                            class="absolute left-1 h-4 w-4 rounded-full bg-white transition"
-                            :class="isActive ? 'translate-x-5 bg-emerald-100' : ''"
-                        ></span>
-                    </span>
-                    <span class="text-sm font-semibold" :class="isActive ? 'text-emerald-200' : 'text-slate-400'">
-                        {{ isActive ? "On" : "Off" }}
-                    </span>
-                    <span v-if="toggleDisabled" class="chip-spinner"></span>
-                </button>
             </div>
         </header>
 
-        <ul class="space-y-2 text-sm text-slate-300">
-            <li>
-                <strong class="text-white">Always blocked:</strong> anyone on the blacklist.
-            </li>
-            <li>
-                <strong class="text-white">Always allowed:</strong> admins and whitelisted IDs.
-            </li>
-            <li>
-                <strong class="text-white">Default users:</strong> follow the current whitelist toggle.
-            </li>
-        </ul>
-
-        <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-            <p class="m-0">
-                <span v-if="updatedAt">Updated {{ updatedAt }}</span>
-                <span v-else>Waiting for the first change</span>
-            </p>
-            <span class="text-slate-200">
-                {{ policyMessage }}
-            </span>
+        <div class="chip-divider chip-divider--strong my-1.5"></div>
+        <div class="flex flex-col gap-4">
+            <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col">
+                    <span class="chip-status__label">Whitelist state</span>
+                    <span class="chip-field-hint">
+                        Enforce access to trusted IDs only.
+                    </span>
+                </div>
+                <ChipToggle
+                    class="w-40"
+                    :label="primaryToggleLabel"
+                    :checked="displayWhitelistState"
+                    :busy="loading"
+                    :disabled="toggleDisabled"
+                    :tone="primaryToggleTone"
+                    aria-label="Whitelist state toggle"
+                    @toggle="handleToggle"
+                />
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col">
+                    <span class="chip-status__label">Invite quarantine</span>
+                    <span class="chip-field-hint">
+                        Auto-block unverified server invites.
+                    </span>
+                </div>
+                <ChipToggle
+                    class="w-40"
+                    :label="secondaryToggleLabel"
+                    :checked="false"
+                    :disabled="true"
+                    tone="warn"
+                    aria-label="Invite quarantine toggle"
+                />
+            </div>
+            <div class="h-px w-full bg-white/10"></div>
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                    <p class="chip-status__label">Lists</p>
+                    <p class="chip-field-hint">Inspect the IDs enforced by the policy.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button class="chip-btn chip-btn-secondary opacity-60" type="button" disabled>
+                        Show whitelist
+                    </button>
+                    <button class="chip-btn chip-btn-secondary opacity-60" type="button" disabled>
+                        Show blacklist
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </template>
 
 <script>
-import { formatDetailedDateTime } from "../../../utils/formatters"
+import ChipToggle from "./ChipToggle.vue"
 
 export default {
     name: "AccessPolicyCard",
+    components: {
+        ChipToggle
+    },
+    data() {
+        return {
+            optimisticState: null
+        }
+    },
     props: {
         policy: {
             type: Object,
@@ -76,28 +101,61 @@ export default {
             default: false
         }
     },
+    watch: {
+        policy: {
+            deep: true,
+            handler(newPolicy) {
+                if (this.optimisticState === null) return
+                const enforced = typeof newPolicy?.enforceWhitelist === "boolean"
+                    ? newPolicy.enforceWhitelist
+                    : null
+                if (enforced !== null && enforced === this.optimisticState) {
+                    this.optimisticState = null
+                }
+            }
+        },
+        saving(newVal, oldVal) {
+            if (!newVal && oldVal && this.optimisticState !== null) {
+                const enforced = typeof this.policy?.enforceWhitelist === "boolean"
+                    ? this.policy.enforceWhitelist
+                    : null
+                if (enforced !== this.optimisticState) {
+                    this.optimisticState = null
+                }
+            }
+        }
+    },
     computed: {
         isActive() {
             return Boolean(this.policy?.enforceWhitelist)
         },
-        updatedAt() {
-            if (!this.policy?.updatedAt) return null
-            return formatDetailedDateTime(this.policy.updatedAt)
+        displayWhitelistState() {
+            if (this.optimisticState !== null) return this.optimisticState
+            return this.isActive
         },
-        policyMessage() {
-            if (this.isActive) {
-                return "Only admins and whitelisted IDs can interact with Chipsy."
-            }
-            return "Whitelist disabled. Users follow default access permissions."
+        policyInfo() {
+            return "Blacklist always blocks Chipsy. When whitelist is enforced, only admins and curated IDs get responses."
         },
         toggleDisabled() {
             return this.loading || this.saving
+        },
+        primaryToggleLabel() {
+            return this.displayWhitelistState ? "Enabled" : "Disabled"
+        },
+        primaryToggleTone() {
+            if (this.loading) return "warn"
+            return this.displayWhitelistState ? "ok" : "danger"
+        },
+        secondaryToggleLabel() {
+            return "Coming soon"
         }
     },
     methods: {
-        handleToggle() {
+        handleToggle(nextState) {
             if (this.toggleDisabled) return
-            this.$emit("toggle", !this.isActive)
+            const targetState = typeof nextState === "boolean" ? nextState : !this.isActive
+            this.optimisticState = targetState
+            this.$emit("toggle", targetState)
         }
     }
 }
