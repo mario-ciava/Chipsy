@@ -28,13 +28,16 @@
                 <span v-if="isAuthenticated" class="text-sm">
                     Welcome <span class="font-semibold text-white">{{ userName }}</span>
                 </span>
-                <router-link
+                <button
                     v-if="!isAuthenticated"
-                    to="/login"
-                    class="chip-btn chip-btn-ghost text-sm"
+                    type="button"
+                    class="chip-btn chip-btn-primary text-sm"
+                    @click="handleNavLogin"
+                    :disabled="navLoginRedirecting"
                 >
-                    Login
-                </router-link>
+                    <span v-if="navLoginRedirecting">Redirecting…</span>
+                    <span v-else>Sign in with Discord</span>
+                </button>
                 <router-link
                     v-else
                     to="/logout"
@@ -53,6 +56,10 @@
             </router-view>
         </main>
 
+        <footer class="chip-footer">
+            © 2025 Mario Ciavarella
+        </footer>
+
         <transition name="toast-fade">
             <div v-if="toast.visible" class="chip-toast animate-chip-toast">
                 {{ toast.message }}
@@ -63,19 +70,10 @@
 
 <script>
 import { mapGetters } from "vuex"
+import ChipsyAvatar from "./assets/img/chipsy.png"
 
 const DEFAULT_BRAND_INITIAL = "C"
-const DEFAULT_BRAND_AVATAR = "https://cdn.discordapp.com/embed/avatars/0.png"
-
-const buildDiscordAvatarUrl = (user, size = 64) => {
-    if (!user?.id) return ""
-    if (user.avatar) {
-        return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=${size}`
-    }
-    const discriminator = Number(user.discriminator) || 0
-    const fallbackIndex = discriminator % 5
-    return `https://cdn.discordapp.com/embed/avatars/${fallbackIndex}.png?size=${size}`
-}
+const DEFAULT_BRAND_AVATAR = ChipsyAvatar
 
 export default {
     name: "App",
@@ -85,7 +83,8 @@ export default {
                 message: "",
                 visible: false,
                 timeoutId: null
-            }
+            },
+            navLoginRedirecting: false
         }
     },
     computed: {
@@ -99,10 +98,6 @@ export default {
             return initial ? initial.toUpperCase() : DEFAULT_BRAND_INITIAL
         },
         brandAvatarUrl() {
-            const discordAvatar = buildDiscordAvatarUrl(this.user, 64)
-            if (discordAvatar) {
-                return discordAvatar
-            }
             const configUrl = this.panelConfig?.branding?.avatarUrl
             const envUrl = process.env.VUE_APP_BRAND_AVATAR_URL
             return configUrl || envUrl || DEFAULT_BRAND_AVATAR
@@ -121,6 +116,16 @@ export default {
         }
     },
     methods: {
+        handleNavLogin() {
+            if (this.navLoginRedirecting) return
+            this.navLoginRedirecting = true
+            this.$router
+                .push({ name: "Login" })
+                .catch(() => null)
+                .finally(() => {
+                    this.navLoginRedirecting = false
+                })
+        },
         handleSessionExpired() {
             this.$store.dispatch("session/clear").catch(() => null)
 

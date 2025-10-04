@@ -1,6 +1,8 @@
 const { config: loadEnv } = require("dotenv")
 const { z } = require("zod")
 const uiTheme = require("./uiTheme")
+const marketingContent = require("./marketingContent")
+const userDetailLayout = require("./userDetailLayout")
 
 // Load environment variables once at startup
 const result = loadEnv()
@@ -463,8 +465,10 @@ const config = {
                 vipBalanceThreshold: 250000,
                 recentActivityWindowDays: 14
             }
-        }
+        },
+        userDetails: userDetailLayout
     },
+    marketing: marketingContent,
     blackjack: {
         deckCount: {
             default: 6,
@@ -640,5 +644,6 @@ module.exports = {
     constants,
     upgrades: upgradeToolkit,
     uiTheme,
-    designTokens
+    designTokens,
+    userDetailLayout
 }

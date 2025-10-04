@@ -134,6 +134,30 @@
         @apply text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-slate-400;
     }
 
+    .chip-metric-group {
+        @apply flex flex-col gap-3 rounded-none border-0 bg-transparent px-1 py-2;
+    }
+
+    .chip-metric-group__title {
+        @apply text-[0.75rem] font-semibold uppercase tracking-[0.28em] text-white;
+    }
+
+    .chip-metric-group__list {
+        @apply flex flex-col gap-2;
+    }
+
+    .chip-metric-group__row {
+        @apply flex items-center justify-between gap-4;
+    }
+
+    .chip-metric-group__label {
+        @apply text-sm font-medium text-white/70;
+    }
+
+    .chip-metric-group__value {
+        @apply text-base font-semibold text-white;
+    }
+
     .chip-eyebrow {
         @apply text-[0.7rem] font-semibold uppercase tracking-[0.28em] text-slate-400;
     }
@@ -213,6 +237,10 @@
 
     .chip-stack {
         @apply flex flex-col gap-3;
+    }
+
+    .chip-footer {
+        @apply mt-12 border-t border-white/10 pt-6 text-center text-xs font-semibold uppercase tracking-[0.4em] text-slate-500;
     }
 
     .chip-grid {

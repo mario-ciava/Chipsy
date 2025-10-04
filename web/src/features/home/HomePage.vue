@@ -1,45 +1,5 @@
 <template>
     <div class="flex flex-col gap-10">
-        <header class="rounded-3xl border border-white/10 bg-gradient-to-br from-violet-600/20 via-slate-900/80 to-indigo-900/40 p-8 text-center shadow-chip-card lg:text-left">
-            <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                <div class="space-y-4">
-                    <span v-if="isAuthenticated" class="chip-pill chip-pill-info self-start">
-                        {{ roleLabel }} access
-                    </span>
-                    <h1 class="text-4xl font-semibold text-white">Chipsy Control Center</h1>
-                    <p class="text-base text-slate-200">
-                        Monitor the bot, surface player stats, and drop Chipsy into Discord servers without touching a terminal.
-                    </p>
-                </div>
-                <div class="flex flex-wrap items-center justify-center gap-3">
-                    <button
-                        v-if="!isAuthenticated"
-                        class="chip-btn chip-btn-primary min-w-[200px]"
-                        @click="goToLogin"
-                        :disabled="processing"
-                    >
-                        <span v-if="processing">Redirecting…</span>
-                        <span v-else>Sign in with Discord</span>
-                    </button>
-                    <template v-else>
-                        <router-link
-                            v-if="isAdmin"
-                            to="/control_panel"
-                            class="chip-btn chip-btn-primary min-w-[180px]"
-                        >
-                            Open the panel
-                        </router-link>
-                        <router-link
-                            v-if="canViewLogs"
-                            to="/logs"
-                            class="chip-btn chip-btn-secondary min-w-[160px]"
-                        >
-                            View logs
-                        </router-link>
-                    </template>
-                </div>
-            </div>
-        </header>
 
         <section v-if="isAuthenticated" class="space-y-8">
             <div class="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
@@ -131,30 +91,133 @@
             </section>
         </section>
 
-        <section v-else class="grid gap-6 lg:grid-cols-2">
-            <div class="chip-card space-y-4">
-                <h2 class="chip-card__title">Sign in with Discord</h2>
-                <p class="text-sm text-slate-300">
-                    Use your account to unlock the control panel. Only approved admins can enable or suspend Chipsy and review community stats.
-                </p>
-                <button class="chip-btn chip-btn-primary w-full" @click="goToLogin" :disabled="processing">
-                    <span v-if="processing">Redirecting…</span>
-                    <span v-else>Authenticate</span>
-                </button>
-            </div>
-            <div class="chip-card space-y-4">
-                <h3 class="chip-card__title">Why Chipsy</h3>
-                <ul class="space-y-3 text-sm text-slate-200">
-                    <li>
-                        <strong>Casino workflow:</strong> blackjack, texas hold&apos;em, and other games with a bankroll shared between bot and panel.
-                    </li>
-                    <li>
-                        <strong>Player progression:</strong> levels, auto-rewards, and stats kept in sync with MySQL.
-                    </li>
-                    <li>
-                        <strong>Discord-native:</strong> sane invite flows, permissions, and slash commands tuned for communities.
-                    </li>
-                </ul>
+        <section v-else class="space-y-6">
+            <article
+                class="chip-card chip-stack bg-gradient-to-br from-violet-600/20 via-slate-900/80 to-indigo-900/40 text-center lg:text-left"
+            >
+                <header class="chip-card__header">
+                    <div class="chip-stack text-left">
+                        <span class="chip-eyebrow">
+                            {{ whyChipsyContent.eyebrow || whyChipsyContent.tagline || "WHY CHIPSY" }}
+                        </span>
+                        <h3 class="chip-card__title">{{ whyChipsyContent.headline || "Why Chipsy" }}</h3>
+                        <p class="chip-card__subtitle chip-card__subtitle--tight">
+                            {{ whyChipsyContent.body || "Chipsy keeps Discord-native casinos synchronized across bot, panel, and data." }}
+                        </p>
+                    </div>
+                </header>
+                <div class="grid gap-4 lg:grid-cols-3">
+                    <section
+                        v-for="pillar in whyChipsyPillars"
+                        :key="pillar.title"
+                        class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
+                    >
+                        <div class="flex items-center gap-2 text-white">
+                            <span class="text-xl">{{ pillar.icon }}</span>
+                            <p class="text-base font-semibold">{{ pillar.title }}</p>
+                        </div>
+                        <p class="text-sm text-slate-300">{{ pillar.copy }}</p>
+                        <ul class="space-y-1 pl-5 text-sm text-slate-300">
+                            <li
+                                v-for="bullet in pillar.bullets"
+                                :key="bullet"
+                                class="list-disc marker:text-violet-400"
+                            >
+                                {{ bullet }}
+                            </li>
+                        </ul>
+                    </section>
+                </div>
+                <div class="chip-divider chip-divider--strong my-2"></div>
+                <div class="flex flex-wrap gap-2">
+                    <span
+                        v-for="badge in whyChipsyBadges"
+                        :key="badge.label"
+                        class="chip-pill chip-pill-ghost flex flex-wrap items-center gap-2"
+                    >
+                        <span class="text-sm font-semibold text-white normal-case">{{ badge.label }}</span>
+                        <span class="text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-slate-300">
+                            {{ badge.detail }}
+                        </span>
+                    </span>
+                </div>
+            </article>
+
+            <div class="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+                <article class="chip-card chip-stack">
+                    <header class="chip-card__header">
+                        <div class="chip-stack">
+                            <span class="chip-eyebrow">
+                                {{ launchPlaybook.eyebrow || launchPlaybook.tagline || "LAUNCH PLAYBOOK" }}
+                            </span>
+                            <h3 class="chip-card__title">{{ launchPlaybook.title || "Launch playbook" }}</h3>
+                            <p class="chip-card__subtitle chip-card__subtitle--tight">
+                                {{ launchPlaybook.subtitle || "Borrow our onboarding steps to bring Chipsy live." }}
+                            </p>
+                        </div>
+                    </header>
+                    <ol class="chip-stack">
+                        <li
+                            v-for="(step, index) in launchSteps"
+                            :key="step.title"
+                            class="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                        >
+                            <span
+                                class="chip-pill-metric inline-flex h-10 w-10 flex-shrink-0 items-center justify-center p-0 text-base"
+                            >
+                                {{ index + 1 }}
+                            </span>
+                            <div class="chip-stack text-left">
+                                <p class="text-base font-semibold text-white">{{ step.title }}</p>
+                                <p class="text-sm text-slate-300">{{ step.detail }}</p>
+                            </div>
+                        </li>
+                    </ol>
+                </article>
+
+                <article class="chip-card chip-stack">
+                    <header class="chip-card__header">
+                        <div class="chip-stack">
+                            <span class="chip-eyebrow">
+                                {{ readinessContent.eyebrow || readinessContent.tagline || "OPERATIONAL READINESS" }}
+                            </span>
+                            <h3 class="chip-card__title">{{ readinessContent.title || "Operational readiness" }}</h3>
+                            <p class="chip-card__subtitle chip-card__subtitle--tight">
+                                {{ readinessContent.subtitle || "Preview the guardrails that keep guilds healthy." }}
+                            </p>
+                        </div>
+                    </header>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div
+                            v-for="stat in readinessStats"
+                            :key="stat.label"
+                            class="chip-stat chip-stat--inline"
+                        >
+                            <span class="chip-stat__label">{{ stat.label }}</span>
+                            <span class="chip-stat__value">{{ stat.value }}</span>
+                            <p class="text-xs text-slate-400">{{ stat.detail }}</p>
+                        </div>
+                    </div>
+                    <div class="chip-divider chip-divider--strong my-1"></div>
+                    <ul class="chip-stack divide-y divide-white/5">
+                        <li
+                            v-for="assurance in readinessAssurances"
+                            :key="assurance.tag"
+                            class="grid gap-3 pt-3 first:pt-0 sm:grid-cols-[200px_1fr] sm:items-center"
+                        >
+                            <div class="flex justify-center">
+                                <span
+                                    class="chip-pill chip-pill-info flex h-11 w-48 items-center justify-center text-center text-sm tracking-[0.28em]"
+                                >
+                                    {{ assurance.tag }}
+                                </span>
+                            </div>
+                            <p class="text-sm text-slate-300">
+                                {{ assurance.detail }}
+                            </p>
+                        </li>
+                    </ul>
+                </article>
             </div>
         </section>
 
@@ -172,15 +235,16 @@
 
 <script>
 import { mapGetters } from "vuex"
-import { getRoleLabel } from "../../constants/roles"
 import GuildOverview from "../dashboard/components/GuildOverview.vue"
 import ProfileOverviewCard from "./components/ProfileOverviewCard.vue"
 import api from "../../services/api"
 import { formatCurrency, formatExpRange, formatFriendlyDateTime } from "../../utils/formatters"
 import { getControlPanelRedirect } from "../../utils/runtime"
+import homeMarketing from "../../config/homeContent"
 
 const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
 const PROFILE_REFRESH_INTERVAL_MS = 20000
+const landingMarketing = homeMarketing || {}
 
 export default {
     name: "HomePage",
@@ -205,7 +269,34 @@ export default {
         }
     },
     computed: {
-        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "role", "panelConfig"]),
+        ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "panelConfig"]),
+        marketingContent() {
+            return landingMarketing
+        },
+        whyChipsyContent() {
+            return this.marketingContent.whyChipsy || {}
+        },
+        whyChipsyPillars() {
+            return Array.isArray(this.whyChipsyContent.pillars) ? this.whyChipsyContent.pillars : []
+        },
+        whyChipsyBadges() {
+            return Array.isArray(this.whyChipsyContent.badges) ? this.whyChipsyContent.badges : []
+        },
+        launchPlaybook() {
+            return this.marketingContent.playbook || {}
+        },
+        launchSteps() {
+            return Array.isArray(this.launchPlaybook.steps) ? this.launchPlaybook.steps : []
+        },
+        readinessContent() {
+            return this.marketingContent.readiness || {}
+        },
+        readinessStats() {
+            return Array.isArray(this.readinessContent.stats) ? this.readinessContent.stats : []
+        },
+        readinessAssurances() {
+            return Array.isArray(this.readinessContent.assurances) ? this.readinessContent.assurances : []
+        },
         loginState() {
             return this.$route.query.state || null
         },
@@ -217,9 +308,6 @@ export default {
         },
         userName() {
             return this.user && this.user.username ? this.user.username : ""
-        },
-        roleLabel() {
-            return getRoleLabel(this.role)
         },
         profileStats() {
             return this.user?.profile || null
@@ -519,9 +607,6 @@ export default {
             if (!document.hidden) {
                 this.refreshProfile({ silent: true })
             }
-        },
-        goToLogin() {
-            this.$router.push({ name: "Login" })
         }
     }
 }
