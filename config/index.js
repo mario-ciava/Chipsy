@@ -1,14 +1,50 @@
+const path = require("path")
+const fs = require("fs")
 const { config: loadEnv } = require("dotenv")
 const { z } = require("zod")
 const uiTheme = require("./uiTheme")
 const marketingContent = require("./marketingContent")
 const userDetailLayout = require("./userDetailLayout")
 
-// Load environment variables once at startup
-const result = loadEnv()
-if (result?.error) {
-    throw result.error
+const projectRoot = path.resolve(__dirname, "..")
+
+const loadEnvFile = (filename, { override = true } = {}) => {
+    const filePath = path.join(projectRoot, filename)
+    if (!fs.existsSync(filePath)) {
+        return null
+    }
+
+    const result = loadEnv({ path: filePath, override })
+    if (result?.error) {
+        throw result.error
+    }
+
+    return { path: filePath }
 }
+
+const resolveEnvTarget = () => {
+    const explicit = (process.env.CHIPSY_ENV || "").toLowerCase()
+    if (explicit === "local" || explicit === "vps") {
+        return explicit
+    }
+    if (process.env.NODE_ENV === "production" || process.env.DOCKER_ENV === "true") {
+        return "vps"
+    }
+    return "local"
+}
+
+const baseEnv = loadEnvFile(".env", { override: false })
+const activeEnvTarget = resolveEnvTarget()
+const variantEnv = loadEnvFile(`.env.${activeEnvTarget}`)
+
+if (!baseEnv && !variantEnv) {
+    const fallback = loadEnv()
+    if (fallback?.error) {
+        throw fallback.error
+    }
+}
+
+process.env.CHIPSY_ENV = activeEnvTarget
 
 const envSchema = z.object({
     DISCORD_CLIENT_ID: z.string().min(1, "DISCORD_CLIENT_ID is required."),
@@ -16,7 +52,6 @@ const envSchema = z.object({
     DISCORD_BOT_TOKEN: z.string().min(1, "DISCORD_BOT_TOKEN is required."),
     DISCORD_OWNER_ID: z.string().min(1, "DISCORD_OWNER_ID is required."),
     DISCORD_TEST_GUILD_ID: z.string().optional(),
-    COMMAND_PREFIX: z.string().min(1, "COMMAND_PREFIX is required."),
     MYSQL_HOST: z.string().min(1, "MYSQL_HOST is required.").default("localhost"),
     MYSQL_PORT: z.coerce.number().int().positive("MYSQL_PORT must be a positive integer.").default(3306),
     MYSQL_DATABASE: z.string().min(1, "MYSQL_DATABASE is required.").default("app_data"),
@@ -24,10 +59,7 @@ const envSchema = z.object({
     MYSQL_PASSWORD: z.string().optional(),
     FRONTEND_REDIRECT_ORIGIN: z.string().optional(),
     BOT_DISPLAY_NAME: z.string().optional(),
-    BLACKJACK_TEST_USER_ID: z.string().optional(),
-    BLACKJACK_TEST_BANKROLL: z.coerce.number().int().positive().optional(),
-    TEXAS_TEST_USER_ID: z.string().optional(),
-    TEXAS_TEST_BANKROLL: z.coerce.number().int().positive().optional()
+    HEALTH_CHECK_TOKEN: z.string().optional()
 })
 
 const parsedEnv = envSchema.safeParse(process.env)
@@ -43,6 +75,39 @@ if (!parsedEnv.success) {
 }
 
 const env = parsedEnv.data
+
+const parseBoolean = (value, fallback = false) => {
+    if (value === undefined || value === null || value === "") {
+        return fallback
+    }
+    if (typeof value === "boolean") {
+        return value
+    }
+    const normalized = String(value).trim().toLowerCase()
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+        return true
+    }
+    if (["0", "false", "no", "n", "off"].includes(normalized)) {
+        return false
+    }
+    return fallback
+}
+
+const parseCsvList = (value, fallback = []) => {
+    if (!value || typeof value !== "string") {
+        return Array.isArray(fallback) ? fallback : []
+    }
+    return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+}
+
+const securityConfig = Object.freeze({
+    enforceHttps: parseBoolean(process.env.ENFORCE_HTTPS, process.env.NODE_ENV === "production"),
+    allowHttpHosts: parseCsvList(process.env.SECURITY_ALLOW_HTTP_HOSTS, ["localhost", "127.0.0.1"]),
+    healthCheckToken: env.HEALTH_CHECK_TOKEN || null
+})
 
 const clampChannel = (value) => {
     if (!Number.isFinite(value)) {
@@ -392,7 +457,6 @@ const config = {
         testGuildId: env.DISCORD_TEST_GUILD_ID
     },
     bot: {
-        prefix: env.COMMAND_PREFIX,
         enabled: true,
         displayName: env.BOT_DISPLAY_NAME || "Chipsy",
         commands: {
@@ -400,16 +464,6 @@ const config = {
             reloadDebounceMs: 750,
             syncOnChange: true,
             syncDebounceMs: 4000
-        }
-    },
-    testing: {
-        blackjack: {
-            testerUserId: env.BLACKJACK_TEST_USER_ID || null,
-            bankroll: env.BLACKJACK_TEST_BANKROLL ?? null
-        },
-        texas: {
-            testerUserId: env.TEXAS_TEST_USER_ID || null,
-            bankroll: env.TEXAS_TEST_BANKROLL ?? null
         }
     },
     mysql: {
@@ -469,6 +523,7 @@ const config = {
         userDetails: userDetailLayout
     },
     marketing: marketingContent,
+    security: securityConfig,
     blackjack: {
         deckCount: {
             default: 6,

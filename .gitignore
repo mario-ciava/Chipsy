@@ -2,13 +2,9 @@
 node_modules/
 web/node_modules/
 config.json
-.env
-.env.local
-.env.*.local
-.env.vault.local
+*.env*
+!*.env.example
+!*/**/*.env.example
 web/dist/
 logs/
-ARCHITECTURE.md
-CONFIGURATION.md
-FINAL_REVIEW.md
-REFACTORING_NOTES.md
+*.md

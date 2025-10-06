@@ -117,6 +117,23 @@ const userSchemas = {
         activity: z.enum(activityFilters).default("any"),
         sortBy: z.enum(sortColumns).default("last_played"),
         sortDirection: z.enum(sortDirections).default("desc")
+    }),
+
+    updateUserStats: z.object({
+        level: z.coerce.number()
+            .int()
+            .min(0, "Level cannot be negative")
+            .max(500, "Level cannot exceed 500"),
+        currentExp: z.coerce.number()
+            .int()
+            .min(0, "Experience cannot be negative")
+            .max(1_000_000_000, "Experience is too large"),
+        money: z.coerce.number()
+            .min(0, "Money cannot be negative")
+            .max(1_000_000_000_000, "Money exceeds safe limits"),
+        gold: z.coerce.number()
+            .min(0, "Gold cannot be negative")
+            .max(1_000_000_000, "Gold exceeds safe limits")
     })
 }
 

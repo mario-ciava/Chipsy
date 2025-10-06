@@ -9,7 +9,6 @@ const requiredEnvDefaults = {
     DISCORD_CLIENT_SECRET: "ui-theme",
     DISCORD_BOT_TOKEN: "ui-theme",
     DISCORD_OWNER_ID: "ui-theme",
-    COMMAND_PREFIX: "!",
     MYSQL_HOST: "localhost",
     MYSQL_PORT: "3306",
     MYSQL_DATABASE: "app_data"

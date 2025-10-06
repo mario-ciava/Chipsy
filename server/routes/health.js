@@ -1,8 +1,24 @@
 const express = require("express")
 
 const createHealthRouter = (dependencies) => {
-    const { client, healthChecks = {} } = dependencies
+    const { client, healthChecks = {}, token: requiredToken = null } = dependencies
     const router = express.Router()
+
+    const ensureAuthorized = (req, res, next) => {
+        if (!requiredToken) {
+            return next()
+        }
+        const token = req.get("x-health-token") || req.query.token
+        if (!token || token !== requiredToken) {
+            return res.status(401).json({
+                status: "unauthorized",
+                timestamp: new Date().toISOString()
+            })
+        }
+        return next()
+    }
+
+    router.use(ensureAuthorized)
 
     router.get("/", async(req, res) => {
         const checks = {}

@@ -167,6 +167,24 @@ const api = {
         )
         return response.data
     },
+    async updateUserStats({ csrfToken, userId, level, currentExp, money, gold }) {
+        if (!userId) {
+            throw new Error("Missing user id for progression update")
+        }
+        const response = await http.patch(
+            `/users/${userId}/stats`,
+            {
+                level,
+                currentExp,
+                money,
+                gold
+            },
+            {
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
+            }
+        )
+        return response.data
+    },
 
     async getAccessPolicy() {
         const response = await http.get("/users/policy")

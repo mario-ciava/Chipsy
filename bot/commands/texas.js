@@ -11,12 +11,6 @@ const { registerGame } = require("../utils/gameRegistry")
 const { createLobbySession } = require("../lobbies")
 const config = require("../../config")
 
-const testerProvisionConfig = {
-    testerUserId: config.testing?.texas?.testerUserId,
-    bankrollEnvKey: "TEXAS_TEST_BANKROLL",
-    defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL,
-    bankrollAmount: config.testing?.texas?.bankroll
-}
 
 const buildTexasCommandLog = (interaction, message, extraMeta = {}) =>
     logAndSuppress(message, {
@@ -280,15 +274,6 @@ Small/Big Blind: ${setSeparator(game.minBet / 2)}/${setSeparator(game.minBet)}`,
                 )
                 return
             }
-            await bankrollManager.ensureTesterProvision({
-                user: i.user,
-                client,
-                testerUserId: testerProvisionConfig.testerUserId,
-                bankrollEnvKey: testerProvisionConfig.bankrollEnvKey,
-                defaultBankroll: testerProvisionConfig.defaultBankroll,
-                bankrollAmount: testerProvisionConfig.bankrollAmount
-            })
-
             if (game.players.length >= game.maxPlayers) return i.reply({ content: "⚠️ This table is full.", flags: MessageFlags.Ephemeral })
             if (game.GetPlayer(i.user.id)) return i.reply({ content: "⚠️ You are already at this table.", flags: MessageFlags.Ephemeral })
 

@@ -13,6 +13,7 @@ import { createRequire } from "module";
 import dotenv from "dotenv";
 import readline from "readline";
 import fs from "fs";
+import path from "path";
 
 // Drag CommonJS modules into this ESM sandbox.
 const require = createRequire(import.meta.url);
@@ -404,9 +405,20 @@ async function main() {
   logSys("🚀 Booting the full Chipsy stack...");
 
   // 1️⃣ Spin up MySQL via Docker
+  const composeArgs = ["compose"];
+  const composeFiles = ["docker-compose.yml"];
+  const localOverridePath = path.join(process.cwd(), "docker-compose.local.yml");
+  if (fs.existsSync(localOverridePath)) {
+    composeFiles.push("docker-compose.local.yml");
+  }
+  composeFiles.forEach((file) => {
+    composeArgs.push("-f", file);
+  });
+  composeArgs.push("up", "-d", "mysql");
+
   try {
     logSys("Starting Docker MySQL service...");
-    await runCommandOnce("docker", ["compose", "up", "-d", "mysql"], "docker:compose");
+    await runCommandOnce("docker", composeArgs, "docker:compose");
   } catch (e) {
     logErr("Unable to start Docker Compose. Make sure Docker Desktop is awake.");
     process.exit(1);

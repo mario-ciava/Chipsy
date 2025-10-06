@@ -11,12 +11,6 @@ const { registerGame } = require("../utils/gameRegistry")
 const { createLobbySession } = require("../lobbies")
 const config = require("../../config")
 
-const testerProvisionConfig = {
-    testerUserId: config.testing?.blackjack?.testerUserId,
-    bankrollEnvKey: "BLACKJACK_TEST_BANKROLL",
-    defaultBankroll: bankrollManager.DEFAULT_TESTER_BANKROLL,
-    bankrollAmount: config.testing?.blackjack?.bankroll
-}
 const AUTO_START_DELAY_MS = config.lobby.autoStartDelay.default
 
 const buildCommandInteractionLog = (interaction, message, extraMeta = {}) =>
@@ -427,15 +421,6 @@ const runBlackjack = async(interaction, client) => {
                 )
                 return
             }
-
-            await bankrollManager.ensureTesterProvision({
-                user: interactionComponent.user,
-                client,
-                testerUserId: testerProvisionConfig.testerUserId,
-                bankrollEnvKey: testerProvisionConfig.bankrollEnvKey,
-                defaultBankroll: testerProvisionConfig.defaultBankroll,
-                bankrollAmount: testerProvisionConfig.bankrollAmount
-            })
 
             const maxSeats = Number.isFinite(ctx.maxPlayers) && ctx.maxPlayers > 0
                 ? ctx.maxPlayers

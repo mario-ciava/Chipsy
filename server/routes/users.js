@@ -62,6 +62,22 @@ const createUsersRouter = (dependencies) => {
         return ensureAccessControl(res)
     }
 
+    const ensureUserEditing = (req, res) => {
+        if (!ensureAuthenticated(req, res)) return false
+        if (!req.permissions?.canManageRoles) {
+            res.status(403).json({ message: "403: Forbidden" })
+            return false
+        }
+        if (!client.dataHandler
+            || typeof client.dataHandler.getUserData !== "function"
+            || typeof client.dataHandler.updateUserData !== "function"
+        ) {
+            res.status(503).json({ message: "503: Service Unavailable" })
+            return false
+        }
+        return true
+    }
+
     const buildAccessPayload = (userId, accessRecord) => {
         const ownerId = client.config?.ownerid
         const isOwner = ownerId && userId === ownerId
@@ -404,6 +420,40 @@ const createUsersRouter = (dependencies) => {
                 return res.status(error.status).json({ message: `${error.status}: ${error.message}` })
             }
             return next(error)
+        }
+    })
+
+    router.patch("/:id/stats", requireCsrfToken, validate(userSchemas.updateUserStats), async(req, res, next) => {
+        if (!ensureUserEditing(req, res)) return
+        const userId = req.params.id
+        if (!userId) {
+            return res.status(400).json({ message: "400: Bad request" })
+        }
+
+        try {
+            const existing = await client.dataHandler.getUserData(userId)
+            if (!existing) {
+                return res.status(404).json({ message: "404: User not found" })
+            }
+
+            const { level, currentExp, money, gold } = req.body
+            const updatePayload = {
+                level,
+                current_exp: currentExp,
+                money,
+                gold
+            }
+
+            const updated = await client.dataHandler.updateUserData(userId, updatePayload)
+            let accessRecord = null
+            if (client.accessControl?.getAccessRecord) {
+                accessRecord = await client.accessControl.getAccessRecord(userId)
+            }
+
+            const summary = await toUserSummary(updated, accessRecord)
+            res.status(200).json(summary)
+        } catch (error) {
+            next(error)
         }
     })
 

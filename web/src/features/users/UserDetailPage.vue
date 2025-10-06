@@ -213,6 +213,110 @@
                 </div>
             </article>
         </section>
+
+        <section class="chip-card chip-stack">
+            <header class="chip-card__header">
+                <div class="chip-stack">
+                    <span class="chip-eyebrow">Progression</span>
+                    <h3 class="text-2xl font-semibold text-white">Profile overrides</h3>
+                    <p class="chip-card__subtitle chip-card__subtitle--tight">
+                        Tune level, experience, and bankroll values without leaving the panel. These updates apply instantly to the bot.
+                    </p>
+                </div>
+            </header>
+            <div class="chip-divider chip-divider--strong"></div>
+            <div class="chip-stack">
+                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div class="chip-stack">
+                        <label class="chip-label" for="stat-level">Level</label>
+                        <input
+                            id="stat-level"
+                            v-model.number="statsForm.level"
+                            type="number"
+                            min="0"
+                            max="500"
+                            class="chip-input"
+                            :disabled="statsForm.saving || !canEditStats"
+                        >
+                        <p class="chip-field-hint">Player tier (0-500).</p>
+                    </div>
+                    <div class="chip-stack">
+                        <label class="chip-label" for="stat-exp">Experience</label>
+                        <input
+                            id="stat-exp"
+                            v-model.number="statsForm.currentExp"
+                            type="number"
+                            min="0"
+                            class="chip-input"
+                            :disabled="statsForm.saving || !canEditStats"
+                        >
+                        <p class="chip-field-hint">Current XP progress.</p>
+                    </div>
+                    <div class="chip-stack">
+                        <label class="chip-label" for="stat-money">Money</label>
+                        <input
+                            id="stat-money"
+                            v-model.number="statsForm.money"
+                            type="number"
+                            min="0"
+                            class="chip-input"
+                            :disabled="statsForm.saving || !canEditStats"
+                        >
+                        <p class="chip-field-hint">Bankroll on record.</p>
+                    </div>
+                    <div class="chip-stack">
+                        <label class="chip-label" for="stat-gold">Gold</label>
+                        <input
+                            id="stat-gold"
+                            v-model.number="statsForm.gold"
+                            type="number"
+                            min="0"
+                            class="chip-input"
+                            :disabled="statsForm.saving || !canEditStats"
+                        >
+                        <p class="chip-field-hint">Legacy gold tokens.</p>
+                    </div>
+                </div>
+                <p v-if="!canEditStats" class="chip-field-hint text-slate-400">
+                    Only admins can edit progression values.
+                </p>
+                <div class="flex flex-wrap items-center justify-center gap-3 text-center">
+                    <button
+                        type="button"
+                        class="chip-btn chip-btn-secondary"
+                        :disabled="!statsDirty || !canEditStats || statsForm.saving"
+                        @click="saveStats"
+                    >
+                        <span v-if="statsForm.saving" class="chip-spinner"></span>
+                        <span v-else>Save</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="chip-btn chip-btn-ghost"
+                        :disabled="!statsDirty || statsForm.saving"
+                        @click="resetStatsForm"
+                    >
+                        Reset
+                    </button>
+                </div>
+                <p
+                    v-if="statsForm.error"
+                    class="chip-field-hint text-rose-200"
+                    role="status"
+                    aria-live="polite"
+                >
+                    {{ statsForm.error }}
+                </p>
+                <p
+                    v-else-if="statsForm.success"
+                    class="chip-field-hint text-emerald-200"
+                    role="status"
+                    aria-live="polite"
+                >
+                    {{ statsForm.success }}
+                </p>
+            </div>
+        </section>
     </div>
 </template>
 
@@ -261,6 +365,15 @@ export default {
                 pendingBlacklist: false,
                 currentWhitelist: false,
                 currentBlacklist: false,
+                saving: false,
+                error: null,
+                success: null
+            },
+            statsForm: {
+                level: 0,
+                currentExp: 0,
+                money: 0,
+                gold: 0,
                 saving: false,
                 error: null,
                 success: null
@@ -380,6 +493,20 @@ export default {
             const roleKey = (this.roleForm.pending || this.roleForm.current || "").toUpperCase()
             return ROLE_BADGE_CLASSES[roleKey] || "chip-pill"
         },
+        baseStats() {
+            const user = this.user || {}
+            const resolveNumber = (value) => {
+                const numeric = Number(value)
+                return Number.isFinite(numeric) ? numeric : 0
+            }
+            const expValue = user.current_exp !== undefined ? user.current_exp : user.currentExp
+            return {
+                level: resolveNumber(user.level),
+                currentExp: resolveNumber(expValue),
+                money: resolveNumber(user.money),
+                gold: resolveNumber(user.gold)
+            }
+        },
         overviewValues() {
             const access = this.user?.access || {}
             return {
@@ -408,6 +535,18 @@ export default {
                     value: this.overviewValues[field.key] ?? field.fallback ?? "—"
                 }))
             }))
+        },
+        canEditStats() {
+            return this.canManageRoles && !this.isMasterTarget
+        },
+        statsDirty() {
+            const base = this.baseStats
+            return (
+                base.level !== Number(this.statsForm.level)
+                || base.currentExp !== Number(this.statsForm.currentExp)
+                || base.money !== Number(this.statsForm.money)
+                || base.gold !== Number(this.statsForm.gold)
+            )
         }
     },
     async created() {
@@ -434,6 +573,22 @@ export default {
         "listsForm.pendingBlacklist"() {
             this.listsForm.error = null
             this.listsForm.success = null
+        },
+        "statsForm.level"() {
+            this.statsForm.error = null
+            this.statsForm.success = null
+        },
+        "statsForm.currentExp"() {
+            this.statsForm.error = null
+            this.statsForm.success = null
+        },
+        "statsForm.money"() {
+            this.statsForm.error = null
+            this.statsForm.success = null
+        },
+        "statsForm.gold"() {
+            this.statsForm.error = null
+            this.statsForm.success = null
         }
     },
     methods: {
@@ -460,6 +615,16 @@ export default {
             this.listsForm.currentBlacklist = Boolean(flags.isBlacklisted)
             this.listsForm.pendingWhitelist = this.listsForm.currentWhitelist
             this.listsForm.pendingBlacklist = this.listsForm.currentBlacklist
+            this.syncStatsForm()
+        },
+        syncStatsForm() {
+            const stats = this.baseStats
+            this.statsForm.level = stats.level
+            this.statsForm.currentExp = stats.currentExp
+            this.statsForm.money = stats.money
+            this.statsForm.gold = stats.gold
+            this.statsForm.error = null
+            this.statsForm.success = null
         },
         async saveRole() {
             if (!this.canEditRole || !this.roleDirty) return
@@ -517,6 +682,37 @@ export default {
                 this.listsForm.saving = false
             }
         },
+        async saveStats() {
+            if (!this.canEditStats || !this.statsDirty) return
+            if (!this.csrfToken) {
+                this.statsForm.error = "Missing CSRF token."
+                return
+            }
+            this.statsForm.saving = true
+            this.statsForm.error = null
+            this.statsForm.success = null
+            try {
+                const response = await api.updateUserStats({
+                    csrfToken: this.csrfToken,
+                    userId: this.userId,
+                    level: Number(this.statsForm.level),
+                    currentExp: Number(this.statsForm.currentExp),
+                    money: Number(this.statsForm.money),
+                    gold: Number(this.statsForm.gold)
+                })
+                this.mergeUserPayload(response)
+                this.syncStatsForm()
+                this.statsForm.success = "Progression updated successfully."
+            } catch (error) {
+                this.statsForm.error = error?.response?.data?.message || "Unable to update the progression."
+            } finally {
+                this.statsForm.saving = false
+            }
+        },
+        resetStatsForm() {
+            if (this.statsForm.saving) return
+            this.syncStatsForm()
+        },
         resetRoleForm() {
             if (this.roleForm.saving) return
             this.roleForm.pending = this.roleForm.current
@@ -538,6 +734,25 @@ export default {
                 return
             }
             this.listsForm[field] = Boolean(value)
+        },
+        mergeUserPayload(payload = {}) {
+            if (!payload) return
+            const current = this.user || {}
+            const next = {
+                ...current,
+                ...payload
+            }
+            const currentExpValue = payload.current_exp ?? payload.currentExp
+            if (currentExpValue !== undefined) {
+                next.currentExp = currentExpValue
+                next.current_exp = currentExpValue
+            }
+            const requiredExpValue = payload.required_exp ?? payload.requiredExp
+            if (requiredExpValue !== undefined) {
+                next.requiredExp = requiredExpValue
+                next.required_exp = requiredExpValue
+            }
+            this.user = next
         },
         async copyUserId() {
             if (!this.userId) return

@@ -7,7 +7,7 @@ const path = require("path")
 const crypto = require("crypto")
 const { PermissionsBitField, PermissionFlagsBits } = require("discord.js")
 const createSessionStore = require("../bot/utils/createSessionStore")
-const { constants } = require("../config")
+const { constants, security: defaultSecurityConfig } = require("../config")
 const { requestLogger, logger: structuredLogger } = require("./middleware/structuredLogger")
 const { globalLimiter } = require("./middleware/rateLimiter")
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler")
@@ -80,13 +80,15 @@ module.exports = (client, webSocket, options = {}) => {
         fetch: fetchOverride,
         discordApi: discordApiOverride,
         sessionOptions = {},
-        inviteRedirectPath = "/control_panel"
+        inviteRedirectPath = "/control_panel",
+        security: securityOverrides = {}
     } = options
 
     const fetchImpl = fetchOverride || fetch
     const discordApi = discordApiOverride || createDiscordApi(fetchImpl)
 
     const app = express()
+    app.disable("x-powered-by")
     const apiRouter = express.Router()
     const v1Router = express.Router()
     const legacyRouter = express.Router()
@@ -94,6 +96,16 @@ module.exports = (client, webSocket, options = {}) => {
         ttlMs: Number(process.env.TOKEN_CACHE_TTL_MS) || constants.server.tokenCacheTtlMs,
         maxEntries: Number(process.env.TOKEN_CACHE_MAX_ENTRIES) || constants.server.tokenCacheMaxEntries
     })
+
+    const securityOptions = {
+        enforceHttps: typeof securityOverrides.enforceHttps === "boolean"
+            ? securityOverrides.enforceHttps
+            : defaultSecurityConfig?.enforceHttps,
+        allowHttpHosts: Array.isArray(securityOverrides.allowHttpHosts)
+            ? securityOverrides.allowHttpHosts
+            : (defaultSecurityConfig?.allowHttpHosts || []),
+        healthCheckToken: securityOverrides.healthCheckToken || defaultSecurityConfig?.healthCheckToken || null
+    }
 
     // Security headers with Helmet
     app.use(helmet({
@@ -103,11 +115,42 @@ module.exports = (client, webSocket, options = {}) => {
             maxAge: constants.server.hstsMaxAge,
             includeSubDomains: true,
             preload: true
-        }
+        },
+        referrerPolicy: {
+            policy: "no-referrer"
+        },
+        frameguard: {
+            action: "deny"
+        },
+        crossOriginResourcePolicy: { policy: "same-origin" },
+        crossOriginOpenerPolicy: { policy: "same-origin" }
     }))
 
     // Trust proxy (for accurate IP detection behind load balancers)
     app.set("trust proxy", 1)
+
+    if (securityOptions.enforceHttps) {
+        const allowHttpHosts = new Set(
+            (securityOptions.allowHttpHosts || [])
+                .filter(Boolean)
+                .map((host) => host.toLowerCase())
+        )
+
+        app.use((req, res, next) => {
+            const host = (req.headers.host || "").split(":")[0].toLowerCase()
+            const proto = (req.headers["x-forwarded-proto"] || req.protocol || "").toLowerCase()
+            const isSecure = req.secure || proto === "https"
+            if (isSecure || allowHttpHosts.has(host) || host === "") {
+                return next()
+            }
+
+            if (req.method === "GET" || req.method === "HEAD") {
+                return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`)
+            }
+
+            return res.status(403).json({ message: "HTTPS required" })
+        })
+    }
 
     // Request ID and structured logging
     app.use(requestLogger)
@@ -338,7 +381,8 @@ module.exports = (client, webSocket, options = {}) => {
 
     const { router: healthRouter } = createHealthRouter({
         client,
-        healthChecks: client.healthChecks
+        healthChecks: client.healthChecks,
+        token: securityOptions.healthCheckToken
     })
 
     // Health check endpoints (no rate limiting, no auth)

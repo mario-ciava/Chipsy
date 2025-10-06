@@ -134,7 +134,6 @@ describe("Express API integration", () => {
                 id: "client-id",
                 secret: "client-secret",
                 ownerid: "owner-id",
-                prefix: "!",
                 enabled: true
             },
             isReady: jest.fn().mockReturnValue(true),

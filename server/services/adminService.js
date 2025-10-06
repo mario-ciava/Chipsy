@@ -417,7 +417,6 @@ const createAdminService = ({
     const getClientConfig = () => ({
         id: client.config?.id,
         ownerid: client.config?.ownerid,
-        prefix: client.config?.prefix,
         enabled: Boolean(client.config?.enabled),
         redirectUri: client.config?.redirectUri,
         panel: runtimeConfig.panel

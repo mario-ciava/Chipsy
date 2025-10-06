@@ -1,7 +1,3 @@
-const logger = require("./logger")
-
-const DEFAULT_TESTER_BANKROLL = 1_000_000_000
-
 const toInteger = (value) => {
     const numeric = Number(value)
     if (!Number.isFinite(numeric)) return NaN
@@ -35,74 +31,6 @@ const ensurePlayerData = (player) => {
 const readStack = (player) => clampSafeInteger(toInteger(player?.stack))
 
 const readBankroll = (player) => clampSafeInteger(toInteger(player?.data?.money))
-
-const resolveTesterBankroll = ({
-    bankrollEnvKey = "BLACKJACK_TEST_BANKROLL",
-    defaultBankroll = DEFAULT_TESTER_BANKROLL,
-    configuredAmount
-} = {}) => {
-    const resolvedConfigured = toInteger(configuredAmount)
-    if (Number.isFinite(resolvedConfigured) && resolvedConfigured > 0) {
-        return clampSafeInteger(resolvedConfigured)
-    }
-
-    if (bankrollEnvKey) {
-        const envConfigured = toInteger(process.env[bankrollEnvKey])
-        if (Number.isFinite(envConfigured) && envConfigured > 0) {
-            return clampSafeInteger(envConfigured)
-        }
-    }
-
-    return clampSafeInteger(defaultBankroll)
-}
-
-const syncPersistentBalance = async(dataHandler, player, context = {}) => {
-    if (!dataHandler || typeof dataHandler.updateUserData !== "function" || typeof dataHandler.resolveDBUser !== "function") {
-        return false
-    }
-    if (!player) return false
-    try {
-        await dataHandler.updateUserData(player.id, dataHandler.resolveDBUser(player))
-        return true
-    } catch (error) {
-        const activeLogger = context.logger || logger
-        if (activeLogger && typeof activeLogger.error === "function") {
-            activeLogger.error("Failed to persist bankroll change", {
-                scope: context.scope || "bankroll",
-                action: context.action || "syncPersistentBalance",
-                userId: player?.id,
-                error: error.message,
-                stack: error.stack
-            })
-        }
-        return false
-    }
-}
-
-const ensureTesterProvision = async({
-    user,
-    client,
-    testerUserId,
-    bankrollEnvKey = "BLACKJACK_TEST_BANKROLL",
-    defaultBankroll = DEFAULT_TESTER_BANKROLL,
-    bankrollAmount
-} = {}) => {
-    const targetTesterId = testerUserId || process.env.BLACKJACK_TEST_USER_ID
-    if (!user || !client || !targetTesterId || user.id !== targetTesterId) return
-    if (!user.data) return
-    const minimumBalance = resolveTesterBankroll({
-        bankrollEnvKey,
-        defaultBankroll,
-        configuredAmount: bankrollAmount
-    })
-    if (readBankroll(user) >= minimumBalance) return
-    user.data.money = minimumBalance
-    await syncPersistentBalance(client.dataHandler, user, {
-        scope: "bankroll",
-        action: "ensureTesterProvision",
-        userId: user.id
-    })
-}
 
 const normalizeBuyIn = ({ requested, minBuyIn, maxBuyIn, bankroll }) => {
     const rawMin = toInteger(minBuyIn)
@@ -181,8 +109,6 @@ const syncStackToBankroll = (player) => {
 }
 
 module.exports = {
-    DEFAULT_TESTER_BANKROLL,
-    ensureTesterProvision,
     normalizeBuyIn,
     canAffordStack,
     withdrawStackOnly,

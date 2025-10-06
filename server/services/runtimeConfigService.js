@@ -10,8 +10,7 @@ const snapshotConfig = (config) => ({
     discord: cloneSerializable(config.discord || {}),
     bot: cloneSerializable(config.bot || {}),
     mysql: cloneSerializable(config.mysql || {}),
-    web: cloneSerializable(config.web || {}),
-    testing: cloneSerializable(config.testing || {})
+    web: cloneSerializable(config.web || {})
 })
 
 const flatten = (obj, prefix = []) => {
@@ -84,7 +83,6 @@ const applyConfigToClient = (client, configSnapshot = {}) => {
         token: configSnapshot.discord?.botToken ?? client.config?.token,
         ownerid: configSnapshot.discord?.ownerId ?? client.config?.ownerid,
         owner: configSnapshot.discord?.ownerId ?? client.config?.owner,
-        prefix: configSnapshot.bot?.prefix ?? client.config?.prefix,
         redirectUri: configSnapshot.web?.redirectOrigin ?? client.config?.redirectUri
     }
     nextConfig.enabled = previousEnabled
