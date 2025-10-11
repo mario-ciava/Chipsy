@@ -1,8 +1,110 @@
+name: chipsy-local
+
 services:
   mysql:
+    image: mysql:8.0
+    container_name: chipsy-local-mysql
+    restart: unless-stopped
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=150
+      --innodb_buffer_pool_size=256M
+      --skip-name-resolve
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-app_data}
+      MYSQL_USER: ${MYSQL_USER:-chipsy_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-chipsypass}
+      TZ: ${TZ:-Europe/Rome}
     ports:
       - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-local-data:/var/lib/mysql
+      - ./infrastructure/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-local-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   bot:
+    image: node:20-bullseye
+    container_name: chipsy-local-bot
+    working_dir: /workspace
+    command: npm run dev:bot
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      NODE_ENV: development
+      CHIPSY_ENV: local
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-local-internal-token}
+      BOT_INTERNAL_PORT: ${BOT_INTERNAL_PORT:-7310}
+      MYSQL_HOST: mysql
+      DOCKER_ENV: "true"
+    volumes:
+      - .:/workspace
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "7310:7310"
+    tty: true
+
+  api:
+    image: node:20-bullseye
+    container_name: chipsy-local-api
+    working_dir: /workspace
+    command: npm run dev:api
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      NODE_ENV: development
+      CHIPSY_ENV: local
+      PORT: ${PORT:-8082}
+      MYSQL_HOST: mysql
+      BOT_RPC_BASE_URL: http://bot:7310/internal
+      BOT_RPC_TOKEN: ${BOT_RPC_TOKEN:-${INTERNAL_API_TOKEN:-local-internal-token}}
+      SESSION_STORE: memory
+    volumes:
+      - .:/workspace
+    depends_on:
+      mysql:
+        condition: service_healthy
+      bot:
+        condition: service_started
     ports:
       - "8082:8082"
+    tty: true
+
+  panel:
+    image: node:20-bullseye
+    container_name: chipsy-local-panel
+    working_dir: /workspace
+    command: npm --prefix panel run serve
+    env_file:
+      - .env
+      - .env.local
+    environment:
+      NODE_ENV: development
+      CHIPSY_ENV: local
+      HOST: 0.0.0.0
+      PORT: 8080
+      VUE_APP_API_BASE_URL: http://localhost:8082
+    volumes:
+      - .:/workspace
+    depends_on:
+      - api
+    ports:
+      - "8080:8080"
+    tty: true
+
+volumes:
+  mysql-local-data:

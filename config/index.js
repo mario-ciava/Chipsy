@@ -59,7 +59,17 @@ const envSchema = z.object({
     MYSQL_PASSWORD: z.string().optional(),
     FRONTEND_REDIRECT_ORIGIN: z.string().optional(),
     BOT_DISPLAY_NAME: z.string().optional(),
-    HEALTH_CHECK_TOKEN: z.string().optional()
+    HEALTH_CHECK_TOKEN: z.string().optional(),
+    INTERNAL_API_TOKEN: z.string().optional(),
+    BOT_RPC_TOKEN: z.string().optional(),
+    BOT_RPC_BASE_URL: z.string().optional(),
+    BOT_INTERNAL_PORT: z.coerce.number().int().positive().optional(),
+    BOT_RPC_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+    BOT_RPC_POLL_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+    INTERNAL_API_ENABLED: z.string().optional(),
+    BOT_INTERNAL_HOST: z.string().optional(),
+    BOT_INTERNAL_PATH: z.string().optional(),
+    BOT_SERVICE_HOST: z.string().optional()
 })
 
 const parsedEnv = envSchema.safeParse(process.env)
@@ -107,6 +117,31 @@ const securityConfig = Object.freeze({
     enforceHttps: parseBoolean(process.env.ENFORCE_HTTPS, process.env.NODE_ENV === "production"),
     allowHttpHosts: parseCsvList(process.env.SECURITY_ALLOW_HTTP_HOSTS, ["localhost", "127.0.0.1"]),
     healthCheckToken: env.HEALTH_CHECK_TOKEN || null
+})
+
+const internalApiConfig = Object.freeze({
+    enabled: parseBoolean(process.env.INTERNAL_API_ENABLED, true),
+    host: process.env.BOT_INTERNAL_HOST || "0.0.0.0",
+    port: Number(process.env.BOT_INTERNAL_PORT) || 7310,
+    path: process.env.BOT_INTERNAL_PATH || "/internal",
+    token: process.env.INTERNAL_API_TOKEN || process.env.BOT_RPC_TOKEN || null
+})
+
+const resolveBotRpcBaseUrl = () => {
+    if (process.env.BOT_RPC_BASE_URL) {
+        return process.env.BOT_RPC_BASE_URL
+    }
+    const serviceHost = process.env.BOT_SERVICE_HOST || "bot"
+    const defaultUrl = `http://${serviceHost}:${internalApiConfig.port}${internalApiConfig.path}`
+    const localUrl = `http://localhost:${internalApiConfig.port}${internalApiConfig.path}`
+    return process.env.CHIPSY_ENV === "local" ? localUrl : defaultUrl
+}
+
+const botRpcConfig = Object.freeze({
+    baseUrl: resolveBotRpcBaseUrl(),
+    token: process.env.BOT_RPC_TOKEN || internalApiConfig.token,
+    timeoutMs: Number(process.env.BOT_RPC_TIMEOUT_MS) || 8000,
+    pollIntervalMs: Number(process.env.BOT_RPC_POLL_INTERVAL_MS) || 5000
 })
 
 const clampChannel = (value) => {
@@ -395,7 +430,7 @@ const getAllUpgradeCosts = (upgradeId, withSeparator = false) => {
         return costs
     }
 
-    const setSeparator = require("../bot/utils/setSeparator")
+    const setSeparator = require("../shared/utils/setSeparator")
     return costs.map(cost => setSeparator(cost))
 }
 
@@ -476,6 +511,8 @@ const config = {
     web: {
         redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.vueDevLocal
     },
+    internalApi: internalApiConfig,
+    botRpc: botRpcConfig,
     panel: {
         http: {
             timeoutMs: 15000

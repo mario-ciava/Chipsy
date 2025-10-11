@@ -448,17 +448,20 @@ async function main() {
   }
   logOk("MySQL is up ✅");
 
-  // 3️⃣ Launch bot and panel in parallel
-  logSys("Starting bot and web panel...");
-  spawnProc("npm", ["run dev:bot"], "bot");
+  // 3️⃣ Launch bot, API e panel in parallelo
+  logSys("Starting bot, API and panel...");
+  spawnProc("npm", ["run", "dev:bot"], "bot");
+  await sleep(500);
+  spawnProc("npm", ["run", "dev:api"], "api");
   await sleep(constants.development.panelStartDelay); // Small offset so the logs are readable.
-  spawnProc("npm", ["run dev:panel"], "panel");
+  spawnProc("npm", ["run", "dev:panel"], "panel");
 
   // 4️⃣ Summary spam
   logOk("All services are running.");
   logSys("Available endpoints:", { stage: "summary" });
-  logSys("• Web panel: http://localhost:8080", { stage: "summary", target: "web" });
-  logSys("• Bot API: http://localhost:8082/api", { stage: "summary", target: "api" });
+  logSys("• Panel: http://localhost:8080", { stage: "summary", target: "panel" });
+  logSys("• Control API: http://localhost:8082/api", { stage: "summary", target: "api" });
+  logSys("• Discord bot RPC: http://localhost:7310/internal (secured)", { stage: "summary", target: "bot" });
   logSys("• MySQL CLI: docker exec -it chipsy-mysql mysql -u root -p", { stage: "summary", target: "mysql" });
 
   // 5️⃣ Keep the runner alive so Ctrl+C still works

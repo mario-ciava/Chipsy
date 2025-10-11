@@ -2,7 +2,7 @@ module.exports = {
     apps: [
         {
             name: "chipsy",
-            script: "server/index.js",
+            script: "api/index.js",
             instances: 1,
             exec_mode: "fork",
             watch: false,

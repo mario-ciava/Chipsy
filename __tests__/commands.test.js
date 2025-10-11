@@ -111,7 +111,7 @@ jest.mock("discord.js", () => {
     }
 })
 
-jest.mock("../bot/games/features.js", () => ({
+jest.mock("../shared/features.js", () => ({
     applyUpgrades: jest.fn((feature) => {
         if (feature === "reward-amount") return 1500
         if (feature === "reward-time") return 1
@@ -121,8 +121,8 @@ jest.mock("../bot/games/features.js", () => ({
     getCosts: jest.fn(() => ["100"])
 }))
 
-const rewardCommand = require("../commands/reward")
-const profileCommand = require("../commands/profile")
+const rewardCommand = require("../bot/commands/reward")
+const profileCommand = require("../bot/commands/profile")
 
 const createDefaultProfile = () => ({
     money: 5000,

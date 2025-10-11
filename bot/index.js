@@ -8,10 +8,11 @@ const createDataHandler = require("./utils/datahandler")
 const createSetData = require("./utils/createSetData")
 const logger = require("./utils/logger")
 const createCacheClient = require("./utils/createCacheClient")
-const createStatusService = require("../server/services/statusService")
+const createStatusService = require("../api/services/statusService")
 const createCommandSync = require("./utils/commandSync")
-const { createAccessControlService } = require("../server/services/accessControlService")
+const { createAccessControlService } = require("../api/services/accessControlService")
 const createCommandUsageLogger = require("./utils/commandUsageLogger")
+const startInternalServer = require("./internal/server")
 
 class WebSocketBridge extends EventEmitter {}
 const webSocket = new WebSocketBridge()
@@ -20,6 +21,7 @@ const client = createClient(config)
 client.commandSync = createCommandSync({ client, config })
 
 let bootstrapPromise = null
+let internalServer = null
 
 const bootstrap = async() => {
     if (bootstrapPromise) return bootstrapPromise
@@ -62,6 +64,23 @@ const bootstrap = async() => {
             })
             client.statusService = statusService
 
+            if (!internalServer) {
+                try {
+                    internalServer = startInternalServer({
+                        client,
+                        webSocket,
+                        statusService,
+                        config: config.internalApi
+                    })
+                } catch (error) {
+                    logger.error("Failed to start internal control server", {
+                        scope: "internal",
+                        message: error.message
+                    })
+                    throw error
+                }
+            }
+
             await client.login(config.discord.botToken)
             logger.info("Discord client authenticated", { scope: "bootstrap", icon: "🔐" })
 
@@ -98,6 +117,11 @@ if (require.main === module) {
         logger.info(`Received ${signal} - Starting graceful shutdown...`, { scope: "bot" })
 
         try {
+            if (internalServer?.close) {
+                await internalServer.close()
+                internalServer = null
+            }
+
             // Chiudi il pool MySQL
             if (client.mysqlShutdown) {
                 await client.mysqlShutdown()

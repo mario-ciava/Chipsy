@@ -1,4 +1,4 @@
-const createDataHandler = require("../bot/utils/datahandler")
+const createDataHandler = require("../shared/database/dataHandler")
 const createSetData = require("../bot/utils/createSetData")
 const Game = require("../bot/games/game")
 const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")

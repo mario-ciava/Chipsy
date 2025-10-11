@@ -100,7 +100,7 @@ jest.mock("../bot/utils/helpers", () => ({
     sleep: jest.fn().mockResolvedValue(undefined)
 }))
 
-jest.mock("../bot/games/features.js", () => ({
+jest.mock("../shared/features.js", () => ({
     applyUpgrades: jest.fn(() => 0),
     getLevelReward: jest.fn(() => 0)
 }))

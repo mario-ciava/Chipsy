@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js")
 const TexasGame = require("../games/texasGame.js")
-const features = require("../games/features.js")
+const features = require("../../shared/features")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const { logAndSuppress } = logger

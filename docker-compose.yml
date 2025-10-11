@@ -1,57 +1,84 @@
-services:
-  mysql:
-    image: mysql:8.0
-    container_name: chipsy-mysql
-    restart: unless-stopped
-    command: >
-      --default-authentication-plugin=mysql_native_password
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --max_connections=200
-      --innodb_buffer_pool_size=256M
-      --skip-name-resolve
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      TZ: Europe/Rome
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./docker/mysql-init:/docker-entrypoint-initdb.d  
-    networks:
-      - chipsy-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-        reservations:
-          memory: 256M
+name: chipsy-app
 
+services:
   bot:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: bot/Dockerfile
     container_name: chipsy-bot
     restart: unless-stopped
     env_file:
       - .env
+      - .env.vps
     environment:
-      DOCKER_ENV: "true"
-    depends_on:
-      mysql:
-        condition: service_healthy
+      NODE_ENV: production
+      CHIPSY_ENV: ${CHIPSY_ENV:-vps}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN in .env}
+      BOT_INTERNAL_PORT: ${BOT_INTERNAL_PORT:-7310}
+      MYSQL_HOST: ${MYSQL_HOST:-chipsy-infra-mysql}
     networks:
-      - chipsy-network
-    command: ["npm", "run", "dev:bot"]
+      db:
+        aliases:
+          - chipsy-bot
+      edge:
+        aliases:
+          - chipsy-bot
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: chipsy-api
+    restart: unless-stopped
+    env_file:
+      - .env
+      - .env.vps
+    environment:
+      NODE_ENV: production
+      CHIPSY_ENV: ${CHIPSY_ENV:-vps}
+      PORT: ${PORT:-8082}
+      MYSQL_HOST: ${MYSQL_HOST:-chipsy-infra-mysql}
+      BOT_RPC_BASE_URL: ${BOT_RPC_BASE_URL:-http://bot:7310/internal}
+      BOT_RPC_TOKEN: ${BOT_RPC_TOKEN:-${INTERNAL_API_TOKEN}}
+      SESSION_STORE: mysql
+    ports:
+      - "${PORT:-8082}:8082"
+    networks:
+      db:
+        aliases:
+          - chipsy-api
+      edge:
+        aliases:
+          - chipsy-api
+    depends_on:
+      bot:
+        condition: service_started
+
+  panel:
+    build:
+      context: panel
+      dockerfile: Dockerfile
+    container_name: chipsy-panel
+    restart: unless-stopped
+    env_file:
+      - .env
+      - .env.vps
+    environment:
+      NODE_ENV: production
+    ports:
+      - "8080:80"
+    networks:
+      edge:
+        aliases:
+          - chipsy-panel
+    depends_on:
+      api:
+        condition: service_started
 
 networks:
-  chipsy-network:
-    driver: bridge
-
-volumes:
-  mysql-data:
+  db:
+    external: true
+    name: chipsy-db
+  edge:
+    external: true
+    name: chipsy-edge

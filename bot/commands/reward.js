@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
-const features = require("../games/features.js")
+const features = require("../../shared/features")
 const setSeparator = require("../utils/setSeparator")
 const createCommand = require("../utils/createCommand")
 

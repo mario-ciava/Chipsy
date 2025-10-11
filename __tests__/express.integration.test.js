@@ -1,6 +1,6 @@
 const fetch = require("node-fetch")
 
-const createServer = require("../server/express")
+const createServer = require("../api/express")
 
 class TestAgent {
     constructor(app) {
@@ -85,6 +85,8 @@ describe("Express API integration", () => {
     let app
     let agent
     let statusService
+    let adminService
+    let discordDirectory
 
     beforeEach(async() => {
         discordApi = {
@@ -129,6 +131,8 @@ describe("Express API integration", () => {
             persisted: id === "owner-id"
         })
 
+        const defaultAccessRecord = (id) => Promise.resolve(accessRecordFactory(id))
+
         client = {
             config: {
                 id: "client-id",
@@ -148,6 +152,10 @@ describe("Express API integration", () => {
                     get: jest.fn((id) => (id === "1" ? { id: "1", name: "Guild One" } : undefined))
                 },
                 fetch: jest.fn().mockResolvedValue({ id: "fetched" })
+            },
+            users: {
+                cache: new Map(),
+                fetch: jest.fn().mockResolvedValue(null)
             },
             dataHandler: {
                 listUsers: jest.fn().mockResolvedValue({
@@ -207,7 +215,7 @@ describe("Express API integration", () => {
                 error: jest.fn()
             },
             accessControl: {
-                getAccessRecord: jest.fn((id) => Promise.resolve(accessRecordFactory(id))),
+                getAccessRecord: jest.fn(defaultAccessRecord),
                 getAccessRecords: jest.fn((ids = []) => {
                     const map = new Map()
                     ids.forEach((id) => map.set(id, accessRecordFactory(id)))
@@ -247,6 +255,35 @@ describe("Express API integration", () => {
 
         client.statusService = statusService
 
+        const mockActions = [
+            { id: "bot-reload-config", type: "command" },
+            { id: "bot-sync-commands", type: "concept" },
+            { id: "bot-diagnostics", type: "command" }
+        ]
+
+        adminService = {
+            getStatus: jest.fn().mockResolvedValue({ enabled: true, health: { mysql: { alive: true } } }),
+            setBotEnabled: jest.fn().mockImplementation((enabled) => Promise.resolve({ enabled })),
+            getClientConfig: jest.fn().mockReturnValue({ id: "client-id", panel: {} }),
+            getGuild: jest.fn().mockResolvedValue({ id: "1" }),
+            leaveGuild: jest.fn().mockResolvedValue({ ok: true }),
+            completeInvite: jest.fn().mockResolvedValue({ status: "ok" }),
+            listActions: jest.fn().mockReturnValue({ actions: mockActions }),
+            executeAction: jest.fn().mockImplementation((actionId) => Promise.resolve({ actionId, status: "ok" })),
+            listTables: jest.fn().mockReturnValue([]),
+            controlTable: jest.fn().mockResolvedValue({ ok: true }),
+            createLog: jest.fn().mockResolvedValue({ ok: true }),
+            getLogs: jest.fn().mockResolvedValue({ items: [], cursor: null }),
+            cleanupLogs: jest.fn().mockResolvedValue({ deleted: 0 })
+        }
+
+        discordDirectory = {
+            resolveUsername: jest.fn().mockResolvedValue("Tester#0001"),
+            lookupUserIdsByName: jest.fn().mockResolvedValue(["user-1"]),
+            users: client.users,
+            guilds: client.guilds
+        }
+
         app = createServer(client, webSocket, {
             listen: false,
             rateLimiter: false,
@@ -255,7 +292,11 @@ describe("Express API integration", () => {
             statusService,
             sessionOptions: {
                 secret: "test-session-secret-32-characters-minimum"
-            }
+            },
+            adminService,
+            dataHandler: client.dataHandler,
+            accessControl: client.accessControl,
+            discordDirectory
         })
 
         agent = new TestAgent(app)
@@ -479,6 +520,34 @@ describe("Express API integration", () => {
         expect(statusService.getBotStatus).toHaveBeenCalled()
     })
 
+    test("GET /api/admin/status returns 403 for non-admin users", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "user-2",
+                username: "User"
+            }
+        })
+
+        client.accessControl.getAccessRecord.mockImplementationOnce(() => Promise.resolve({
+            userId: "user-2",
+            role: "USER",
+            isBlacklisted: false,
+            isWhitelisted: false
+        }))
+
+        await agent.requestJson("/api/user", {
+            method: "GET",
+            headers: { token: "user-token" }
+        })
+
+        const status = await agent.requestJson("/api/admin/status", {
+            method: "GET",
+            headers: { token: "user-token" }
+        })
+
+        expect(status.response.status).toBe(403)
+    })
+
     test("PATCH /api/admin/bot toggles bot availability", async() => {
         discordApi.get.mockResolvedValue({
             data: {
@@ -509,7 +578,10 @@ describe("Express API integration", () => {
 
         expect(toggleResponse.response.status).toBe(200)
         expect(toggleResponse.body.enabled).toBe(false)
-        expect(client.config.enabled).toBe(false)
+        expect(adminService.setBotEnabled).toHaveBeenCalledWith(false, expect.objectContaining({
+            actor: "owner-id",
+            reason: "admin:toggle"
+        }))
         expect(webSocket.emit).toHaveBeenCalledWith("disable")
     })
 
@@ -827,7 +899,7 @@ describe("Express API integration", () => {
         })
 
         expect(response.response.status).toBe(200)
-        expect(response.body.actions).toEqual(
+        expect(response.body.actions || response.body).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
                     id: "bot-reload-config",

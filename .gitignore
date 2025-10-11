@@ -1,10 +1,13 @@
 .DS_Store
 node_modules/
-web/node_modules/
+panel/node_modules/
 config.json
 *.env*
 !*.env.example
 !*/**/*.env.example
-web/dist/
+panel/dist/
 logs/
 *.md
+!infrastructure/**/*.md
+infrastructure/nginx/certs/*
+!infrastructure/nginx/certs/.gitkeep
