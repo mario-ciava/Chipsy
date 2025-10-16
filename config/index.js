@@ -14,7 +14,8 @@ const loadEnvFile = (filename, { override = true } = {}) => {
         return null
     }
 
-    const result = loadEnv({ path: filePath, override })
+    const shouldProtectRuntimeEnv = process.env.DOCKER_ENV === "true"
+    const result = loadEnv({ path: filePath, override: shouldProtectRuntimeEnv ? false : override })
     if (result?.error) {
         throw result.error
     }
@@ -39,7 +40,7 @@ const variantEnv = loadEnvFile(`.env.${activeEnvTarget}`)
 
 if (!baseEnv && !variantEnv) {
     const fallback = loadEnv()
-    if (fallback?.error) {
+    if (fallback?.error && fallback.error.code !== "ENOENT") {
         throw fallback.error
     }
 }
@@ -557,7 +558,16 @@ const config = {
                 recentActivityWindowDays: 14
             }
         },
-        userDetails: userDetailLayout
+        userDetails: userDetailLayout,
+        users: {
+            profiles: {
+                autoProvisionOnLogin: true,
+                provisionRetryLimit: 2
+            },
+            overrides: {
+                masterSelfEditEnabled: true
+            }
+        }
     },
     marketing: marketingContent,
     security: securityConfig,

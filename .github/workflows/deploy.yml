@@ -1,0 +1,44 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - vps
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    env:
+      VPS_HOST: ${{ vars.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER }}
+      VPS_PATH: ${{ vars.VPS_PATH }}
+      VPS_PORT: ${{ vars.VPS_PORT }}
+      DEPLOY_BRANCH: vps
+    if: >
+      (github.ref == 'refs/heads/vps' &&
+       github.event_name == 'push' &&
+       contains(github.event.head_commit.message, 'flag:vpsdeploy'))
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH agent
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Trust VPS host key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          PORT="${VPS_PORT:-22}"
+          ssh-keyscan -p "$PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Trigger remote deploy
+        shell: bash
+        run: |
+          PORT="${VPS_PORT:-22}"
+          ssh -p "$PORT" "$VPS_USER@$VPS_HOST" "cd $VPS_PATH && bash scripts/deploy.sh $DEPLOY_BRANCH"

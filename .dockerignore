@@ -58,3 +58,7 @@ docs
 # Docker
 docker-compose*.yml
 .dockerignore
+
+# Local infrastructure secrets/certificates
+infrastructure/nginx/certs
+infrastructure/nginx/certbot

@@ -41,8 +41,6 @@ services:
       BOT_RPC_BASE_URL: ${BOT_RPC_BASE_URL:-http://bot:7310/internal}
       BOT_RPC_TOKEN: ${BOT_RPC_TOKEN:-${INTERNAL_API_TOKEN}}
       SESSION_STORE: mysql
-    ports:
-      - "${PORT:-8082}:8082"
     networks:
       db:
         aliases:
@@ -56,8 +54,8 @@ services:
 
   panel:
     build:
-      context: panel
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: panel/Dockerfile
     container_name: chipsy-panel
     restart: unless-stopped
     env_file:
@@ -65,8 +63,6 @@ services:
       - .env.vps
     environment:
       NODE_ENV: production
-    ports:
-      - "8080:80"
     networks:
       edge:
         aliases:

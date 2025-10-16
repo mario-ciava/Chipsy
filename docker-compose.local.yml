@@ -50,6 +50,7 @@ services:
       DOCKER_ENV: "true"
     volumes:
       - .:/workspace
+      - bot_node_modules:/workspace/node_modules
     depends_on:
       mysql:
         condition: service_healthy
@@ -75,6 +76,7 @@ services:
       SESSION_STORE: memory
     volumes:
       - .:/workspace
+      - api_node_modules:/workspace/node_modules
     depends_on:
       mysql:
         condition: service_healthy
@@ -97,9 +99,11 @@ services:
       CHIPSY_ENV: local
       HOST: 0.0.0.0
       PORT: 8080
-      VUE_APP_API_BASE_URL: http://localhost:8082
+      API_PROXY_TARGET: http://api:8082
+      VUE_APP_API_BASE_URL: http://localhost:8080/api
     volumes:
       - .:/workspace
+      - panel_node_modules:/workspace/node_modules
     depends_on:
       - api
     ports:
@@ -108,3 +112,6 @@ services:
 
 volumes:
   mysql-local-data:
+  bot_node_modules:
+  api_node_modules:
+  panel_node_modules:

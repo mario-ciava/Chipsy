@@ -6,6 +6,7 @@
                     <div class="flex flex-wrap items-center gap-3 text-slate-300">
                         <span class="chip-eyebrow">User detail</span>
                         <span :class="roleBadgeClass">{{ roleLabel }}</span>
+                        <span v-if="isSelfProfile" class="chip-pill chip-pill-info">Your profile</span>
                     </div>
                     <h1 class="chip-heading">{{ userDisplayName }}</h1>
                     <p class="chip-card__subtitle chip-card__subtitle--tight">
@@ -278,7 +279,7 @@
                     </div>
                 </div>
                 <p v-if="!canEditStats" class="chip-field-hint text-slate-400">
-                    Only admins can edit progression values.
+                    {{ statsRestrictionMessage }}
                 </p>
                 <div class="flex flex-wrap items-center justify-center gap-3 text-center">
                     <button
@@ -384,13 +385,15 @@ export default {
     },
     computed: {
         ...mapState("session", {
-            csrfToken: (state) => state.csrfToken
+            csrfToken: (state) => state.csrfToken,
+            sessionUser: (state) => state.user
         }),
         ...mapGetters("session", {
             canManageRoles: "canManageRoles",
             canManageLists: "canManageLists",
             canAssignAdmin: "canAssignAdmin",
-            canAssignModerator: "canAssignModerator"
+            canAssignModerator: "canAssignModerator",
+            panelConfig: "panelConfig"
         }),
         ...mapState("users", {
             accessPolicy: (state) => state.policy
@@ -407,6 +410,20 @@ export default {
         },
         roleDescription() {
             return getRoleDescription(this.roleForm.pending || this.roleForm.current)
+        },
+        allowsMasterSelfOverrides() {
+            const overrides = this.panelConfig?.users?.overrides
+            if (typeof overrides?.masterSelfEditEnabled === "boolean") {
+                return overrides.masterSelfEditEnabled
+            }
+            return true
+        },
+        isSelfProfile() {
+            const sessionId = this.sessionUser?.id
+            if (!sessionId) {
+                return false
+            }
+            return String(sessionId) === String(this.userId)
         },
         formatted() {
             const user = this.user || {}
@@ -537,7 +554,25 @@ export default {
             }))
         },
         canEditStats() {
-            return this.canManageRoles && !this.isMasterTarget
+            if (!this.canManageRoles) {
+                return false
+            }
+            if (!this.isMasterTarget) {
+                return true
+            }
+            return this.isSelfProfile && this.allowsMasterSelfOverrides
+        },
+        statsRestrictionMessage() {
+            if (!this.canManageRoles) {
+                return "Only panel admins can edit progression values."
+            }
+            if (this.isMasterTarget && !this.isSelfProfile) {
+                return "Only the owner can override a master profile."
+            }
+            if (this.isSelfProfile && !this.allowsMasterSelfOverrides) {
+                return "Self overrides are disabled for master accounts."
+            }
+            return "Editing is disabled for this profile."
         },
         statsDirty() {
             const base = this.baseStats

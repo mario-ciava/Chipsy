@@ -5,7 +5,8 @@ const { defineConfig } = require("@vue/cli-service")
 // - vueDev: 8080
 // - botApi: 8082
 const VUE_DEV_PORT = 8080
-const BOT_API_URL = 'http://localhost:8082'
+const BOT_API_URL = process.env.API_PROXY_TARGET || "http://localhost:8082"
+const HMR_SOCKET_PATH = process.env.HMR_SOCKET_PATH || "/__hmr_panel"
 
 module.exports = defineConfig({
   transpileDependencies: true,
@@ -35,13 +36,19 @@ module.exports = defineConfig({
 
     // WebSocket configuration
     client: {
-      webSocketURL: 'auto://0.0.0.0:0/ws',
+      webSocketURL: `auto://0.0.0.0:0${HMR_SOCKET_PATH}`,
       logging: 'error',
       overlay: {
         warnings: false,
         errors: true
       },
       progress: false
+    },
+
+    webSocketServer: {
+      options: {
+        path: HMR_SOCKET_PATH
+      }
     },
 
     devMiddleware: {

@@ -32,6 +32,71 @@ const createAuthRouter = (dependencies) => {
     const resolvedAccessControl = accessControl || client?.accessControl
     const resolvedDataHandler = dataHandler || client?.dataHandler
 
+    const toPositiveInteger = (value, fallback) => {
+        const numeric = Number(value)
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return fallback
+        }
+        return Math.trunc(numeric)
+    }
+
+    const profileProvisioningConfig = Object.freeze({
+        enabled: panel?.users?.profiles?.autoProvisionOnLogin !== false,
+        retries: toPositiveInteger(panel?.users?.profiles?.provisionRetryLimit, 2)
+    })
+
+    const ensureProfileProvisioned = async(userId) => {
+        if (!userId || !resolvedDataHandler?.getUserData) {
+            return { profile: null, created: false }
+        }
+
+        const readProfile = async() => {
+            try {
+                const record = await resolvedDataHandler.getUserData(userId)
+                return { profile: record || null, error: null }
+            } catch (error) {
+                return { profile: null, error }
+            }
+        }
+
+        const initial = await readProfile()
+        if (initial.error) {
+            return { profile: null, created: false, error: initial.error }
+        }
+        if (initial.profile) {
+            return { profile: initial.profile, created: false }
+        }
+
+        if (!profileProvisioningConfig.enabled || typeof resolvedDataHandler.createUserData !== "function") {
+            return { profile: null, created: false }
+        }
+
+        const attempts = Math.max(1, profileProvisioningConfig.retries)
+
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            try {
+                const createdProfile = await resolvedDataHandler.createUserData(userId)
+                return { profile: createdProfile, created: true }
+            } catch (creationError) {
+                if (creationError?.code === "ER_DUP_ENTRY") {
+                    const retry = await readProfile()
+                    if (retry.error) {
+                        return { profile: null, created: false, error: retry.error }
+                    }
+                    if (retry.profile) {
+                        return { profile: retry.profile, created: false }
+                    }
+                }
+
+                if (attempt === attempts - 1) {
+                    return { profile: null, created: false, error: creationError }
+                }
+            }
+        }
+
+        return { profile: null, created: false }
+    }
+
     const guildFetchConfig = panel?.guilds?.fetch || {}
     const toPositiveNumber = (value, fallback) => {
         const numeric = Number(value)
@@ -246,6 +311,17 @@ const createAuthRouter = (dependencies) => {
 
         try {
             const redirectOrigin = resolveRedirectOrigin(req)
+            const redirectLogPayload = {
+                scope: "auth",
+                redirectOrigin,
+                requestId: req.requestId,
+                headersOrigin: req.headers["x-redirect-origin"] || null
+            }
+            if (client.logger?.warn) {
+                client.logger.warn("OAuth redirect origin resolved", redirectLogPayload)
+            } else {
+                console.warn("[auth] OAuth redirect origin resolved", redirectLogPayload)
+            }
             const params = new URLSearchParams({
                 grant_type: "authorization_code",
                 code: req.headers.code,
@@ -340,13 +416,30 @@ const createAuthRouter = (dependencies) => {
             let profilePayload = null
             if (resolvedDataHandler?.getUserData) {
                 try {
-                    const profile = await resolvedDataHandler.getUserData(user.id)
+                    const { profile, created, error: provisioningError } = await ensureProfileProvisioned(user.id)
+                    if (created) {
+                        client.logger?.info?.("Auto-provisioned profile on login", {
+                            scope: "auth",
+                            operation: "provisionUserProfile",
+                            userId: user.id,
+                            requestId: req.requestId || null
+                        })
+                    } else if (provisioningError) {
+                        client.logger?.warn?.("Failed to auto-provision profile on login", {
+                            scope: "auth",
+                            operation: "provisionUserProfile",
+                            userId: user.id,
+                            requestId: req.requestId || null,
+                            message: provisioningError.message
+                        })
+                    }
                     profilePayload = mapProfilePayload(profile)
                 } catch (error) {
                     client.logger?.warn?.("Failed to resolve profile data", {
                         scope: "auth",
                         operation: "getUserProfile",
                         userId: user.id,
+                        requestId: req.requestId || null,
                         message: error.message
                     })
                 }

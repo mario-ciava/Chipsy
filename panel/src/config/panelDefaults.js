@@ -39,6 +39,15 @@ export const PANEL_DEFAULTS = Object.freeze({
             vipBalanceThreshold: 250000,
             recentActivityWindowDays: 14
         }
+    },
+    users: {
+        profiles: {
+            autoProvisionOnLogin: true,
+            provisionRetryLimit: 2
+        },
+        overrides: {
+            masterSelfEditEnabled: true
+        }
     }
 })
 
@@ -114,6 +123,22 @@ export const getPanelConfig = (panel = {}) => ({
                 panel?.userStats?.kpis?.recentActivityWindowDays,
                 PANEL_DEFAULTS.userStats.kpis.recentActivityWindowDays
             )
+        }
+    },
+    users: {
+        profiles: {
+            autoProvisionOnLogin: typeof panel?.users?.profiles?.autoProvisionOnLogin === "boolean"
+                ? panel.users.profiles.autoProvisionOnLogin
+                : PANEL_DEFAULTS.users.profiles.autoProvisionOnLogin,
+            provisionRetryLimit: toPositiveNumber(
+                panel?.users?.profiles?.provisionRetryLimit,
+                PANEL_DEFAULTS.users.profiles.provisionRetryLimit
+            )
+        },
+        overrides: {
+            masterSelfEditEnabled: typeof panel?.users?.overrides?.masterSelfEditEnabled === "boolean"
+                ? panel.users.overrides.masterSelfEditEnabled
+                : PANEL_DEFAULTS.users.overrides.masterSelfEditEnabled
         }
     }
 })
