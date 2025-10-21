@@ -223,18 +223,23 @@ describe("Express API integration", () => {
                 }),
                 getAccessPolicy: jest.fn().mockResolvedValue({
                     enforceWhitelist: false,
+                    enforceBlacklist: true,
                     updatedAt: null
                 }),
-                setWhitelistEnforcement: jest.fn().mockResolvedValue({
+                setAccessPolicy: jest.fn().mockResolvedValue({
                     enforceWhitelist: true,
+                    enforceBlacklist: true,
                     updatedAt: new Date().toISOString()
                 }),
+                setWhitelistEnforcement: jest.fn(), // legacy compatibility
+                listAccessEntries: jest.fn().mockResolvedValue([]),
                 evaluateBotAccess: jest.fn().mockResolvedValue({
                     allowed: true,
                     reason: null,
                     record: accessRecordFactory("user-1"),
                     policy: {
                         enforceWhitelist: false,
+                        enforceBlacklist: true,
                         updatedAt: null
                     }
                 }),
@@ -858,8 +863,9 @@ describe("Express API integration", () => {
             headers: { token: "access-token" }
         })
 
-        client.accessControl.setWhitelistEnforcement.mockResolvedValueOnce({
+        client.accessControl.setAccessPolicy.mockResolvedValueOnce({
             enforceWhitelist: true,
+            enforceBlacklist: true,
             updatedAt: new Date().toISOString()
         })
 
@@ -877,7 +883,10 @@ describe("Express API integration", () => {
         expect(response.body).toMatchObject({
             enforceWhitelist: true
         })
-        expect(client.accessControl.setWhitelistEnforcement).toHaveBeenCalledWith(true)
+        expect(client.accessControl.setAccessPolicy).toHaveBeenCalledWith({
+            enforceBlacklist: undefined,
+            enforceWhitelist: true
+        })
     })
 
     test("GET /api/admin/actions exposes available remote commands", async() => {

@@ -7,7 +7,8 @@ export const PANEL_DEFAULTS = Object.freeze({
         holdDurationMs: 3000
     },
     status: {
-        refreshIntervalMs: 30000
+        refreshIntervalMs: 30000,
+        staleAfterMs: 60000
     },
     guilds: {
         waitForJoin: {
@@ -36,7 +37,7 @@ export const PANEL_DEFAULTS = Object.freeze({
         kpis: {
             maxCards: 5,
             veteranLevelThreshold: 40,
-            vipBalanceThreshold: 250000,
+            vipBalanceThreshold: 100000000,
             recentActivityWindowDays: 14
         }
     },
@@ -83,7 +84,8 @@ export const getPanelConfig = (panel = {}) => ({
         holdDurationMs: Number(panel?.toggles?.holdDurationMs) || PANEL_DEFAULTS.toggles.holdDurationMs
     },
     status: {
-        refreshIntervalMs: Number(panel?.status?.refreshIntervalMs) || PANEL_DEFAULTS.status.refreshIntervalMs
+        refreshIntervalMs: Number(panel?.status?.refreshIntervalMs) || PANEL_DEFAULTS.status.refreshIntervalMs,
+        staleAfterMs: Number(panel?.status?.staleAfterMs) || PANEL_DEFAULTS.status.staleAfterMs
     },
     guilds: {
         waitForJoin: {

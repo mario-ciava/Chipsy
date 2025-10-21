@@ -18,70 +18,79 @@
                 </router-link>
             </header>
             <div class="chip-divider chip-divider--strong"></div>
-            <div class="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                <span class="chip-label">Discord ID</span>
-                <code class="font-mono text-base text-white">{{ userId }}</code>
-                <button
-                    type="button"
-                    class="chip-btn chip-btn-ghost"
-                    @click="copyUserId"
-                    aria-label="Copy Discord ID"
-                >
-                    Copy
-                </button>
-            </div>
-            <p v-if="copyStatus" class="chip-field-hint text-slate-400">
-                {{ copyStatus }}
-            </p>
             <div v-if="loading" class="chip-empty">Loading data…</div>
             <div v-else-if="error" class="chip-notice chip-notice-warning">{{ error }}</div>
             <div v-else class="chip-stack">
                 <div v-if="statusBanner" :class="statusBannerClass">
                     {{ statusBanner.message }}
                 </div>
-                <div class="chip-grid chip-grid--auto w-full">
+                <div class="grid gap-6 md:grid-cols-2">
                     <article
                         v-for="section in overviewSections"
                         :key="section.id"
-                        class="chip-metric-group"
+                        class="chip-stack gap-4"
                     >
-                        <h2 class="chip-metric-group__title">{{ section.title }}</h2>
-                        <dl class="chip-metric-group__list">
-                            <div v-for="item in section.items" :key="item.label" class="chip-metric-group__row">
-                                <dt class="chip-metric-group__label">{{ item.label }}</dt>
-                                <dd class="chip-metric-group__value">{{ item.value }}</dd>
+                        <div
+                            class="chip-stack gap-3"
+                            :class="section.scrollable ? 'chip-status-scroll max-h-[320px] pr-1' : ''"
+                        >
+                            <div
+                                v-for="(item, index) in section.items"
+                                :key="item.label"
+                                class="chip-status__row"
+                                :class="index === section.items.length - 1 ? '' : 'border-b border-white/5 pb-3'"
+                            >
+                                <div class="flex flex-col">
+                                    <span class="chip-status__label">{{ item.label }}</span>
+                                    <span v-if="item.hint" class="chip-field-hint">{{ item.hint }}</span>
+                                </div>
+                                <span class="chip-status__value" :class="item.toneClass || ''">
+                                    {{ item.value }}
+                                </span>
                             </div>
-                        </dl>
+                        </div>
                     </article>
                 </div>
             </div>
         </section>
 
-        <section class="chip-grid chip-grid--filters w-full">
-            <article class="chip-card chip-stack">
-                <header class="chip-card__header">
-                    <div class="chip-stack">
-                        <span class="chip-eyebrow">Access control</span>
-                        <h3 class="text-2xl font-semibold text-white">Role management</h3>
-                        <p class="chip-card__subtitle chip-card__subtitle--tight">
-                            Assign a new role to define which areas of the control panel this account can reach.
-                        </p>
-                    </div>
-                </header>
-                <div class="chip-divider chip-divider--strong"></div>
+        <section class="chip-card chip-stack">
+            <header class="chip-card__header">
                 <div class="chip-stack">
-                    <label for="user-role" class="chip-label">Role</label>
-                    <select
-                        id="user-role"
-                        v-model="roleForm.pending"
-                        class="chip-select"
-                        :disabled="!canEditRole || roleForm.saving"
+                    <span class="chip-eyebrow">Access control</span>
+                    <h3 class="text-2xl font-semibold text-white">Roles & switches</h3>
+                    <p class="chip-card__subtitle chip-card__subtitle--tight">
+                        Adjust the panel reach for this profile and flip whitelist or blacklist flags without jumping between cards.
+                    </p>
+                </div>
+            </header>
+            <div class="chip-divider chip-divider--strong"></div>
+            <div class="chip-stack gap-8 lg:grid lg:grid-cols-2 lg:gap-10">
+                <section
+                    class="chip-stack gap-4"
+                    :class="roleSectionClass"
+                    :aria-disabled="roleSectionDisabled"
+                >
+                    <div class="chip-stack">
+                        <label for="user-role" class="chip-label">Role</label>
+                        <select
+                            id="user-role"
+                            v-model="roleForm.pending"
+                            class="chip-select"
+                            :disabled="!canEditRole || roleForm.saving"
+                        >
+                            <option v-for="role in availableRoleOptions" :key="role.value" :value="role.value">
+                                {{ role.label }}
+                            </option>
+                        </select>
+                        <p class="chip-field-hint text-slate-400">{{ roleDescription }}</p>
+                    </div>
+                    <p
+                        v-if="roleSectionDisabled"
+                        class="chip-field-hint text-slate-500"
                     >
-                        <option v-for="role in availableRoleOptions" :key="role.value" :value="role.value">
-                            {{ role.label }}
-                        </option>
-                    </select>
-                    <p class="chip-field-hint text-slate-400">{{ roleDescription }}</p>
+                        You cannot change your own role. Ask another admin for access updates.
+                    </p>
                     <div class="flex flex-wrap items-center justify-center gap-3 text-center">
                         <button
                             type="button"
@@ -95,7 +104,7 @@
                         <button
                             type="button"
                             class="chip-btn chip-btn-ghost"
-                            :disabled="!roleDirty || roleForm.saving"
+                            :disabled="!roleDirty || roleForm.saving || roleSectionDisabled"
                             @click="resetRoleForm"
                         >
                             Reset
@@ -117,22 +126,8 @@
                     >
                         {{ roleForm.success }}
                     </p>
-                </div>
-            </article>
-
-            <article class="chip-card chip-stack">
-                <header class="chip-card__header">
-                    <div class="chip-stack">
-                        <span class="chip-eyebrow">Lists</span>
-                        <h3 class="text-2xl font-semibold text-white">Access switches</h3>
-                        <p class="chip-card__subtitle chip-card__subtitle--tight">
-                            Toggle whitelist or blacklist for this ID without leaving the profile. Whitelist enforcement is
-                            <strong>{{ whitelistActive ? 'active' : 'inactive' }}</strong>.
-                        </p>
-                    </div>
-                </header>
-                <div class="chip-divider chip-divider--strong"></div>
-                <div class="chip-stack">
+                </section>
+                <section class="chip-stack gap-4">
                     <div class="flex flex-col gap-4">
                         <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                             <div>
@@ -147,7 +142,7 @@
                                 :label="listsForm.pendingWhitelist ? 'Enabled' : 'Disabled'"
                                 :checked="listsForm.pendingWhitelist"
                                 :busy="listsForm.saving"
-                                :disabled="!canEditLists"
+                                :disabled="!canEditLists || listsForm.saving"
                                 :tone="listsForm.pendingWhitelist ? 'ok' : 'warn'"
                                 aria-label="Whitelist toggle"
                                 @toggle="updateListField('pendingWhitelist', $event)"
@@ -157,7 +152,7 @@
                             <div>
                                 <label class="chip-label" for="blacklist-toggle">Blacklist</label>
                                 <p class="chip-field-hint text-slate-400">
-                                    Silence every bot response for this ID permanently.
+                                    Silence every bot response for this ID.
                                 </p>
                             </div>
                             <ChipToggle
@@ -166,7 +161,7 @@
                                 :label="listsForm.pendingBlacklist ? 'Enabled' : 'Disabled'"
                                 :checked="listsForm.pendingBlacklist"
                                 :busy="listsForm.saving"
-                                :disabled="!canEditLists"
+                                :disabled="blacklistToggleDisabled || listsForm.saving"
                                 :tone="listsForm.pendingBlacklist ? 'danger' : 'ok'"
                                 aria-label="Blacklist toggle"
                                 @toggle="updateListField('pendingBlacklist', $event)"
@@ -175,6 +170,9 @@
                     </div>
                     <p v-if="!canEditLists" class="chip-field-hint text-slate-400">
                         Only admins can manage whitelist or blacklist entries.
+                    </p>
+                    <p v-else-if="isPrivilegedTarget && !listsForm.pendingBlacklist" class="chip-field-hint text-slate-400">
+                        Privileged roles cannot be blacklisted.
                     </p>
                     <div class="flex flex-wrap items-center justify-center gap-3 text-center">
                         <button
@@ -211,8 +209,11 @@
                     >
                         {{ listsForm.success }}
                     </p>
-                </div>
-            </article>
+                    <p class="chip-field-hint text-slate-500">
+                        Last access update: {{ formatted.updatedAccess || "Not available" }}
+                    </p>
+                </section>
+            </div>
         </section>
 
         <section class="chip-card chip-stack">
@@ -334,8 +335,6 @@ import {
     formatDetailedDateTime,
     formatFriendlyDateTime
 } from "../../utils/formatters"
-import { showToast } from "../../utils/toast"
-import { copyToClipboard } from "../../utils/clipboard"
 
 const ROLE_BADGE_CLASSES = Object.freeze({
     MASTER: "chip-pill-warning",
@@ -378,9 +377,7 @@ export default {
                 saving: false,
                 error: null,
                 success: null
-            },
-            copyStatus: null,
-            copyStatusTimeout: null
+            }
         }
     },
     computed: {
@@ -441,14 +438,22 @@ export default {
                 handsPlayed: Number.isFinite(Number(user.hands_played)) ? Number(user.hands_played).toLocaleString() : "0"
             }
         },
+        targetRole() {
+            return (this.roleForm.current || this.user?.access?.role || this.user?.panelRole || "USER")
+                .toString()
+                .toUpperCase()
+        },
         isMasterTarget() {
-            return (this.user?.access?.role || this.user?.panelRole) === "MASTER"
+            return this.targetRole === "MASTER"
+        },
+        isPrivilegedTarget() {
+            return ["MASTER", "ADMIN", "MODERATOR"].includes(this.targetRole)
         },
         whitelistActive() {
             return Boolean(this.accessPolicy?.enforceWhitelist)
         },
         canEditRole() {
-            return this.canManageRoles && !this.isMasterTarget
+            return this.canManageRoles && !this.isMasterTarget && !this.isSelfProfile
         },
         canEditLists() {
             return this.canManageLists && !this.isMasterTarget
@@ -510,6 +515,15 @@ export default {
             const roleKey = (this.roleForm.pending || this.roleForm.current || "").toUpperCase()
             return ROLE_BADGE_CLASSES[roleKey] || "chip-pill"
         },
+        roleSectionDisabled() {
+            return this.isSelfProfile || !this.canManageRoles
+        },
+        roleSectionClass() {
+            return this.roleSectionDisabled ? "opacity-60 grayscale" : ""
+        },
+        blacklistToggleDisabled() {
+            return !this.canEditLists || this.isPrivilegedTarget
+        },
         baseStats() {
             const user = this.user || {}
             const resolveNumber = (value) => {
@@ -525,7 +539,6 @@ export default {
             }
         },
         overviewValues() {
-            const access = this.user?.access || {}
             return {
                 money: this.formatted.money,
                 gold: this.formatted.gold,
@@ -536,22 +549,24 @@ export default {
                 winRate: this.formatted.winRate,
                 lastPlayed: this.formatted.lastPlayed,
                 handsWon: this.formatted.handsWon,
-                handsPlayed: this.formatted.handsPlayed,
-                role: this.roleLabel,
-                whitelist: access.isWhitelisted ? "Enabled" : "Disabled",
-                blacklist: access.isBlacklisted ? "Enabled" : "Disabled",
-                updatedAccess: this.formatted.updatedAccess || "Not available"
+                handsPlayed: this.formatted.handsPlayed
             }
         },
         overviewSections() {
-            return USER_DETAIL_OVERVIEW.map((section) => ({
-                id: section.id,
-                title: section.title,
-                items: (section.fields || []).map((field) => ({
+            return USER_DETAIL_OVERVIEW.map((section) => {
+                const items = (section.fields || []).map((field) => ({
                     label: field.label,
-                    value: this.overviewValues[field.key] ?? field.fallback ?? "—"
+                    value: this.overviewValues[field.key] ?? field.fallback ?? "—",
+                    hint: field.hint || null,
+                    toneClass: field.toneClass || null
                 }))
-            }))
+                return {
+                    id: section.id,
+                    title: section.title,
+                    items,
+                    scrollable: items.length > 4
+                }
+            })
         },
         canEditStats() {
             if (!this.canManageRoles) {
@@ -590,24 +605,24 @@ export default {
         }
         await this.loadUser()
     },
-    beforeDestroy() {
-        if (this.copyStatusTimeout) {
-            clearTimeout(this.copyStatusTimeout)
-            this.copyStatusTimeout = null
-        }
-    },
     watch: {
         "roleForm.pending"() {
             this.roleForm.error = null
             this.roleForm.success = null
         },
-        "listsForm.pendingWhitelist"() {
+        "listsForm.pendingWhitelist"(value) {
             this.listsForm.error = null
             this.listsForm.success = null
+            if (value && this.listsForm.pendingBlacklist) {
+                this.listsForm.pendingBlacklist = false
+            }
         },
-        "listsForm.pendingBlacklist"() {
+        "listsForm.pendingBlacklist"(value) {
             this.listsForm.error = null
             this.listsForm.success = null
+            if (value && this.listsForm.pendingWhitelist) {
+                this.listsForm.pendingWhitelist = false
+            }
         },
         "statsForm.level"() {
             this.statsForm.error = null
@@ -788,25 +803,6 @@ export default {
                 next.required_exp = requiredExpValue
             }
             this.user = next
-        },
-        async copyUserId() {
-            if (!this.userId) return
-            try {
-                await copyToClipboard(this.userId)
-                this.copyStatus = "Copied to clipboard."
-                showToast("Discord ID copied to clipboard.")
-            } catch (error) {
-                this.copyStatus = "Unable to copy the ID."
-                showToast("Unable to copy the ID.")
-            } finally {
-                if (this.copyStatusTimeout) {
-                    clearTimeout(this.copyStatusTimeout)
-                }
-                this.copyStatusTimeout = setTimeout(() => {
-                    this.copyStatus = null
-                    this.copyStatusTimeout = null
-                }, 2500)
-            }
         }
     }
 }

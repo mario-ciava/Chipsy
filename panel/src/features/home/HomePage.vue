@@ -14,212 +14,97 @@
                     :avatar-url="profileAvatarUrl"
                     @refresh="refreshProfile"
                 />
-                <article class="chip-card chip-stack">
-                    <header class="chip-card__header">
-                        <div class="chip-stack">
-                            <div class="flex items-center gap-2">
-                                <span class="chip-eyebrow">Quick actions</span>
-                                <span
-                                    class="chip-info-dot"
-                                    role="img"
-                                    tabindex="0"
-                                    aria-label="Shortcut info"
-                                    data-tooltip="Single-click helpers for invite flows and access reviews."
-                                ></span>
-                            </div>
-                            <h2 class="chip-card__title">Handy shortcuts</h2>
-                            <p class="chip-card__subtitle chip-card__subtitle--tight">
-                                Trigger your go-to admin gestures without loading the full dashboard.
-                            </p>
-                        </div>
-                    </header>
-                    <div class="chip-divider chip-divider--strong my-1.5"></div>
-                    <ul class="chip-stack divide-y divide-white/5">
-                        <li class="flex flex-col gap-2 pt-3 first:pt-0 lg:flex-row lg:items-center lg:justify-between">
-                            <div class="flex-1">
-                                <h4 class="text-base font-semibold text-white">Invite Chipsy</h4>
-                                <p class="text-sm text-slate-300">
-                                    Drop the bot into any server where you already have permissions.
+                <div class="flex flex-col gap-6 h-full">
+                    <article class="chip-card chip-stack flex-1">
+                        <header class="chip-card__header">
+                            <div class="chip-stack">
+                                <div class="flex items-center gap-2">
+                                    <span class="chip-eyebrow">Quick actions</span>
+                                    <span
+                                        class="chip-info-dot"
+                                        role="img"
+                                        tabindex="0"
+                                        aria-label="Shortcut info"
+                                        data-tooltip="Single-click helpers for invite flows and access reviews."
+                                    ></span>
+                                </div>
+                                <h2 class="chip-card__title">Handy shortcuts</h2>
+                                <p class="chip-card__subtitle chip-card__subtitle--tight">
+                                    Trigger your go-to admin gestures without loading the full dashboard.
                                 </p>
                             </div>
-                            <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
-                                <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" @click="openGenericInvite">
-                                    Launch
-                                </button>
-                            </div>
-                        </li>
-                        <li class="flex flex-col gap-2 pt-3 lg:flex-row lg:items-center lg:justify-between">
-                            <div class="flex-1">
-                                <h4 class="text-base font-semibold text-white">Moderator toolkit</h4>
-                                <p class="text-sm text-slate-300">
-                                    Quick macros for mod-level tasks, rolling out soon.
-                                </p>
-                            </div>
-                            <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
-                                <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
-                                    Soon
-                                </button>
-                            </div>
-                        </li>
-                        <li class="flex flex-col gap-2 pt-3 lg:flex-row lg:items-center lg:justify-between">
-                            <div class="flex-1">
-                                <h4 class="text-base font-semibold text-white">Audit queue</h4>
-                                <p class="text-sm text-slate-300">
-                                    Placeholder for on-demand reports and status digests.
-                                </p>
-                            </div>
-                            <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
-                                <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
-                                    Locked
-                                </button>
-                            </div>
-                        </li>
-                    </ul>
-                </article>
+                        </header>
+                        <div class="chip-divider chip-divider--strong my-1.5"></div>
+                        <ul class="chip-stack divide-y divide-white/5">
+                            <li
+                                v-for="shortcut in quickShortcuts"
+                                :key="shortcut.key"
+                                class="flex flex-col gap-2 pt-3 first:pt-0 lg:flex-row lg:items-center lg:justify-between"
+                            >
+                                <div class="flex-1">
+                                    <h4 class="text-base font-semibold text-white">{{ shortcut.title }}</h4>
+                                    <p class="text-sm text-slate-300">{{ shortcut.description }}</p>
+                                </div>
+                                <div class="inline-flex w-full items-start justify-start gap-2 lg:w-auto">
+                                    <button
+                                        class="chip-btn chip-btn-secondary chip-btn-fixed"
+                                        type="button"
+                                        :disabled="shortcut.disabled"
+                                        @click="handleShortcut(shortcut)"
+                                    >
+                                        {{ shortcut.ctaLabel || "Open" }}
+                                    </button>
+                                </div>
+                            </li>
+                            <li
+                                v-if="!quickShortcuts.length"
+                                class="flex flex-col gap-2 py-3 text-sm text-slate-400"
+                            >
+                                No shortcuts available yet.
+                            </li>
+                        </ul>
+                    </article>
+                </div>
             </div>
 
-            <section class="space-y-3">
+            <section id="home-guild-reach" ref="guildReachSection" class="space-y-3">
                 <div v-if="guildNotice" class="chip-notice chip-notice-warning">
                     {{ guildNotice }}
                 </div>
                 <GuildOverview
                     :guilds="guilds"
                     :loading="guildsLoading"
-                    :show-leave="isAdmin"
+                    :show-leave="true"
+                    :can-leave-globally="canLeaveGlobally"
                     @leave="leaveGuild"
                 />
             </section>
+
+            <HomeMarketingSection
+                id="home-marketing"
+                :why-chipsy-content="whyChipsyContent"
+                :why-chipsy-pillars="whyChipsyPillars"
+                :why-chipsy-badges="whyChipsyBadges"
+                :launch-playbook="launchPlaybook"
+                :launch-steps="launchSteps"
+                :readiness-content="readinessContent"
+                :readiness-stats="readinessStats"
+                :readiness-assurances="readinessAssurances"
+            />
         </section>
 
-        <section v-else class="space-y-6">
-            <article
-                class="chip-card chip-stack bg-gradient-to-br from-violet-600/20 via-slate-900/80 to-indigo-900/40 text-center lg:text-left"
-            >
-                <header class="chip-card__header">
-                    <div class="chip-stack text-left">
-                        <span class="chip-eyebrow">
-                            {{ whyChipsyContent.eyebrow || whyChipsyContent.tagline || "WHY CHIPSY" }}
-                        </span>
-                        <h3 class="chip-card__title">{{ whyChipsyContent.headline || "Why Chipsy" }}</h3>
-                        <p class="chip-card__subtitle chip-card__subtitle--tight">
-                            {{ whyChipsyContent.body || "Chipsy keeps Discord-native casinos synchronized across bot, panel, and data." }}
-                        </p>
-                    </div>
-                </header>
-                <div class="grid gap-4 lg:grid-cols-3">
-                    <section
-                        v-for="pillar in whyChipsyPillars"
-                        :key="pillar.title"
-                        class="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
-                    >
-                        <div class="flex items-center gap-2 text-white">
-                            <span class="text-xl">{{ pillar.icon }}</span>
-                            <p class="text-base font-semibold">{{ pillar.title }}</p>
-                        </div>
-                        <p class="text-sm text-slate-300">{{ pillar.copy }}</p>
-                        <ul class="space-y-1 pl-5 text-sm text-slate-300">
-                            <li
-                                v-for="bullet in pillar.bullets"
-                                :key="bullet"
-                                class="list-disc marker:text-violet-400"
-                            >
-                                {{ bullet }}
-                            </li>
-                        </ul>
-                    </section>
-                </div>
-                <div class="chip-divider chip-divider--strong my-2"></div>
-                <div class="flex flex-wrap gap-2">
-                    <span
-                        v-for="badge in whyChipsyBadges"
-                        :key="badge.label"
-                        class="chip-pill chip-pill-ghost flex flex-wrap items-center gap-2"
-                    >
-                        <span class="text-sm font-semibold text-white normal-case">{{ badge.label }}</span>
-                        <span class="text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-slate-300">
-                            {{ badge.detail }}
-                        </span>
-                    </span>
-                </div>
-            </article>
-
-            <div class="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-                <article class="chip-card chip-stack">
-                    <header class="chip-card__header">
-                        <div class="chip-stack">
-                            <span class="chip-eyebrow">
-                                {{ launchPlaybook.eyebrow || launchPlaybook.tagline || "LAUNCH PLAYBOOK" }}
-                            </span>
-                            <h3 class="chip-card__title">{{ launchPlaybook.title || "Launch playbook" }}</h3>
-                            <p class="chip-card__subtitle chip-card__subtitle--tight">
-                                {{ launchPlaybook.subtitle || "Borrow our onboarding steps to bring Chipsy live." }}
-                            </p>
-                        </div>
-                    </header>
-                    <ol class="chip-stack">
-                        <li
-                            v-for="(step, index) in launchSteps"
-                            :key="step.title"
-                            class="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                        >
-                            <span
-                                class="chip-pill-metric inline-flex h-10 w-10 flex-shrink-0 items-center justify-center p-0 text-base"
-                            >
-                                {{ index + 1 }}
-                            </span>
-                            <div class="chip-stack text-left">
-                                <p class="text-base font-semibold text-white">{{ step.title }}</p>
-                                <p class="text-sm text-slate-300">{{ step.detail }}</p>
-                            </div>
-                        </li>
-                    </ol>
-                </article>
-
-                <article class="chip-card chip-stack">
-                    <header class="chip-card__header">
-                        <div class="chip-stack">
-                            <span class="chip-eyebrow">
-                                {{ readinessContent.eyebrow || readinessContent.tagline || "OPERATIONAL READINESS" }}
-                            </span>
-                            <h3 class="chip-card__title">{{ readinessContent.title || "Operational readiness" }}</h3>
-                            <p class="chip-card__subtitle chip-card__subtitle--tight">
-                                {{ readinessContent.subtitle || "Preview the guardrails that keep guilds healthy." }}
-                            </p>
-                        </div>
-                    </header>
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        <div
-                            v-for="stat in readinessStats"
-                            :key="stat.label"
-                            class="chip-stat chip-stat--inline"
-                        >
-                            <span class="chip-stat__label">{{ stat.label }}</span>
-                            <span class="chip-stat__value">{{ stat.value }}</span>
-                            <p class="text-xs text-slate-400">{{ stat.detail }}</p>
-                        </div>
-                    </div>
-                    <div class="chip-divider chip-divider--strong my-1"></div>
-                    <ul class="chip-stack divide-y divide-white/5">
-                        <li
-                            v-for="assurance in readinessAssurances"
-                            :key="assurance.tag"
-                            class="grid gap-3 pt-3 first:pt-0 sm:grid-cols-[200px_1fr] sm:items-center"
-                        >
-                            <div class="flex justify-center">
-                                <span
-                                    class="chip-pill chip-pill-info flex h-11 w-48 items-center justify-center text-center text-sm tracking-[0.28em]"
-                                >
-                                    {{ assurance.tag }}
-                                </span>
-                            </div>
-                            <p class="text-sm text-slate-300">
-                                {{ assurance.detail }}
-                            </p>
-                        </li>
-                    </ul>
-                </article>
-            </div>
-        </section>
+        <HomeMarketingSection
+            v-else
+            id="home-marketing"
+            :why-chipsy-content="whyChipsyContent"
+            :why-chipsy-pillars="whyChipsyPillars"
+            :why-chipsy-badges="whyChipsyBadges"
+            :launch-playbook="launchPlaybook"
+            :launch-steps="launchSteps"
+            :readiness-content="readinessContent"
+            :readiness-stats="readinessStats"
+            :readiness-assurances="readinessAssurances"
+        />
 
         <div v-if="processing" class="chip-notice chip-notice-info">
             Validating your access…
@@ -237,32 +122,64 @@
 import { mapGetters } from "vuex"
 import GuildOverview from "../dashboard/components/GuildOverview.vue"
 import ProfileOverviewCard from "./components/ProfileOverviewCard.vue"
+import HomeMarketingSection from "./components/HomeMarketingSection.vue"
 import api from "../../services/api"
 import { formatCurrency, formatExpRange, formatFriendlyDateTime } from "../../utils/formatters"
-import { getControlPanelRedirect } from "../../utils/runtime"
+import { getControlPanelRedirect, consumePostLoginRoute } from "../../utils/runtime"
+import { hasManageGuildPermission as sharedHasManageGuildPermission, normalizeGuildList } from "../../utils/guilds"
 import homeMarketing from "../../config/homeContent"
 
 const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
 const PROFILE_REFRESH_INTERVAL_MS = 20000
 const landingMarketing = homeMarketing || {}
 
+const SHARED_SHORTCUTS = Object.freeze([
+    {
+        key: "invite",
+        title: "Invite Chipsy",
+        description: "Drop the bot into any server where you already have permissions.",
+        ctaLabel: "Launch",
+        handler: "openGenericInvite",
+        roles: ["USER", "MODERATOR", "ADMIN", "MASTER"]
+    },
+    {
+        key: "playbook",
+        title: "Launch playbook",
+        description: "Review the onboarding steps before inviting Chipsy anywhere else.",
+        ctaLabel: "View",
+        handler: "scrollToMarketing",
+        roles: ["USER", "MODERATOR", "ADMIN", "MASTER"]
+    },
+    {
+        key: "ops-placeholder",
+        title: "Remote maintenance",
+        description: "Reserve this slot for the upcoming remote controls shortcut.",
+        ctaLabel: "Soon",
+        disabled: true,
+        roles: ["USER", "MODERATOR", "ADMIN", "MASTER"]
+    }
+])
+
 export default {
     name: "HomePage",
     components: {
         GuildOverview,
-        ProfileOverviewCard
+        ProfileOverviewCard,
+        HomeMarketingSection
     },
     data() {
         return {
             processing: false,
             errorMessage: null,
             guilds: {
+                all: [],
                 added: [],
                 available: []
             },
             guildsMeta: null,
             guildsLoading: false,
             guildNotice: null,
+            pendingGuildFocus: false,
             profileRefreshing: false,
             profileAutoRefreshing: false,
             profileAutoRefreshId: null
@@ -435,6 +352,25 @@ export default {
                 return customInterval
             }
             return PROFILE_REFRESH_INTERVAL_MS
+        },
+        normalizedRole() {
+            const role = this.user?.panelRole || this.user?.role
+            if (typeof role === "string" && role.trim().length > 0) {
+                return role.trim().toUpperCase()
+            }
+            return "USER"
+        },
+        quickShortcuts() {
+            if (!this.isAuthenticated) {
+                return []
+            }
+            return SHARED_SHORTCUTS.filter((shortcut) => this.isShortcutAllowed(shortcut))
+        },
+        canLeaveGlobally() {
+            return ["MASTER", "ADMIN"].includes(this.normalizedRole)
+        },
+        shouldFocusGuildReach() {
+            return this.$route?.query?.focus === "guilds"
         }
     },
     watch: {
@@ -456,9 +392,22 @@ export default {
             if (newValue?.id && newValue.id !== oldValue?.id) {
                 this.loadHomeData()
             }
+        },
+        shouldFocusGuildReach(newValue) {
+            if (newValue) {
+                this.scheduleGuildReachFocus()
+            }
+        },
+        guildsLoading(isLoading) {
+            if (!isLoading) {
+                this.maybeFocusGuildReach()
+            }
         }
     },
     created() {
+        if (this.shouldFocusGuildReach) {
+            this.scheduleGuildReachFocus()
+        }
         if (this.loginCode) {
             this.handleOAuthCode(this.loginCode)
         } else if (this.isAuthenticated) {
@@ -473,10 +422,35 @@ export default {
     },
     methods: {
         onAuthenticated() {
-            if (this.isAdmin) {
-                this.$router.replace({ name: "ControlPanel" }).catch(() => {})
-            } else if (this.canViewLogs) {
-                this.$router.replace({ name: "Logs" }).catch(() => {})
+            const fallbackRoute = consumePostLoginRoute(null)
+            if (fallbackRoute && fallbackRoute !== this.$route.fullPath) {
+                this.$router.replace(fallbackRoute).catch(() => {})
+                return
+            }
+            this.clearAuthQuery()
+        },
+        clearAuthQuery() {
+            const currentQuery = { ...(this.$route?.query || {}) }
+            if (!currentQuery.code && !currentQuery.state) {
+                return
+            }
+            delete currentQuery.code
+            delete currentQuery.state
+            this.$router.replace({ path: this.$route.path, query: currentQuery }).catch(() => {})
+        },
+        isShortcutAllowed(shortcut) {
+            if (!shortcut) return false
+            const allowedRoles = shortcut.roles
+            if (!Array.isArray(allowedRoles) || allowedRoles.length === 0) {
+                return true
+            }
+            return allowedRoles.includes(this.normalizedRole)
+        },
+        handleShortcut(shortcut) {
+            if (!shortcut || shortcut.disabled) return
+            const handlerName = shortcut.handler
+            if (handlerName && typeof this[handlerName] === "function") {
+                this[handlerName](shortcut)
             }
         },
         async handleOAuthCode(code) {
@@ -502,18 +476,33 @@ export default {
             if (!this.isAuthenticated) return
             this.loadGuilds()
         },
-        async loadGuilds() {
+        async loadGuilds({ force = false } = {}) {
             this.guildsLoading = true
             try {
-                const guilds = await api.getGuilds()
+                const guilds = await api.getGuilds({ forceRefresh: force })
                 const meta = guilds?.meta || {}
                 this.guildsMeta = meta
 
-                const added = Array.isArray(guilds.added) ? guilds.added : []
-                const availableRaw = Array.isArray(guilds.available) ? guilds.available : []
-                const addedIds = new Set(added.map((guild) => guild.id))
-                const available = availableRaw.filter((guild) => !addedIds.has(guild.id))
-                this.guilds = { added, available }
+                const normalizedAll = normalizeGuildList(guilds.all)
+                const normalizedAddedRaw = normalizeGuildList(guilds.added)
+                const normalizedAvailableRaw = normalizeGuildList(guilds.available)
+
+                const userGuildIds = new Set(normalizedAll.map((guild) => guild.id))
+                const sharedAdded = normalizedAddedRaw.filter((guild) => userGuildIds.has(guild.id))
+                const mergedAdded = sharedAdded.length > 0 ? sharedAdded : normalizedAddedRaw
+                const mergedAddedIds = new Set(mergedAdded.map((guild) => guild.id))
+
+                const sanitizedAvailableRaw = normalizedAvailableRaw.filter((guild) => !mergedAddedIds.has(guild.id))
+                const availableFromAll = normalizedAll.filter(
+                    (guild) => !mergedAddedIds.has(guild.id) && sharedHasManageGuildPermission(guild)
+                )
+                const mergedAvailable = availableFromAll.length > 0 ? availableFromAll : sanitizedAvailableRaw
+
+                this.guilds = {
+                    all: normalizedAll,
+                    added: mergedAdded,
+                    available: mergedAvailable
+                }
 
                 if (meta.rateLimited) {
                     this.guildNotice = "Discord is throttling the guild list. Showing cached data."
@@ -531,15 +520,32 @@ export default {
                 this.guildsLoading = false
             }
         },
-        async leaveGuild(id) {
-            if (!this.isAdmin || !id) return
+        async leaveGuild(guild) {
+            if (!guild) return
+            const guildId = typeof guild === "object" ? guild.id : guild
+            if (!guildId) return
+            const targetGuild = typeof guild === "object" ? guild : this.findGuildLocally(guildId)
+            const hasServerPrivileges = targetGuild ? this.hasManageGuildPermission(targetGuild) : false
+            if (!this.canLeaveGlobally && !hasServerPrivileges) {
+                return
+            }
             const csrfToken = this.$store.state.session.csrfToken
             if (!csrfToken) return
+
+            const previousState = this.snapshotGuildCollections()
+            const optimisticState = this.buildGuildCollectionsAfterLeave({
+                previousState,
+                guildId,
+                targetGuild
+            })
+            this.guilds = optimisticState
+
             try {
-                await api.leaveGuild({ csrfToken, guildId: id })
+                await api.leaveGuild({ csrfToken, guildId })
                 this.pushToast("Chipsy has been removed from the selected server.")
-                await this.loadGuilds()
+                await this.loadGuilds({ force: true })
             } catch (error) {
+                this.guilds = previousState
                 // eslint-disable-next-line no-console
                 console.error("Failed to leave guild", error)
                 this.pushToast("Unable to remove Chipsy from that server.")
@@ -548,6 +554,12 @@ export default {
         pushToast(message) {
             if (!message) return
             window.dispatchEvent(new CustomEvent("chipsy-toast", { detail: { message } }))
+        },
+        pushGuildFocusToast() {
+            if (this.$route?.query?.focus !== "guilds") {
+                return
+            }
+            this.pushToast("Guild reach refreshed after your invite.")
         },
         buildInviteUrl() {
             const clientId = process.env.VUE_APP_DISCORD_CLIENT_ID
@@ -560,6 +572,45 @@ export default {
             const url = this.buildInviteUrl()
             if (url === "#") return
             window.open(url, "_blank", "noopener,noreferrer")
+        },
+        scrollToMarketing() {
+            const target = document.getElementById("home-marketing")
+            if (target) {
+                target.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
+                })
+            }
+        },
+        scheduleGuildReachFocus() {
+            this.pendingGuildFocus = true
+            this.$nextTick(() => {
+                this.maybeFocusGuildReach()
+            })
+        },
+        maybeFocusGuildReach() {
+            if (!this.pendingGuildFocus) return
+            if (this.guildsLoading || !this.isAuthenticated) return
+            this.focusGuildReach()
+        },
+        focusGuildReach({ behavior = "smooth" } = {}) {
+            const section = this.$refs.guildReachSection || document.getElementById("home-guild-reach")
+            if (!section) return
+            section.scrollIntoView({
+                behavior,
+                block: "start"
+            })
+            this.pendingGuildFocus = false
+            this.pushGuildFocusToast()
+            this.clearGuildFocusQuery()
+        },
+        clearGuildFocusQuery() {
+            const query = { ...(this.$route?.query || {}) }
+            if (!query.focus) {
+                return
+            }
+            delete query.focus
+            this.$router.replace({ path: this.$route.path, query }).catch(() => {})
         },
         async refreshProfile({ silent = false } = {}) {
             if (silent) {
@@ -607,6 +658,40 @@ export default {
             if (!document.hidden) {
                 this.refreshProfile({ silent: true })
             }
+        },
+        hasManageGuildPermission(guild) {
+            return sharedHasManageGuildPermission(guild)
+        },
+        snapshotGuildCollections() {
+            const current = this.guilds || {}
+            return {
+                all: normalizeGuildList(current.all),
+                added: normalizeGuildList(current.added),
+                available: normalizeGuildList(current.available)
+            }
+        },
+        buildGuildCollectionsAfterLeave({ previousState, guildId, targetGuild }) {
+            const sanitizedAdded = previousState.added.filter((entry) => entry.id !== guildId)
+            const sanitizedAvailable = previousState.available.filter((entry) => entry.id !== guildId)
+            const shouldPromoteToAvailable = Boolean(targetGuild && this.hasManageGuildPermission(targetGuild))
+            const nextAvailable = shouldPromoteToAvailable
+                ? normalizeGuildList([...sanitizedAvailable, targetGuild])
+                : sanitizedAvailable
+
+            return {
+                all: previousState.all,
+                added: sanitizedAdded,
+                available: nextAvailable
+            }
+        },
+        findGuildLocally(guildId) {
+            if (!guildId) return null
+            const pool = [
+                ...(this.guilds?.added || []),
+                ...(this.guilds?.available || []),
+                ...(this.guilds?.all || [])
+            ]
+            return pool.find((entry) => entry?.id === guildId) || null
         }
     }
 }

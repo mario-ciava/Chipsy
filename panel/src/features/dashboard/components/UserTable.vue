@@ -9,7 +9,7 @@
                         role="img"
                         tabindex="0"
                         aria-label="User metrics"
-                        :data-tooltip="`Data pulled from MySQL snapshots (${pagination.total || 0} indexed).`"
+                        data-tooltip="Data pulled from MySQL snapshots."
                     ></span>
                 </div>
                 <h3 id="user-table-title" class="chip-card__title">User intelligence</h3>
@@ -277,7 +277,7 @@
 
         <nav class="chip-pagination" aria-label="User pagination">
             <button
-                class="chip-btn chip-btn-secondary"
+                class="chip-btn chip-btn-secondary chip-btn-fixed"
                 :disabled="loading || pagination.page <= 1"
                 :aria-controls="tableId"
                 aria-label="Go to previous page"
@@ -289,7 +289,7 @@
                 Page {{ pagination.page }} of {{ pagination.totalPages }}
             </span>
             <button
-                class="chip-btn chip-btn-secondary"
+                class="chip-btn chip-btn-secondary chip-btn-fixed"
                 :disabled="loading || pagination.page >= pagination.totalPages"
                 :aria-controls="tableId"
                 aria-label="Go to next page"
@@ -496,23 +496,6 @@ export default {
                 hint: `Level ${settings.veteranLevelThreshold}+`
             })
 
-            const windowMs = settings.recentActivityWindowDays * 24 * 60 * 60 * 1000
-            const now = Date.now()
-            const recentCount = dataset.reduce((count, user) => {
-                const lastValue = user.last_played !== undefined ? user.last_played : user.lastPlayed
-                if (!lastValue) return count
-                const timestamp = new Date(lastValue).getTime()
-                if (Number.isNaN(timestamp)) return count
-                return now - timestamp <= windowMs ? count + 1 : count
-            }, 0)
-            const recentRatio = dataset.length ? Math.round((recentCount / dataset.length) * 100) : 0
-            cards.push({
-                id: "recent-activity",
-                label: "Recently active",
-                value: `${recentRatio}%`,
-                hint: `≤ ${settings.recentActivityWindowDays}d`
-            })
-
             const highRoller = dataset.reduce(
                 (winner, user) => {
                     const balance = Number(user.money) || 0
@@ -530,14 +513,32 @@ export default {
                 },
                 null
             )
-            if (highRoller && highRoller.balance >= settings.vipBalanceThreshold) {
-                cards.push({
-                    id: "high-roller",
-                    label: "High roller",
-                    value: highRoller.username,
-                    hint: formatCurrency(highRoller.balance)
-                })
-            }
+            const meetsVipThreshold = highRoller && highRoller.balance >= settings.vipBalanceThreshold
+            cards.push({
+                id: "high-roller",
+                label: "High roller",
+                value: meetsVipThreshold && highRoller ? highRoller.username : "No VIP yet",
+                hint: meetsVipThreshold && highRoller
+                    ? formatCurrency(highRoller.balance)
+                    : `≥ ${formatCurrency(settings.vipBalanceThreshold)}`
+            })
+
+            const windowMs = settings.recentActivityWindowDays * 24 * 60 * 60 * 1000
+            const now = Date.now()
+            const recentCount = dataset.reduce((count, user) => {
+                const lastValue = user.last_played !== undefined ? user.last_played : user.lastPlayed
+                if (!lastValue) return count
+                const timestamp = new Date(lastValue).getTime()
+                if (Number.isNaN(timestamp)) return count
+                return now - timestamp <= windowMs ? count + 1 : count
+            }, 0)
+            const recentRatio = dataset.length ? Math.round((recentCount / dataset.length) * 100) : 0
+            cards.push({
+                id: "recent-activity",
+                label: "Recently active",
+                value: `${recentRatio}%`,
+                hint: `≤ ${settings.recentActivityWindowDays}d`
+            })
 
             const maxCards = settings.maxCards || cards.length
             return cards.slice(0, maxCards)

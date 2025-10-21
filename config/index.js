@@ -523,7 +523,8 @@ const config = {
             holdDurationMs: 3000
         },
         status: {
-            refreshIntervalMs: 30000
+            refreshIntervalMs: 30000,
+            staleAfterMs: 60000
         },
         guilds: {
             waitForJoin: {
@@ -554,7 +555,7 @@ const config = {
             kpis: {
                 maxCards: 5,
                 veteranLevelThreshold: 40,
-                vipBalanceThreshold: 250000,
+                vipBalanceThreshold: 100000000,
                 recentActivityWindowDays: 14
             }
         },
@@ -611,6 +612,15 @@ const config = {
         timelineMaxEntries: {
             default: 30,
             allowedRange: { min: 10, max: 100 }
+        },
+        rebuy: {
+            enabled: {
+                default: true
+            },
+            offerTimeout: {
+                default: 2 * 60 * 1000,
+                allowedRange: { min: 30 * 1000, max: 10 * 60 * 1000 }
+            }
         }
     },
     texas: {
@@ -645,6 +655,15 @@ const config = {
         maxBuyIn: {
             default: 10000,
             allowedRange: { min: 100, max: 100000 }
+        },
+        rebuy: {
+            enabled: {
+                default: true
+            },
+            offerTimeout: {
+                default: 2 * 60 * 1000,
+                allowedRange: { min: 30 * 1000, max: 10 * 60 * 1000 }
+            }
         }
     },
     lobby: {

@@ -338,13 +338,40 @@ const createUsersRouter = (dependencies) => {
 
     router.patch("/policy", requireCsrfToken, async(req, res, next) => {
         if (!ensureListManagement(req, res)) return
-        const { enforceWhitelist } = req.body || {}
-        if (typeof enforceWhitelist !== "boolean") {
+        const { enforceWhitelist, enforceBlacklist } = req.body || {}
+        if (typeof enforceWhitelist !== "boolean" && typeof enforceBlacklist !== "boolean") {
             return res.status(400).json({ message: "400: Bad request" })
         }
         try {
-            const policy = await accessControl.setWhitelistEnforcement(enforceWhitelist)
+            const policy = await accessControl.setAccessPolicy({
+                enforceWhitelist,
+                enforceBlacklist
+            })
             res.status(200).json(policy)
+        } catch (error) {
+            next(error)
+        }
+    })
+
+    router.get("/lists", async(req, res, next) => {
+        if (!ensureListManagement(req, res)) return
+        const type = (req.query?.type || "").toString().toLowerCase()
+        if (!["whitelist", "blacklist"].includes(type)) {
+            return res.status(400).json({ message: "400: Invalid list type" })
+        }
+        try {
+            const entries = await accessControl.listAccessEntries({ list: type })
+            const enriched = await Promise.all(
+                entries.map(async(entry) => ({
+                    userId: entry.userId,
+                    role: entry.role,
+                    isBlacklisted: entry.isBlacklisted,
+                    isWhitelisted: entry.isWhitelisted,
+                    updatedAt: entry.updatedAt,
+                    username: await resolveUsername(entry.userId)
+                }))
+            )
+            res.status(200).json({ type, entries: enriched })
         } catch (error) {
             next(error)
         }

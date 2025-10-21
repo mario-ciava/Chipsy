@@ -25,6 +25,16 @@
                     <span class="chip-pill chip-pill-info">{{ roleLabel }}</span>
                 </div>
             </div>
+            <div
+                class="chip-live-indicator"
+                :class="statusPulseModifierClass"
+                role="status"
+                :title="statusPulseDescription"
+                :aria-label="statusPulseDescription"
+            >
+                <span class="chip-live-indicator__dot" :class="statusPulseDotClass"></span>
+                <span class="chip-live-indicator__label">{{ statusPulseLabel }}</span>
+            </div>
         </header>
 
         <transition name="fade">
@@ -52,6 +62,9 @@
                     :loading="accessPolicyLoading"
                     :saving="policySaving"
                     @toggle="handlePolicyToggle"
+                    @toggle-blacklist="handleBlacklistToggle"
+                    @view-whitelist="openAccessList('whitelist')"
+                    @view-blacklist="openAccessList('blacklist')"
                 />
             </div>
             <aside class="chip-stack h-full">
@@ -76,6 +89,14 @@
         <div v-if="errorMessage" class="chip-notice chip-notice-error">
             {{ errorMessage }}
         </div>
+        <AccessListModal
+            :visible="listModal.open"
+            :type="listModal.type"
+            :entries="listModal.entries"
+            :loading="listModal.loading"
+            :error="listModal.error"
+            @close="closeAccessList"
+        />
     </div>
 </template>
 
@@ -86,7 +107,9 @@ import BotStatusCard from "./components/BotStatusCard.vue"
 import RemoteActions from "./components/RemoteActions.vue"
 import UserTable from "./components/UserTable.vue"
 import AccessPolicyCard from "./components/AccessPolicyCard.vue"
+import AccessListModal from "./components/AccessListModal.vue"
 import api from "../../services/api"
+import { fetchRemoteActions } from "../../utils/remoteActions"
 
 export default {
     name: "DashboardPage",
@@ -94,7 +117,8 @@ export default {
         BotStatusCard,
         RemoteActions,
         UserTable,
-        AccessPolicyCard
+        AccessPolicyCard,
+        AccessListModal
     },
     data() {
         return {
@@ -121,7 +145,14 @@ export default {
             lastStatusEnabled: null,
             lastStatusUpdatedAt: null,
             botKillPending: false,
-            policySaving: false
+            policySaving: false,
+            listModal: {
+                open: false,
+                type: "whitelist",
+                entries: [],
+                loading: false,
+                error: null
+            }
         }
     },
     computed: {
@@ -131,7 +162,8 @@ export default {
         }),
         ...mapState("bot", {
             botStatus: (state) => state.status || {},
-            botLoading: (state) => state.loading
+            botLoading: (state) => state.loading,
+            botError: (state) => state.error
         }),
         ...mapState("users", {
             users: (state) => state.items,
@@ -163,6 +195,13 @@ export default {
         statusRefreshInterval() {
             return this.panelConfig?.status?.refreshIntervalMs || 30000
         },
+        statusStaleAfterMs() {
+            const configured = Number(this.panelConfig?.status?.staleAfterMs)
+            if (Number.isFinite(configured) && configured > 0) {
+                return configured
+            }
+            return Math.max(this.statusRefreshInterval * 2, 45000)
+        },
         guildJoinDelay() {
             return this.panelConfig?.guilds?.waitForJoin?.pollDelayMs || 1500
         },
@@ -171,6 +210,45 @@ export default {
         },
         guildJoinAttemptsWithoutTarget() {
             return this.panelConfig?.guilds?.waitForJoin?.maxAttemptsWithoutTarget || 3
+        },
+        statusPulseState() {
+            if (this.botLoading) return "updating"
+            if (this.botError) return "offline"
+            const reference = this.botStatus?.updatedAt || this.lastStatusUpdatedAt
+            if (!reference) return "offline"
+            const timestamp = new Date(reference).getTime()
+            if (!Number.isFinite(timestamp)) return "offline"
+            const age = Date.now() - timestamp
+            if (age > this.statusStaleAfterMs) {
+                return "offline"
+            }
+            return "live"
+        },
+        statusPulseLabel() {
+            const labels = {
+                live: "LIVE",
+                updating: "UPDATING",
+                offline: "OFFLINE"
+            }
+            return labels[this.statusPulseState] || labels.live
+        },
+        statusPulseDescription() {
+            const descriptions = {
+                live: "Runtime telemetry is streaming normally.",
+                updating: "Refreshing runtime health…",
+                offline: "Waiting for the next runtime heartbeat."
+            }
+            return descriptions[this.statusPulseState] || descriptions.live
+        },
+        statusPulseModifierClass() {
+            return `chip-live-indicator--${this.statusPulseState}`
+        },
+        statusPulseDotClass() {
+            return {
+                "chip-live-indicator__dot--live": this.statusPulseState === "live",
+                "chip-live-indicator__dot--updating": this.statusPulseState === "updating",
+                "chip-live-indicator__dot--offline": this.statusPulseState === "offline"
+            }
         }
     },
     watch: {
@@ -268,10 +346,7 @@ export default {
                     await api.completeInvite({ csrfToken, code, guildId })
                 } catch (error) {
                     // eslint-disable-next-line no-console
-                    console.error("Failed to finalize invite", error)
-                    this.setFlash("Unable to complete the invite. Try again later.", "warning")
-                    this.$router.replace({ path: "/control_panel" }).catch(() => {})
-                    return
+                    console.warn("Failed to finalize invite via API", error)
                 }
             }
 
@@ -284,7 +359,7 @@ export default {
             } else {
                 this.setFlash("Invite completed. Refresh the list to confirm active servers.")
             }
-            this.$router.replace({ path: "/control_panel" }).catch(() => {})
+            this.$router.replace({ name: "Home", query: { focus: "guilds" } }).catch(() => {})
         },
         async initialize() {
             this.errorMessage = null
@@ -364,9 +439,9 @@ export default {
         async loadActions() {
             if (!this.isAuthenticated) return
             try {
-                const response = await api.getAdminActions()
-                this.actions = response.actions || []
-                this.pushLog("info", `Remote actions available: ${this.actions.length}.`)
+                const actions = await fetchRemoteActions()
+                this.actions = actions
+                this.pushLog("info", `Remote actions available: ${actions.length}.`)
             } catch (error) {
                 // eslint-disable-next-line no-console
                 console.error("Failed to load remote actions", error)
@@ -399,6 +474,70 @@ export default {
                 this.pushLog("error", "Whitelist toggle failed.")
             } finally {
                 this.policySaving = false
+            }
+        },
+        async handleBlacklistToggle(enforceBlacklist) {
+            if (this.policySaving) return
+            if (!this.csrfToken) {
+                this.setFlash("Missing CSRF token. Reload the page and try again.", "warning")
+                return
+            }
+            this.policySaving = true
+            try {
+                await this.$store.dispatch("users/updatePolicy", {
+                    csrfToken: this.csrfToken,
+                    enforceBlacklist
+                })
+                const message = enforceBlacklist
+                    ? "Blacklist enforcement enabled. Listed IDs will be ignored."
+                    : "Blacklist enforcement disabled. Listed IDs can interact with Chipsy."
+                this.setFlash(message, "success")
+                this.pushLog("info", `Blacklist enforcement ${enforceBlacklist ? "enabled" : "disabled"}.`)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to update blacklist policy", error)
+                const message = error?.response?.data?.message || "Unable to update the blacklist setting."
+                this.setFlash(message, "warning")
+                this.pushLog("error", "Blacklist toggle failed.")
+            } finally {
+                this.policySaving = false
+            }
+        },
+        openAccessList(type) {
+            this.listModal = {
+                ...this.listModal,
+                open: true,
+                type,
+                loading: true,
+                error: null,
+                entries: []
+            }
+            this.fetchAccessList(type)
+        },
+        async fetchAccessList(type) {
+            try {
+                const response = await api.getAccessList({ type })
+                this.listModal = {
+                    ...this.listModal,
+                    loading: false,
+                    entries: Array.isArray(response?.entries) ? response.entries : [],
+                    type
+                }
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to load access list", error)
+                this.listModal = {
+                    ...this.listModal,
+                    loading: false,
+                    error: error?.response?.data?.message || "Unable to load the requested list."
+                }
+            }
+        },
+        closeAccessList() {
+            this.listModal = {
+                ...this.listModal,
+                open: false,
+                error: null
             }
         },
         async toggleBot(enabled) {
@@ -498,30 +637,67 @@ export default {
                 this.pushLog("warning", "User list refresh failed; showing cached data.")
             }
         },
-        async leaveGuild(id) {
+        async leaveGuild(guild) {
+            const csrfToken = this.$store.state.session.csrfToken
+            if (!csrfToken) {
+                this.setFlash("Missing authentication context. Refresh and retry.", "warning")
+                return
+            }
+
+            const guildId = typeof guild === "object" ? guild?.id : guild
+            if (!guildId) {
+                this.setFlash("Unable to resolve the guild id.", "warning")
+                return
+            }
+
+            const previousState = {
+                added: [...this.guilds.added],
+                available: [...this.guilds.available]
+            }
+            this.guilds = {
+                added: previousState.added.filter((entry) => entry.id !== guildId),
+                available: previousState.available
+            }
+
             try {
-                const csrfToken = this.$store.state.session.csrfToken
-                if (!csrfToken) {
-                    throw new Error("Missing authentication context")
-                }
-                await api.leaveGuild({ csrfToken, guildId: id })
+                await api.leaveGuild({ csrfToken, guildId })
                 await this.loadGuilds({ force: true })
             } catch (error) {
+                this.guilds = previousState
                 // eslint-disable-next-line no-console
                 console.error("Failed to leave guild", error)
-                this.errorMessage = "Unable to remove the bot from the selected server."
+                const message = error?.response?.data?.message || "Unable to remove the bot from the selected server."
+                this.setFlash(message, "warning")
+                this.errorMessage = message
             }
         },
         openUserDetails(id) {
             this.$router.push({ name: "UserDetail", params: { id } })
         },
-        handleActionSuccess(message) {
-            this.setFlash(message, "success")
-            this.pushLog("success", message)
+        normalizeActionPayload(payload) {
+            if (payload && typeof payload === "object") {
+                return {
+                    message: payload.message || "",
+                    actionId: payload.actionId || null,
+                    status: payload.status || null
+                }
+            }
+            const message = typeof payload === "string" ? payload : ""
+            return { message, actionId: null, status: null }
         },
-        handleActionError(message) {
+        handleActionSuccess(payload) {
+            const normalized = this.normalizeActionPayload(payload)
+            const message = normalized.message || "Action completed successfully."
+            this.setFlash(message, "success")
+            const logEntry = normalized.actionId ? `[${normalized.actionId}] ${message}` : message
+            this.pushLog("success", logEntry)
+        },
+        handleActionError(payload) {
+            const normalized = this.normalizeActionPayload(payload)
+            const message = normalized.message || "Unable to run that action."
             this.setFlash(message, "warning")
-            this.pushLog("error", message)
+            const logEntry = normalized.actionId ? `[${normalized.actionId}] ${message}` : message
+            this.pushLog("error", logEntry)
         },
         async handleKillRequest(payload) {
             const target = payload?.target || "bot"

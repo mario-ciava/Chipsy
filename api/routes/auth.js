@@ -485,24 +485,170 @@ const createAuthRouter = (dependencies) => {
         }
     })
 
-    const isManagedGuild = (guildId) => {
-        const cache = guildDirectory?.cache || client.guilds?.cache
-        return Boolean(cache?.get?.(guildId))
+    const resolveGuildCache = () => {
+        if (guildDirectory?.guilds?.cache) {
+            return guildDirectory.guilds.cache
+        }
+        if (guildDirectory?.cache) {
+            return guildDirectory.cache
+        }
+        return client?.guilds?.cache
     }
 
-    const buildGuildPayload = (guilds) => {
-        const safeGuilds = Array.isArray(guilds) ? guilds : []
-        const added = safeGuilds.filter((guild) => isManagedGuild(guild.id))
-        const available = safeGuilds.filter((guild) => {
+    const fallbackManagedGuildIds = () => {
+        const cache = resolveGuildCache()
+        if (!cache) {
+            return new Set()
+        }
+        const ids = []
+        if (typeof cache.keys === "function") {
+            for (const key of cache.keys()) {
+                ids.push(String(key))
+            }
+        } else if (Array.isArray(cache)) {
+            cache.forEach((guild) => {
+                if (guild?.id) {
+                    ids.push(String(guild.id))
+                }
+            })
+        }
+        return new Set(ids)
+    }
+
+    const normalizeToIdSet = (value) => {
+        if (!value) {
+            return new Set()
+        }
+        if (value instanceof Set) {
+            return new Set(Array.from(value).map((entry) => String(entry)))
+        }
+        if (Array.isArray(value)) {
+            return new Set(value.map((entry) => String(entry)))
+        }
+        if (value && typeof value === "object") {
+            if (Array.isArray(value.ids)) {
+                return new Set(value.ids.map((entry) => String(entry)))
+            }
+            if (Array.isArray(value.guilds)) {
+                return new Set(
+                    value.guilds
+                        .map((entry) => entry?.id)
+                        .filter(Boolean)
+                        .map((entry) => String(entry))
+                )
+            }
+        }
+        return new Set()
+    }
+
+    const resolveManagedGuildIds = async({ forceRefresh = false } = {}) => {
+        if (typeof guildDirectory?.getManagedGuildIds === "function") {
             try {
-                if (isManagedGuild(guild.id)) return false
+                const ids = await guildDirectory.getManagedGuildIds({ force: forceRefresh })
+                return {
+                    ids: normalizeToIdSet(ids),
+                    authoritative: true
+                }
+            } catch (error) {
+                client?.logger?.warn?.("Managed guild lookup failed", {
+                    scope: "auth",
+                    operation: "getManagedGuildIds",
+                    message: error.message
+                })
+            }
+        }
+        return {
+            ids: fallbackManagedGuildIds(),
+            authoritative: false
+        }
+    }
+
+    const normalizeGuildId = (guild) => {
+        if (!guild) return null
+        if (typeof guild === "string" || typeof guild === "number") {
+            const value = String(guild).trim()
+            return value.length > 0 ? value : null
+        }
+        if (guild.id === undefined || guild.id === null) {
+            return null
+        }
+        return String(guild.id)
+    }
+
+    const buildGuildPayload = async(guilds, { forceManagedRefresh = false } = {}) => {
+        const safeGuilds = Array.isArray(guilds) ? guilds : []
+        const { ids: resolvedManagedIds, authoritative } = await resolveManagedGuildIds({
+            forceRefresh: forceManagedRefresh
+        })
+        const fallbackIds = fallbackManagedGuildIds()
+        const knownManaged = new Set([
+            ...(resolvedManagedIds instanceof Set ? [...resolvedManagedIds] : []),
+            ...(fallbackIds instanceof Set ? [...fallbackIds] : [])
+        ])
+        const canProbeIndividually = typeof guildDirectory?.guilds?.fetch === "function"
+            || typeof client?.guilds?.fetch === "function"
+        const shouldProbe = !authoritative && canProbeIndividually
+
+        const added = []
+        const available = []
+
+        const hasManagePermission = (guild) => {
+            try {
                 const permissions = guild.permissions ?? "0"
                 const bitField = new PermissionsBitField(BigInt(permissions))
                 return bitField.has(PermissionFlagsBits.ManageGuild)
             } catch (error) {
                 return false
             }
-        })
+        }
+
+        const probeGuildPresence = async(guildId) => {
+            if (!shouldProbe || !guildId) {
+                return false
+            }
+            const fetcher = guildDirectory?.guilds?.fetch || client?.guilds?.fetch
+            if (typeof fetcher !== "function") {
+                return false
+            }
+            try {
+                const result = await fetcher(guildId)
+                if (result) {
+                    knownManaged.add(guildId)
+                    return true
+                }
+                return false
+            } catch (error) {
+                client?.logger?.debug?.("Guild probe failed", {
+                    scope: "auth",
+                    operation: "probeGuild",
+                    guildId,
+                    message: error.message
+                })
+                return false
+            }
+        }
+
+        for (const guild of safeGuilds) {
+            const id = normalizeGuildId(guild)
+            if (!id) {
+                continue
+            }
+            let isManaged = knownManaged.has(id)
+            if (!isManaged) {
+                const present = await probeGuildPresence(id)
+                if (present) {
+                    isManaged = true
+                }
+            }
+            if (isManaged) {
+                added.push(guild)
+                continue
+            }
+            if (hasManagePermission(guild)) {
+                available.push(guild)
+            }
+        }
+
         return {
             all: safeGuilds,
             added,
@@ -569,19 +715,21 @@ const createAuthRouter = (dependencies) => {
         }
 
         try {
-            const payload = await fetchGuildsLive(token, async() => {
-                const response = await discordApi.get("/users/@me/guilds", {
-                    headers: {
-                        Authorization: `Bearer ${token}`
-                    }
-                })
+                const payload = await fetchGuildsLive(token, async() => {
+                    const response = await discordApi.get("/users/@me/guilds", {
+                        headers: {
+                            Authorization: `Bearer ${token}`
+                        }
+                    })
 
-                const builtPayload = buildGuildPayload(response.data)
-                saveGuildCache(token, builtPayload)
-                guildsRateLimit.delete(token)
-                updateGuildFetchMeta(token, { lastLiveFetchAt: Date.now() })
+                    const builtPayload = await buildGuildPayload(response.data, {
+                        forceManagedRefresh: honoringForceRefresh
+                    })
+                    saveGuildCache(token, builtPayload)
+                    guildsRateLimit.delete(token)
+                    updateGuildFetchMeta(token, { lastLiveFetchAt: Date.now() })
 
-                return builtPayload
+                    return builtPayload
             })
 
             return respondWithGuilds(req, res, payload, { source: "live" })

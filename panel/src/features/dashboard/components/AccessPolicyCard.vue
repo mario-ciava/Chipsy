@@ -41,6 +41,24 @@
             </div>
             <div class="flex items-center justify-between gap-4">
                 <div class="flex flex-col">
+                    <span class="chip-status__label">Blacklist state</span>
+                    <span class="chip-field-hint">
+                        Block listed IDs from interacting with Chipsy.
+                    </span>
+                </div>
+                <ChipToggle
+                    class="w-40"
+                    :label="blacklistToggleLabel"
+                    :checked="displayBlacklistState"
+                    :busy="loading"
+                    :disabled="toggleDisabled"
+                    :tone="blacklistToggleTone"
+                    aria-label="Blacklist state toggle"
+                    @toggle="handleBlacklistToggle"
+                />
+            </div>
+            <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col">
                     <span class="chip-status__label">Invite quarantine</span>
                     <span class="chip-field-hint">
                         Auto-block unverified server invites.
@@ -62,10 +80,10 @@
                     <p class="chip-field-hint">Inspect the IDs enforced by the policy.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <button class="chip-btn chip-btn-secondary opacity-60" type="button" disabled>
+                    <button class="chip-btn chip-btn-secondary" type="button" @click="$emit('view-whitelist')">
                         Show whitelist
                     </button>
-                    <button class="chip-btn chip-btn-secondary opacity-60" type="button" disabled>
+                    <button class="chip-btn chip-btn-secondary" type="button" @click="$emit('view-blacklist')">
                         Show blacklist
                     </button>
                 </div>
@@ -84,7 +102,8 @@ export default {
     },
     data() {
         return {
-            optimisticState: null
+            optimisticState: null,
+            optimisticBlacklist: null
         }
     },
     props: {
@@ -105,12 +124,21 @@ export default {
         policy: {
             deep: true,
             handler(newPolicy) {
-                if (this.optimisticState === null) return
-                const enforced = typeof newPolicy?.enforceWhitelist === "boolean"
-                    ? newPolicy.enforceWhitelist
-                    : null
-                if (enforced !== null && enforced === this.optimisticState) {
-                    this.optimisticState = null
+                if (this.optimisticState !== null) {
+                    const enforced = typeof newPolicy?.enforceWhitelist === "boolean"
+                        ? newPolicy.enforceWhitelist
+                        : null
+                    if (enforced !== null && enforced === this.optimisticState) {
+                        this.optimisticState = null
+                    }
+                }
+                if (this.optimisticBlacklist !== null) {
+                    const blacklistState = typeof newPolicy?.enforceBlacklist === "boolean"
+                        ? newPolicy.enforceBlacklist
+                        : null
+                    if (blacklistState !== null && blacklistState === this.optimisticBlacklist) {
+                        this.optimisticBlacklist = null
+                    }
                 }
             }
         },
@@ -123,18 +151,36 @@ export default {
                     this.optimisticState = null
                 }
             }
+            if (!newVal && oldVal && this.optimisticBlacklist !== null) {
+                const blacklistState = typeof this.policy?.enforceBlacklist === "boolean"
+                    ? this.policy.enforceBlacklist
+                    : null
+                if (blacklistState !== this.optimisticBlacklist) {
+                    this.optimisticBlacklist = null
+                }
+            }
         }
     },
     computed: {
         isActive() {
             return Boolean(this.policy?.enforceWhitelist)
         },
+        isBlacklistActive() {
+            if (typeof this.policy?.enforceBlacklist === "boolean") {
+                return this.policy.enforceBlacklist
+            }
+            return true
+        },
         displayWhitelistState() {
             if (this.optimisticState !== null) return this.optimisticState
             return this.isActive
         },
+        displayBlacklistState() {
+            if (this.optimisticBlacklist !== null) return this.optimisticBlacklist
+            return this.isBlacklistActive
+        },
         policyInfo() {
-            return "Blacklist always blocks Chipsy. When whitelist is enforced, only admins and curated IDs get responses."
+            return "Blacklist blocks listed IDs when active. Whitelist restricts access to curated IDs (plus admins)."
         },
         toggleDisabled() {
             return this.loading || this.saving
@@ -146,6 +192,13 @@ export default {
             if (this.loading) return "warn"
             return this.displayWhitelistState ? "ok" : "danger"
         },
+        blacklistToggleLabel() {
+            return this.displayBlacklistState ? "Enabled" : "Disabled"
+        },
+        blacklistToggleTone() {
+            if (this.loading) return "warn"
+            return this.displayBlacklistState ? "danger" : "ok"
+        },
         secondaryToggleLabel() {
             return "Coming soon"
         }
@@ -156,6 +209,12 @@ export default {
             const targetState = typeof nextState === "boolean" ? nextState : !this.isActive
             this.optimisticState = targetState
             this.$emit("toggle", targetState)
+        },
+        handleBlacklistToggle(nextState) {
+            if (this.toggleDisabled) return
+            const targetState = typeof nextState === "boolean" ? nextState : !this.isBlacklistActive
+            this.optimisticBlacklist = targetState
+            this.$emit("toggle-blacklist", targetState)
         }
     }
 }

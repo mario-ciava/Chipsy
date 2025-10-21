@@ -304,6 +304,32 @@ const startInternalServer = ({
         res.json(result)
     }))
 
+    router.get("/discord/guilds", asyncHandler(async(req, res) => {
+        const entries = []
+        if (client?.guilds?.cache) {
+            if (typeof client.guilds.cache.forEach === "function") {
+                client.guilds.cache.forEach((guild) => {
+                    if (!guild?.id) return
+                    entries.push({
+                        id: guild.id,
+                        name: guild.name,
+                        icon: typeof guild.iconURL === "function" ? guild.iconURL({ extension: "png", size: 64 }) : null
+                    })
+                })
+            } else if (typeof client.guilds.cache.values === "function") {
+                for (const guild of client.guilds.cache.values()) {
+                    if (!guild?.id) continue
+                    entries.push({
+                        id: guild.id,
+                        name: guild.name,
+                        icon: typeof guild.iconURL === "function" ? guild.iconURL({ extension: "png", size: 64 }) : null
+                    })
+                }
+            }
+        }
+        res.json({ guilds: entries, ids: entries.map((entry) => entry.id) })
+    }))
+
     router.get("/discord/users/:id", asyncHandler(async(req, res) => {
         const userId = req.params.id
         if (!userId) {

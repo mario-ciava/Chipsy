@@ -1,5 +1,5 @@
 <template>
-    <div class="chip-shell">
+    <div class="chip-shell" :class="{ 'chip-shell--login-celebration': loginCelebration }">
         <header class="chip-shell__nav">
             <router-link to="/" class="chip-shell__brand">
                 <div class="flex items-center gap-3">
@@ -50,7 +50,7 @@
 
         <main class="chip-section flex-1">
             <router-view v-slot="{ Component, route }">
-                <transition :name="route.meta.transition || 'fade'" mode="out-in">
+                <transition :name="route.meta.transition || 'chip-view'" mode="out-in">
                     <component :is="Component" :key="route.path" />
                 </transition>
             </router-view>
@@ -71,6 +71,7 @@
 <script>
 import { mapGetters } from "vuex"
 import ChipsyAvatar from "./assets/img/chipsy.png"
+import { rememberPostLoginRoute } from "./utils/runtime"
 
 const DEFAULT_BRAND_INITIAL = "C"
 const DEFAULT_BRAND_AVATAR = ChipsyAvatar
@@ -84,7 +85,8 @@ export default {
                 visible: false,
                 timeoutId: null
             },
-            navLoginRedirecting: false
+            navLoginRedirecting: false,
+            loginCelebration: false
         }
     },
     computed: {
@@ -115,9 +117,17 @@ export default {
             this.toast.timeoutId = null
         }
     },
+    watch: {
+        isAuthenticated(newValue, oldValue) {
+            if (newValue && !oldValue) {
+                this.triggerLoginCelebration()
+            }
+        }
+    },
     methods: {
         handleNavLogin() {
             if (this.navLoginRedirecting) return
+            rememberPostLoginRoute(this.$route.fullPath || "/")
             this.navLoginRedirecting = true
             this.$router
                 .push({ name: "Login" })
@@ -131,6 +141,7 @@ export default {
 
             const currentRoute = this.$route.path
             if (currentRoute !== "/login" && currentRoute !== "/") {
+                rememberPostLoginRoute(this.$route.fullPath || currentRoute)
                 this.$router.push({
                     name: "Login",
                     query: { expired: "true", redirect: currentRoute }
@@ -150,6 +161,12 @@ export default {
                 this.toast.visible = false
                 this.toast.timeoutId = null
             }, 2200)
+        },
+        triggerLoginCelebration() {
+            this.loginCelebration = true
+            setTimeout(() => {
+                this.loginCelebration = false
+            }, 900)
         }
     }
 }

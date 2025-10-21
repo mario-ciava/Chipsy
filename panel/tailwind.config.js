@@ -67,6 +67,11 @@ module.exports = {
                     warning: uiTheme.colors.warning,
                     danger: uiTheme.colors.danger
                 },
+                status: {
+                    live: uiTheme.colors.statusLive || uiTheme.colors.success,
+                    updating: uiTheme.colors.statusUpdating || uiTheme.colors.warning,
+                    offline: uiTheme.colors.statusOffline || uiTheme.colors.danger
+                },
                 roleBadge: roleBadgeColors
             },
             fontFamily: {

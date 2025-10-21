@@ -106,7 +106,8 @@ router.beforeEach(async(to, from, next) => {
     }
 
     if (to.matched.some((route) => route.meta && route.meta.requiresVisitor) && isAuthenticated) {
-        return next({ name: "ControlPanel" })
+        const fallback = to.query.redirect || "/"
+        return next(fallback)
     }
 
     if (to.matched.some((route) => route.meta && route.meta.requiresPanel) && !hasPanelAccess) {

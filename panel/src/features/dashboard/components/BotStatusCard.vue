@@ -1,10 +1,6 @@
 <template>
-    <div class="chip-card chip-card--status" :class="cardStateClass">
-        <div
-            v-if="isUpdating"
-            class="pointer-events-none absolute inset-0 bg-gradient-to-r from-amber-500/10 via-transparent to-rose-500/15 animate-chip-shimmer"
-        ></div>
-        <div class="relative z-10 chip-stack">
+    <div class="chip-card chip-card--status">
+        <div class="chip-stack">
             <div class="chip-card__header">
                 <div class="chip-stack">
                     <div class="flex items-center gap-2">
@@ -29,14 +25,13 @@
                 <div class="flex items-center justify-between gap-4">
                     <div class="flex flex-col">
                         <span class="chip-status__label">Bot process</span>
-                        <span class="chip-field-hint">Pause or resume runtime responses.</span>
+                        <span class="chip-field-hint">{{ toggleHint }}</span>
                     </div>
                     <ChipToggle
                         class="w-40"
                         :label="statusLabel"
                         :checked="displayStatusEnabled"
                         :visual-on="displayStatusEnabled"
-                        :busy="isUpdating"
                         :disabled="processToggleDisabled"
                         :tone="statusToggleTone"
                         aria-label="Bot process toggle"
@@ -121,24 +116,11 @@ export default {
     },
     data() {
         return {
-            forceUpdating: false,
-            updatingTimeout: null,
             optimisticStatus: null
         }
     },
     watch: {
         loading(newVal, oldVal) {
-            // When loading flips on, force an "Updating" badge for 5s.
-            if (newVal && !oldVal) {
-                this.forceUpdating = true
-                if (this.updatingTimeout) {
-                    clearTimeout(this.updatingTimeout)
-                }
-                this.updatingTimeout = setTimeout(() => {
-                    this.forceUpdating = false
-                    this.updatingTimeout = null
-                }, 5000)
-            }
             if (!newVal && oldVal && this.optimisticStatus !== null) {
                 if (!this.statusAvailable || this.status.enabled !== this.optimisticStatus) {
                     this.optimisticStatus = null
@@ -150,11 +132,6 @@ export default {
             if (typeof value === "boolean" && value === this.optimisticStatus) {
                 this.optimisticStatus = null
             }
-        }
-    },
-    beforeDestroy() {
-        if (this.updatingTimeout) {
-            clearTimeout(this.updatingTimeout)
         }
     },
     computed: {
@@ -170,17 +147,11 @@ export default {
             }
             return false
         },
-        isUpdating() {
-            return this.loading || this.forceUpdating || !this.statusAvailable
-        },
         statusLabel() {
             if (!this.statusAvailable && this.optimisticStatus === null) {
                 return "Loading…"
             }
             return this.displayStatusEnabled ? "Online" : "Offline"
-        },
-        cardStateClass() {
-            return this.isUpdating ? "ring-1 ring-amber-400/30" : ""
         },
         mysqlStatus() {
             const health = this.status && this.status.health
@@ -196,9 +167,9 @@ export default {
         },
         latencyMetrics() {
             const ready = this.metricsReady
-            const latencyValue = ready && typeof this.status.latency === "number"
-                ? Math.round(this.status.latency)
-                : null
+            const hasLatency = ready && typeof this.status.latency === "number"
+            const normalizedLatency = hasLatency ? Math.round(this.status.latency) : null
+            const latencyValue = normalizedLatency !== null && normalizedLatency >= 0 ? normalizedLatency : null
             return [
                 {
                     key: "latency",
@@ -223,21 +194,38 @@ export default {
             return this.mysqlStatus ? "Online" : "Offline"
         },
         statusToggleTone() {
-            if (this.isUpdating) return "warn"
             return this.displayStatusEnabled ? "ok" : "danger"
         },
         mysqlToggleTone() {
             if (!this.metricsReady) return ""
             return this.mysqlStatus ? "ok" : "danger"
         },
+        remainingCooldownSeconds() {
+            if (!this.cooldownActive) return 0
+            if (!Number.isFinite(this.cooldownRemaining)) return 0
+            return Math.max(0, Math.ceil(this.cooldownRemaining / 1000))
+        },
+        isToggleGuarded() {
+            return this.loading || this.cooldownActive
+        },
+        toggleHint() {
+            if (this.cooldownActive) {
+                return this.remainingCooldownSeconds > 0
+                    ? `Cooldown in progress (${this.remainingCooldownSeconds}s).`
+                    : "Cooldown in progress."
+            }
+            if (this.loading) {
+                return "Synchronizing runtime posture."
+            }
+            return "Pause or resume runtime responses."
+        },
         processToggleDisabled() {
-            if (this.loading || !this.statusAvailable) return true
-            return this.cooldownActive
+            return !this.statusAvailable
         }
     },
     methods: {
         handleProcessToggle(nextState) {
-            if (this.processToggleDisabled) return
+            if (this.processToggleDisabled || this.isToggleGuarded) return
             const targetState =
                 typeof nextState === "boolean" ? nextState : !this.displayStatusEnabled
             this.optimisticStatus = targetState

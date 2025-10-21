@@ -10,7 +10,7 @@
         @click="handleClick"
     >
         <span class="chip-toggle__track">
-            <span class="chip-toggle__status" :class="toneClass">
+            <span class="chip-toggle__status" :class="[toneClass, stateToneClass]" :style="stateColorStyle">
                 <slot>{{ label }}</slot>
             </span>
             <span class="chip-toggle__thumb"></span>
@@ -79,10 +79,23 @@ export default {
             if (!this.tone) return ""
             const toneMap = {
                 ok: "chip-toggle__status--ok",
-                warn: "chip-toggle__status--warn",
+                warn: "chip-toggle__status--danger",
                 danger: "chip-toggle__status--danger"
             }
             return toneMap[this.tone] || ""
+        },
+        stateToneClass() {
+            return this.isOn ? "chip-toggle__status--enabled" : "chip-toggle__status--disabled"
+        },
+        stateColorStyle() {
+            const label = (this.label || "").toLowerCase()
+            if (label === "enabled") {
+                return { color: "#86efac" }
+            }
+            if (label === "disabled") {
+                return { color: "#fca5a5" }
+            }
+            return {}
         },
         resolvedAriaLabel() {
             return this.ariaLabel || this.label

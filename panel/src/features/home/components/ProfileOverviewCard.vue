@@ -1,5 +1,5 @@
 <template>
-    <article class="chip-card chip-stack relative overflow-hidden">
+    <article class="chip-card chip-stack relative overflow-visible">
         <header class="chip-card__header flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-start">
             <div class="chip-stack">
                 <div class="flex items-center gap-2">

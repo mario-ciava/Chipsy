@@ -13,7 +13,10 @@ const uiTheme = Object.freeze({
         highlight: "#6366f1",
         success: "#34d399",
         warning: "#fbbf24",
-        danger: "#f87171"
+        danger: "#f87171",
+        statusLive: "#4ade80",
+        statusUpdating: "#facc15",
+        statusOffline: "#fb7185"
     },
     fonts: {
         sans: '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',

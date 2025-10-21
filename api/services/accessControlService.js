@@ -38,6 +38,7 @@ const buildPermissionMatrix = (role) => {
 
 const POLICY_DEFAULT = Object.freeze({
     enforceWhitelist: false,
+    enforceBlacklist: true,
     updatedAt: null
 })
 
@@ -72,7 +73,7 @@ const createAccessControlService = ({
 
     const ensurePolicyRow = async() => {
         await runQuery(
-            "INSERT IGNORE INTO `access_policies` (`id`, `enforce_whitelist`) VALUES (?, 0)",
+            "INSERT IGNORE INTO `access_policies` (`id`, `enforce_whitelist`, `enforce_blacklist`) VALUES (?, 0, 1)",
             [POLICY_ROW_ID],
             { operation: "ensurePolicyRow" }
         )
@@ -106,6 +107,9 @@ const createAccessControlService = ({
         if (!row) return { ...POLICY_DEFAULT }
         return {
             enforceWhitelist: Boolean(row.enforce_whitelist),
+            enforceBlacklist: row.enforce_blacklist === undefined
+                ? POLICY_DEFAULT.enforceBlacklist
+                : Boolean(row.enforce_blacklist),
             updatedAt: row.updated_at || null
         }
     }
@@ -293,19 +297,34 @@ const createAccessControlService = ({
         const effectiveRole = await resolveActorRole(actorId, actorRole)
         ensureListPermissions(effectiveRole, targetId)
 
+        let targetRecord = await getAccessRecord(targetId)
+        await ensureUserRow(targetId, targetRecord?.role)
+        targetRecord = targetRecord || (await getAccessRecord(targetId))
+
+        const targetRole = normalizeRole(targetRecord?.role)
+        const isPrivilegedTarget = [ROLES.MASTER, ROLES.ADMIN, ROLES.MODERATOR].includes(targetRole)
+
+        if (isBlacklisted === true && (targetId === ownerId || isPrivilegedTarget)) {
+            throw Object.assign(new Error("Privileged users cannot be blacklisted."), { status: 400 })
+        }
+
         const updates = {}
         if (typeof isBlacklisted === "boolean") {
             updates.is_blacklisted = isBlacklisted ? 1 : 0
+            if (isBlacklisted) {
+                updates.is_whitelisted = 0
+            }
         }
         if (typeof isWhitelisted === "boolean") {
             updates.is_whitelisted = isWhitelisted ? 1 : 0
+            if (isWhitelisted) {
+                updates.is_blacklisted = 0
+            }
         }
 
         if (!Object.keys(updates).length) {
             return getAccessRecord(targetId)
         }
-
-        await ensureUserRow(targetId)
 
         const setClause = Object.keys(updates)
             .map((column) => `\`${column}\` = ?`)
@@ -343,17 +362,48 @@ const createAccessControlService = ({
         return policy
     }
 
-    const setWhitelistEnforcement = async(enforceWhitelist) => {
-        const normalized = enforceWhitelist ? 1 : 0
+    const setAccessPolicy = async({ enforceWhitelist, enforceBlacklist }) => {
+        const updates = {}
+        if (typeof enforceWhitelist === "boolean") {
+            updates.enforce_whitelist = enforceWhitelist ? 1 : 0
+        }
+        if (typeof enforceBlacklist === "boolean") {
+            updates.enforce_blacklist = enforceBlacklist ? 1 : 0
+        }
+        if (!Object.keys(updates).length) {
+            throw new Error("No policy updates specified.")
+        }
         await ensurePolicyRow()
+        const setClause = Object.keys(updates)
+            .map((column) => `\`${column}\` = ?`)
+            .join(", ")
+        const values = [...Object.values(updates), POLICY_ROW_ID]
         await runQuery(
-            "UPDATE `access_policies` SET `enforce_whitelist` = ? WHERE `id` = ?",
-            [normalized, POLICY_ROW_ID],
-            { operation: "setWhitelistEnforcement" }
+            `UPDATE \`access_policies\` SET ${setClause} WHERE \`id\` = ?`,
+            values,
+            { operation: "setAccessPolicy" }
         )
         cachedPolicy = null
         cachedPolicyExpiry = 0
         return getAccessPolicy({ forceRefresh: true })
+    }
+
+    const setWhitelistEnforcement = async(enforceWhitelist) => setAccessPolicy({ enforceWhitelist })
+
+    const setBlacklistEnforcement = async(enforceBlacklist) => setAccessPolicy({ enforceBlacklist })
+
+    const listAccessEntries = async({ list }) => {
+        const normalized = typeof list === "string" ? list.trim().toLowerCase() : ""
+        const column = normalized === "whitelist" ? "is_whitelisted" : normalized === "blacklist" ? "is_blacklisted" : null
+        if (!column) {
+            throw new Error("Invalid list requested.")
+        }
+        const rows = await runQuery(
+            `SELECT * FROM \`user_access\` WHERE \`${column}\` = 1 ORDER BY \`updated_at\` DESC`,
+            [],
+            { operation: "listAccessEntries" }
+        )
+        return rows.map((row) => mapRowToRecord(row)).filter(Boolean)
     }
 
     const evaluateBotAccess = async(userId) => {
@@ -361,7 +411,7 @@ const createAccessControlService = ({
         const policy = await getAccessPolicy()
         const permissions = buildPermissionMatrix(record?.role)
 
-        if (record?.isBlacklisted && record.userId !== ownerId) {
+        if (policy.enforceBlacklist && record?.isBlacklisted && record.userId !== ownerId) {
             return {
                 allowed: false,
                 reason: "blacklisted",
@@ -399,6 +449,9 @@ const createAccessControlService = ({
         ensureMasterRecord,
         getAccessPolicy,
         setWhitelistEnforcement,
+        setBlacklistEnforcement,
+        setAccessPolicy,
+        listAccessEntries,
         evaluateBotAccess
     }
 }

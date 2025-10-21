@@ -186,16 +186,27 @@ module.exports = async(pool) => {
                 `CREATE TABLE \`access_policies\` (
                     \`id\` TINYINT UNSIGNED NOT NULL DEFAULT 1,
                     \`enforce_whitelist\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+                    \`enforce_blacklist\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
                     \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     PRIMARY KEY (\`id\`)
                 )`
             )
             info("access_policies table created", { scope: "mysql" })
+        } else {
+            try {
+                const [columns] = await connection.query("SHOW COLUMNS FROM `access_policies` LIKE 'enforce_blacklist'")
+                if (!columns || columns.length === 0) {
+                    await connection.query("ALTER TABLE `access_policies` ADD COLUMN `enforce_blacklist` TINYINT(1) UNSIGNED NOT NULL DEFAULT 1 AFTER `enforce_whitelist`")
+                    info("Added enforce_blacklist column to access_policies table", { scope: "mysql" })
+                }
+            } catch (error) {
+                info("enforce_blacklist column already exists or failed to add", { scope: "mysql" })
+            }
         }
 
         await connection.query(
-            `INSERT IGNORE INTO \`access_policies\` (\`id\`, \`enforce_whitelist\`)
-            VALUES (1, 0)`
+            `INSERT IGNORE INTO \`access_policies\` (\`id\`, \`enforce_whitelist\`, \`enforce_blacklist\`)
+            VALUES (1, 0, 1)`
         )
         info("Ensured default access policy row exists", { scope: "mysql" })
     } finally {

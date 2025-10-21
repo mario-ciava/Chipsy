@@ -191,17 +191,34 @@ const api = {
         return response.data
     },
 
-    async updateAccessPolicy({ csrfToken, enforceWhitelist }) {
-        if (typeof enforceWhitelist !== "boolean") {
-            throw new Error("Missing enforceWhitelist flag")
+    async updateAccessPolicy({ csrfToken, enforceWhitelist, enforceBlacklist }) {
+        if (typeof enforceWhitelist !== "boolean" && typeof enforceBlacklist !== "boolean") {
+            throw new Error("Missing policy updates")
+        }
+        const payload = {}
+        if (typeof enforceWhitelist === "boolean") {
+            payload.enforceWhitelist = enforceWhitelist
+        }
+        if (typeof enforceBlacklist === "boolean") {
+            payload.enforceBlacklist = enforceBlacklist
         }
         const response = await http.patch(
             "/users/policy",
-            { enforceWhitelist },
+            payload,
             {
                 headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
             }
         )
+        return response.data
+    },
+
+    async getAccessList({ type }) {
+        if (!type) {
+            throw new Error("Missing list type")
+        }
+        const response = await http.get("/users/lists", {
+            params: { type }
+        })
         return response.data
     },
 
@@ -244,11 +261,14 @@ const api = {
     },
 
     async leaveGuild({ csrfToken, guildId }) {
+        if (!guildId) {
+            throw new Error("Missing guild id")
+        }
         const response = await http.post(
             "/admin/guild/leave",
             { id: guildId },
             {
-                headers: withCsrf(csrfToken)
+                headers: withCsrf(csrfToken, { "Content-Type": "application/json" })
             }
         )
         return response.data
@@ -256,7 +276,7 @@ const api = {
 
     async completeInvite({ csrfToken, code, guildId }) {
         const response = await http.post(
-            "/admin/guild/invite/complete",
+            "/admin/invite/complete",
             { code, guildId },
             {
                 headers: withCsrf(csrfToken)

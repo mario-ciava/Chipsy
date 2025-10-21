@@ -14,6 +14,9 @@
         --chip-glow-violet: radial-gradient(circle at 25% 10%, rgba(99, 102, 241, 0.28), transparent 55%);
         --chip-glow-fuchsia: radial-gradient(circle at 80% 0%, rgba(236, 72, 153, 0.22), transparent 65%);
         --chip-shell-gradient: linear-gradient(135deg, #0f172a 0%, #111827 40%, #10162a 100%);
+        --chip-status-live: theme("colors.status.live");
+        --chip-status-updating: theme("colors.status.updating");
+        --chip-status-offline: theme("colors.status.offline");
         --chip-role-master-start: theme("colors.roleBadge.masterStart");
         --chip-role-master-end: theme("colors.roleBadge.masterEnd");
         --chip-role-master-text: theme("colors.roleBadge.masterText");
@@ -65,7 +68,14 @@
 
 @layer components {
     .chip-shell {
-        @apply relative mx-auto flex min-h-screen w-full max-w-shell flex-col gap-8 px-4 pb-12 pt-6 text-chip-primary sm:px-6 lg:px-8;
+        @apply relative mx-auto flex min-h-screen w-full max-w-shell flex-col gap-8 overflow-visible px-4 pb-12 pt-6 text-chip-primary sm:px-6 lg:px-8;
+        perspective: 2200px;
+    }
+
+    .chip-shell--login-celebration::after {
+        content: "";
+        @apply pointer-events-none absolute inset-0 rounded-[32px] bg-gradient-to-r from-violet-500/20 via-transparent to-indigo-500/20;
+        animation: chipShellPulse 900ms ease-out forwards;
     }
 
     .chip-shell__nav {
@@ -98,7 +108,7 @@
     }
 
     .chip-card--status {
-        @apply overflow-hidden;
+        @apply overflow-visible;
     }
 
     .chip-card--accent,
@@ -429,6 +439,8 @@
 
     .chip-scroll-hint {
         @apply pointer-events-none absolute inset-x-0 bottom-0 flex w-full items-center justify-center bg-gradient-to-t from-slate-950/70 via-slate-950/0 to-transparent pb-2 pt-6 text-white/70;
+        border-bottom-left-radius: inherit;
+        border-bottom-right-radius: inherit;
     }
 
     .chip-scroll-dot {
@@ -804,8 +816,8 @@
         position: absolute;
         bottom: calc(100% + 0.35rem);
         left: 50%;
-        transform: translate(-50%, 6px);
-        @apply min-w-[120px] max-w-[220px] rounded-2xl border border-white/20 bg-slate-950/90 px-3 py-2 text-[0.65rem] font-semibold text-white opacity-0 shadow-chip-soft transition;
+        transform: translate3d(-50%, 6px, 0);
+        @apply min-w-[120px] max-w-[220px] rounded-2xl border border-white/20 bg-slate-950/90 px-3 py-2 text-[0.65rem] font-semibold text-white opacity-0 shadow-chip-soft transition z-50;
         pointer-events: none;
         white-space: normal;
     }
@@ -814,6 +826,73 @@
     .chip-info-dot:hover::before {
         opacity: 1;
         transform: translate(-50%, 0);
+    }
+
+    @keyframes chipStatusPulse {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        50% {
+            transform: scale(1.25);
+            opacity: 0.65;
+        }
+
+        100% {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    .chip-live-indicator {
+        @apply absolute bottom-6 right-6 z-10 flex items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-slate-200;
+        pointer-events: none;
+    }
+
+    .chip-live-indicator--live {
+        color: var(--chip-status-live);
+    }
+
+    .chip-live-indicator--updating {
+        color: var(--chip-status-updating);
+    }
+
+    .chip-live-indicator--offline {
+        color: var(--chip-status-offline);
+    }
+
+    .chip-live-indicator__dot {
+        @apply h-2.5 w-2.5 rounded-full border border-white/20;
+    }
+
+    .chip-live-indicator__dot--live {
+        background-color: var(--chip-status-live);
+        box-shadow: 0 0 12px rgba(74, 222, 128, 0.65);
+        animation: chipStatusPulse 1.6s ease-in-out infinite;
+    }
+
+    .chip-live-indicator__dot--updating {
+        background-color: var(--chip-status-updating);
+        box-shadow: 0 0 12px rgba(250, 204, 21, 0.6);
+        animation: chipStatusPulse 1.1s ease-in-out infinite;
+    }
+
+    .chip-live-indicator__dot--offline {
+        background-color: var(--chip-status-offline);
+        box-shadow: 0 0 12px rgba(251, 113, 133, 0.4);
+    }
+
+    .chip-live-indicator__label {
+        @apply text-[0.65rem] uppercase tracking-[0.35em];
+        letter-spacing: 0.35em;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .chip-live-indicator__dot--live,
+        .chip-live-indicator__dot--updating {
+            animation: none;
+        }
     }
 
     .chip-toggle,
@@ -898,6 +977,14 @@
         padding-right: 0.35rem;
     }
 
+    .chip-toggle__status--enabled {
+        @apply text-emerald-300;
+    }
+
+    .chip-toggle__status--disabled {
+        @apply text-rose-300;
+    }
+
     .chip-toggle--on .chip-toggle__status {
         padding-left: 0.35rem;
         padding-right: calc(var(--chip-toggle-thumb-offset) + 0.35rem);
@@ -914,6 +1001,24 @@
     .chip-toggle__status--danger {
         @apply text-rose-200;
     }
+}
+
+.chip-view-enter-active,
+.chip-view-leave-active {
+    transition:
+        opacity 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    transform-origin: 50% 20%;
+}
+
+.chip-view-enter-from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0) scale(0.975) rotateX(8deg);
+}
+
+.chip-view-leave-to {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0) scale(0.985) rotateX(-6deg);
 }
 
 .fade-enter-active,
@@ -956,6 +1061,21 @@
 
 .log-entry-enter-from {
     @apply translate-y-1 opacity-0;
+}
+
+@keyframes chipShellPulse {
+    0% {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    45% {
+        opacity: 1;
+        transform: scale(1.02);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1.05);
+    }
 }
 
 .log-entry-leave-to {

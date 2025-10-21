@@ -146,6 +146,10 @@ class InternalBotClient {
         return this.request(`/discord/guilds/${guildId}`)
     }
 
+    listGuilds() {
+        return this.request("/discord/guilds")
+    }
+
     getDiscordHealth() {
         return this.request("/health/discord")
     }
