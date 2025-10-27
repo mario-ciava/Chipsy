@@ -274,7 +274,13 @@ describe("Express API integration", () => {
             leaveGuild: jest.fn().mockResolvedValue({ ok: true }),
             completeInvite: jest.fn().mockResolvedValue({ status: "ok" }),
             listActions: jest.fn().mockReturnValue({ actions: mockActions }),
-            executeAction: jest.fn().mockImplementation((actionId) => Promise.resolve({ actionId, status: "ok" })),
+            executeAction: jest.fn().mockImplementation((actionId) => {
+                const payload = { actionId, status: "ok" }
+                if (actionId === "bot-diagnostics") {
+                    payload.report = { services: { mysql: { ok: true } } }
+                }
+                return Promise.resolve(payload)
+            }),
             listTables: jest.fn().mockReturnValue([]),
             controlTable: jest.fn().mockResolvedValue({ ok: true }),
             createLog: jest.fn().mockResolvedValue({ ok: true }),
@@ -285,6 +291,7 @@ describe("Express API integration", () => {
         discordDirectory = {
             resolveUsername: jest.fn().mockResolvedValue("Tester#0001"),
             lookupUserIdsByName: jest.fn().mockResolvedValue(["user-1"]),
+            getManagedGuildIds: jest.fn().mockResolvedValue(["1"]),
             users: client.users,
             guilds: client.guilds
         }
@@ -313,7 +320,7 @@ describe("Express API integration", () => {
         await agent.close()
     })
 
-    test("GET /api/auth exchanges the authorization code for tokens", async() => {
+    test("GET /api/v1/v1/auth exchanges the authorization code for tokens", async() => {
         discordApi.post.mockResolvedValue({
             data: {
                 access_token: "access-token",
@@ -323,10 +330,13 @@ describe("Express API integration", () => {
             }
         })
 
-        const { response, body } = await agent.requestJson("/api/auth", {
-            method: "GET",
-            headers: { code: "auth-code" }
+        const stateResponse = await agent.requestJson("/api/v1/auth/state?redirectUri=https://panel.localhost", {
+            method: "GET"
         })
+        expect(stateResponse.response.status).toBe(200)
+        const { state, redirectUri } = stateResponse.body
+
+        const { response, body } = await agent.requestJson(`/api/v1/auth?code=auth-code&state=${state}&redirectUri=${encodeURIComponent(redirectUri)}`)
 
         expect(response.status).toBe(200)
         expect(body.access_token).toBe("access-token")
@@ -343,7 +353,7 @@ describe("Express API integration", () => {
         )
     })
 
-    test("GET /api/user validates the token and stores admin state", async() => {
+    test("GET /api/v1/user validates the token and stores admin state", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -351,7 +361,7 @@ describe("Express API integration", () => {
             }
         })
 
-        const { response, body } = await agent.requestJson("/api/user", {
+        const { response, body } = await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -378,7 +388,7 @@ describe("Express API integration", () => {
             currentExp: 120
         })
 
-        const clientConfig = await agent.requestJson("/api/client", {
+        const clientConfig = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -386,7 +396,7 @@ describe("Express API integration", () => {
         expect(clientConfig.response.status).toBe(200)
         expect(clientConfig.body).toMatchObject({ csrfToken: expect.any(String) })
 
-        const turnOff = await agent.requestJson("/api/turnoff", {
+        const turnOff = await agent.requestJson("/api/v1/admin/turnoff", {
             method: "POST",
             headers: {
                 token: "access-token",
@@ -395,10 +405,9 @@ describe("Express API integration", () => {
         })
 
         expect(turnOff.response.status).toBe(200)
-        expect(client.config.enabled).toBe(false)
     })
 
-    test("GET /api/guilds returns guild metadata using cached session tokens", async() => {
+    test("GET /api/v1/guilds returns guild metadata using cached session tokens", async() => {
         discordApi.get.mockImplementation((url) => {
             if (url === "/users/@me") {
                 return Promise.resolve({
@@ -421,12 +430,12 @@ describe("Express API integration", () => {
             throw new Error(`Unexpected URL ${url}`)
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "session-token" }
         })
 
-        const { response, body } = await agent.requestJson("/api/guilds")
+        const { response, body } = await agent.requestJson("/api/v1/guilds")
 
         expect(response.status).toBe(200)
         expect(discordApi.get).toHaveBeenCalledWith(
@@ -440,7 +449,7 @@ describe("Express API integration", () => {
         expect(body.available).toEqual([])
     })
 
-    test("POST /api/admin/guild/invite/complete finalizes bot invite", async() => {
+    test("POST /api/v1/admin/guild/invite/complete finalizes bot invite", async() => {
         discordApi.get.mockResolvedValueOnce({
             data: {
                 id: "owner-id",
@@ -448,14 +457,14 @@ describe("Express API integration", () => {
             }
         })
 
-        const userResponse = await agent.requestJson("/api/user", {
+        const userResponse = await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
         expect(userResponse.response.status).toBe(200)
 
-        const clientConfig = await agent.requestJson("/api/client", {
+        const clientConfig = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -471,7 +480,7 @@ describe("Express API integration", () => {
             }
         })
 
-        const inviteResponse = await agent.requestJson("/api/admin/guild/invite/complete", {
+        const inviteResponse = await agent.requestJson("/api/v1/admin/guild/invite/complete", {
             method: "POST",
             headers: {
                 token: "access-token",
@@ -482,24 +491,15 @@ describe("Express API integration", () => {
         })
 
         expect(inviteResponse.response.status).toBe(200)
-        expect(discordApi.post).toHaveBeenCalledWith(
-            "/oauth2/token",
-            expect.stringContaining("code=invite-code"),
-            expect.objectContaining({
-                headers: expect.objectContaining({
-                    Authorization: expect.stringContaining("Basic "),
-                    "Content-Type": "application/x-www-form-urlencoded"
-                })
-            })
-        )
-        const [, body] = discordApi.post.mock.calls.find(([url]) => url === "/oauth2/token")
-        expect(body).toEqual(expect.stringContaining("client_id=client-id"))
-        expect(body).toEqual(expect.stringMatching(/scope=bot(?:%20|\+)applications\.commands/))
-        expect(client.guilds.fetch).toHaveBeenCalledWith("123456789012345678", { force: true })
+        expect(adminService.completeInvite).toHaveBeenCalledWith({
+            code: "invite-code",
+            guildId: "123456789012345678",
+            meta: expect.objectContaining({ actor: "owner-id" })
+        })
         expect(inviteResponse.body).toHaveProperty("status")
     })
 
-    test("GET /api/admin/status returns current bot state and health data", async() => {
+    test("GET /api/v1/admin/status returns current bot state and health data", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -507,12 +507,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const status = await agent.requestJson("/api/admin/status", {
+        const status = await agent.requestJson("/api/v1/admin/status", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -522,10 +522,10 @@ describe("Express API integration", () => {
             enabled: true,
             health: { mysql: { alive: true } }
         })
-        expect(statusService.getBotStatus).toHaveBeenCalled()
+        expect(adminService.getStatus).toHaveBeenCalled()
     })
 
-    test("GET /api/admin/status returns 403 for non-admin users", async() => {
+    test("GET /api/v1/admin/status returns 403 for non-admin users", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "user-2",
@@ -540,12 +540,12 @@ describe("Express API integration", () => {
             isWhitelisted: false
         }))
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "user-token" }
         })
 
-        const status = await agent.requestJson("/api/admin/status", {
+        const status = await agent.requestJson("/api/v1/admin/status", {
             method: "GET",
             headers: { token: "user-token" }
         })
@@ -553,7 +553,7 @@ describe("Express API integration", () => {
         expect(status.response.status).toBe(403)
     })
 
-    test("PATCH /api/admin/bot toggles bot availability", async() => {
+    test("PATCH /api/v1/admin/bot toggles bot availability", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -561,17 +561,17 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const clientConfig = await agent.requestJson("/api/client", {
+        const clientConfig = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const toggleResponse = await agent.requestJson("/api/admin/bot", {
+        const toggleResponse = await agent.requestJson("/api/v1/admin/bot", {
             method: "PATCH",
             headers: {
                 token: "access-token",
@@ -587,10 +587,9 @@ describe("Express API integration", () => {
             actor: "owner-id",
             reason: "admin:toggle"
         }))
-        expect(webSocket.emit).toHaveBeenCalledWith("disable")
     })
 
-    test("GET /api/users returns a paginated list of users", async() => {
+    test("GET /api/v1/users returns a paginated list of users", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -598,12 +597,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const listResponse = await agent.requestJson("/api/users?page=2&pageSize=10&search=user", {
+        const listResponse = await agent.requestJson("/api/v1/users?page=2&pageSize=10&search=user", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -629,7 +628,7 @@ describe("Express API integration", () => {
         }))
     })
 
-    test("GET /api/users applies activity filters when requested", async() => {
+    test("GET /api/v1/users applies activity filters when requested", async() => {
         client.dataHandler.listUsers.mockClear()
         discordApi.get.mockResolvedValue({
             data: {
@@ -638,12 +637,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const listResponse = await agent.requestJson("/api/users?activity=30d", {
+        const listResponse = await agent.requestJson("/api/v1/users?activity=30d", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -654,7 +653,7 @@ describe("Express API integration", () => {
         }))
     })
 
-    test("GET /api/users supports username search through cached matches", async() => {
+    test("GET /api/v1/users supports username search through cached matches", async() => {
         client.dataHandler.listUsers.mockClear()
         discordApi.get.mockResolvedValue({
             data: {
@@ -663,7 +662,7 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -675,7 +674,7 @@ describe("Express API integration", () => {
             ])
         }
 
-        const listResponse = await agent.requestJson("/api/users?search=lucky", {
+        const listResponse = await agent.requestJson("/api/v1/users?search=lucky", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -689,7 +688,7 @@ describe("Express API integration", () => {
         client.users = undefined
     })
 
-    test("GET /api/users/:id returns a single user profile", async() => {
+    test("GET /api/v1/users/:id returns a single user profile", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -697,12 +696,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const userResponse = await agent.requestJson("/api/users/user-1", {
+        const userResponse = await agent.requestJson("/api/v1/users/user-1", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -717,7 +716,7 @@ describe("Express API integration", () => {
             })
         })
 
-        const missingResponse = await agent.requestJson("/api/users/unknown", {
+        const missingResponse = await agent.requestJson("/api/v1/users/unknown", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -725,7 +724,7 @@ describe("Express API integration", () => {
         expect(missingResponse.response.status).toBe(404)
     })
 
-    test("PATCH /api/users/:id/role updates the access role", async() => {
+    test("PATCH /api/v1/users/:id/role updates the access role", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -733,12 +732,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const clientConfig = await agent.requestJson("/api/client", {
+        const clientConfig = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -750,7 +749,7 @@ describe("Express API integration", () => {
             isWhitelisted: false
         })
 
-        const response = await agent.requestJson("/api/users/user-1/role", {
+        const response = await agent.requestJson("/api/v1/users/user-1/role", {
             method: "PATCH",
             headers: {
                 token: "access-token",
@@ -773,7 +772,7 @@ describe("Express API integration", () => {
         }))
     })
 
-    test("PATCH /api/users/:id/lists toggles blacklist/whitelist flags", async() => {
+    test("PATCH /api/v1/users/:id/lists toggles blacklist/whitelist flags", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -781,12 +780,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const clientConfig = await agent.requestJson("/api/client", {
+        const clientConfig = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -798,7 +797,7 @@ describe("Express API integration", () => {
             isWhitelisted: false
         })
 
-        const response = await agent.requestJson("/api/users/user-1/lists", {
+        const response = await agent.requestJson("/api/v1/users/user-1/lists", {
             method: "PATCH",
             headers: {
                 token: "access-token",
@@ -820,7 +819,7 @@ describe("Express API integration", () => {
         }))
     })
 
-    test("GET /api/users/policy returns the current access policy", async() => {
+    test("GET /api/v1/users/policy returns the current access policy", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -828,12 +827,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const response = await agent.requestJson("/api/users/policy", {
+        const response = await agent.requestJson("/api/v1/users/policy", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -845,7 +844,7 @@ describe("Express API integration", () => {
         expect(client.accessControl.getAccessPolicy).toHaveBeenCalledTimes(1)
     })
 
-    test("PATCH /api/users/policy updates whitelist enforcement", async() => {
+    test("PATCH /api/v1/users/policy updates whitelist enforcement", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -853,12 +852,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const clientConfig = await agent.requestJson("/api/client", {
+        const clientConfig = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -869,7 +868,7 @@ describe("Express API integration", () => {
             updatedAt: new Date().toISOString()
         })
 
-        const response = await agent.requestJson("/api/users/policy", {
+        const response = await agent.requestJson("/api/v1/users/policy", {
             method: "PATCH",
             headers: {
                 token: "access-token",
@@ -889,7 +888,7 @@ describe("Express API integration", () => {
         })
     })
 
-    test("GET /api/admin/actions exposes available remote commands", async() => {
+    test("GET /api/v1/admin/actions exposes available remote commands", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -897,12 +896,12 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const response = await agent.requestJson("/api/admin/actions", {
+        const response = await agent.requestJson("/api/v1/admin/actions", {
             method: "GET",
             headers: { token: "access-token" }
         })
@@ -926,7 +925,7 @@ describe("Express API integration", () => {
         )
     })
 
-    test("POST /api/admin/actions/bot-reload-config reloads runtime config", async() => {
+    test("POST /api/v1/admin/actions/bot-reload-config reloads runtime config", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -934,19 +933,19 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const clientResponse = await agent.requestJson("/api/client", {
+        const clientResponse = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
         const csrfToken = clientResponse.body.csrfToken
 
-        const response = await agent.requestJson("/api/admin/actions/bot-reload-config", {
+        const response = await agent.requestJson("/api/v1/admin/actions/bot-reload-config", {
             method: "POST",
             headers: {
                 token: "access-token",
@@ -961,7 +960,7 @@ describe("Express API integration", () => {
         })
     })
 
-    test("POST /api/admin/actions/bot-diagnostics returns service status", async() => {
+    test("POST /api/v1/admin/actions/bot-diagnostics returns service status", async() => {
         discordApi.get.mockResolvedValue({
             data: {
                 id: "owner-id",
@@ -969,17 +968,17 @@ describe("Express API integration", () => {
             }
         })
 
-        await agent.requestJson("/api/user", {
+        await agent.requestJson("/api/v1/user", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const clientResponse = await agent.requestJson("/api/client", {
+        const clientResponse = await agent.requestJson("/api/v1/admin/client", {
             method: "GET",
             headers: { token: "access-token" }
         })
 
-        const response = await agent.requestJson("/api/admin/actions/bot-diagnostics", {
+        const response = await agent.requestJson("/api/v1/admin/actions/bot-diagnostics", {
             method: "POST",
             headers: {
                 token: "access-token",

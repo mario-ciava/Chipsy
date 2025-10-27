@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js")
+const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
 const createCommand = require("../utils/createCommand")
 
 const slashCommand = new SlashCommandBuilder()
@@ -20,12 +20,12 @@ module.exports = createCommand({
     deferEphemeral: false,
     errorMessage: "Unable to load the game rules right now. Please try again later.",
     execute: async(interaction, client) => {
-        const game = interaction.options.getString('game', true).toLowerCase()
+        const game = interaction.options.getString("game", true).toLowerCase()
 
         if (game !== "blackjack") {
             await interaction.reply({
                 content: "❌ Please specify a supported game. Available: blackjack",
-                flags: Discord.MessageFlags.Ephemeral
+                flags: MessageFlags.Ephemeral
             })
             return
         }

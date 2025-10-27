@@ -8,7 +8,8 @@ const createStatusWebSocketServer = ({
     path = "/ws/status",
     webSocketEmitter,
     statusService,
-    log = logger
+    log = logger,
+    sessionMiddleware
 }) => {
     if (!server) {
         throw new Error("HTTP server instance is required to initialize the WebSocket bridge")
@@ -17,6 +18,17 @@ const createStatusWebSocketServer = ({
     const wss = new WebSocket.Server({ server, path })
     const clients = new Set()
     const emitterListeners = []
+    const applySession = (req) => new Promise((resolve, reject) => {
+        if (!sessionMiddleware) {
+            return reject(new Error("Session middleware is required for authenticated WebSocket connections"))
+        }
+        sessionMiddleware(req, {}, (err) => {
+            if (err) {
+                return reject(err)
+            }
+            return resolve()
+        })
+    })
 
     const safeSend = (socket, payload) => {
         if (socket.readyState !== WebSocket.OPEN) return
@@ -86,7 +98,25 @@ const createStatusWebSocketServer = ({
         emitterListeners.length = 0
     }
 
-    wss.on("connection", async(socket) => {
+    wss.on("connection", async(socket, req) => {
+        try {
+            await applySession(req)
+        } catch (error) {
+            log.warn("WebSocket session parsing failed", {
+                scope: "ws",
+                message: error.message
+            })
+            socket.close(4401, "Unauthorized")
+            return
+        }
+
+        const sessionUser = req.session?.user
+        if (!sessionUser?.id) {
+            socket.close(4401, "Unauthorized")
+            return
+        }
+
+        socket.chipsyUserId = sessionUser.id
         clients.add(socket)
 
         socket.on("close", () => {

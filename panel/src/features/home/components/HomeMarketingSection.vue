@@ -3,7 +3,7 @@
         <article
             class="chip-card chip-stack bg-gradient-to-br from-violet-600/20 via-slate-900/80 to-indigo-900/40 text-center lg:text-left"
         >
-            <header class="chip-card__header">
+            <header class="chip-card__header grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
                 <div class="chip-stack text-left">
                     <span class="chip-eyebrow">
                         {{ whyChipsyContent.eyebrow || whyChipsyContent.tagline || "WHY CHIPSY" }}
@@ -12,6 +12,17 @@
                     <p class="chip-card__subtitle chip-card__subtitle--tight">
                         {{ whyChipsyContent.body || "Chipsy keeps Discord-native casinos synchronized across bot, panel, and data." }}
                     </p>
+                </div>
+                <div v-if="guildInviteUrl" class="flex items-start justify-center lg:justify-end">
+                    <a
+                        class="chip-btn chip-btn-secondary chip-btn-fixed whitespace-nowrap"
+                        :href="guildInviteUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open the Chipsy guild invite in Discord"
+                    >
+                        Join Chipsy guild
+                    </a>
                 </div>
             </header>
             <div class="chip-divider chip-divider--strong my-2"></div>
@@ -170,6 +181,10 @@ export default {
         readinessAssurances: {
             type: Array,
             default: () => []
+        },
+        guildInviteUrl: {
+            type: String,
+            default: ""
         }
     }
 }

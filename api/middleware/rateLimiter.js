@@ -24,7 +24,7 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
     skip: (req) => {
         // Skip rate limiting for health checks
-        return req.path === "/api/health"
+        return req.path === "/api/v1/health" || req.path.startsWith("/api/v1/health/")
     },
     handler: createRateLimitHandler("global"),
     keyGenerator: (req) => {
@@ -77,11 +77,22 @@ const logWriteLimiter = rateLimit({
     handler: createRateLimitHandler("log-write")
 })
 
+const leaderboardSearchLimiter = rateLimit({
+    windowMs: 30 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: createRateLimitHandler("leaderboard-search"),
+    skip: (req) => !req.user,
+    keyGenerator: (req) => req.user?.id || ipKeyGenerator(req)
+})
+
 module.exports = {
     globalLimiter,
     authLimiter,
     adminReadLimiter,
     adminWriteLimiter,
     criticalActionLimiter,
-    logWriteLimiter
+    logWriteLimiter,
+    leaderboardSearchLimiter
 }

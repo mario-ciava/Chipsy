@@ -5,6 +5,8 @@ const Game = require("./game.js")
 const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
+const { recordNetWin } = require("../utils/netProfitTracker")
+const { buildProbabilityField } = require("../utils/probabilityFormatter")
 const logger = require("../utils/logger")
 const { logAndSuppress } = logger
 const config = require("../../config")
@@ -161,6 +163,7 @@ module.exports = class BlackJack extends Game {
         this.playersLeftDuringBets = []
         this.awaitingPlayerId = null
         this.pendingJoins = new Map()
+        this.pendingProbabilityTask = null
     }
 
     appendDealerTimeline(entry) {
@@ -962,7 +965,9 @@ module.exports = class BlackJack extends Game {
                         settled: false,
                         fromSplitAce: false,
                         result: null,
-                        payout: 0
+                        payout: 0,
+                        locked: false,
+                        doubleDown: false
                     })
 
                     if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
@@ -1212,14 +1217,16 @@ module.exports = class BlackJack extends Game {
                         fromSplitAce: false
                     }
                     player.hands = []
-                    player.hands.push({
-                        cards: await this.PickRandom(this.cards, 2),
-                        bet,
-                        settled: false,
-                        fromSplitAce: false,
-                        result: null,
-                        payout: 0
-                    })
+                player.hands.push({
+                    cards: await this.PickRandom(this.cards, 2),
+                    bet,
+                    settled: false,
+                    fromSplitAce: false,
+                    result: null,
+                    payout: 0,
+                    locked: false,
+                    doubleDown: false
+                })
 
                     if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
                     await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
@@ -1377,7 +1384,9 @@ module.exports = class BlackJack extends Game {
                     display: [],
                     fromSplitAce: false,
                     result: null,
-                    payout: 0
+                    payout: 0,
+                    locked: false,
+                    doubleDown: false
                 })
 
                 if (bet > player.data.biggest_bet) player.data.biggest_bet = bet
@@ -1428,6 +1437,7 @@ module.exports = class BlackJack extends Game {
                 this.SendMessage("showStartingCards")
             }
             this.dealer.cards = await this.PickRandom(this.cards, 2)
+            this.queueProbabilityUpdate("round:start")
             await sleep(config.delays.short.default)
             this.NextPlayer()
         })
@@ -1469,6 +1479,122 @@ module.exports = class BlackJack extends Game {
         }
         await sleep(config.delays.short.default)
         await this.updateRoundProgressEmbed(currentPlayer)
+    }
+
+    getProbabilityStage() {
+        if (!this.playing) return "idle"
+        if (this.isBettingPhaseOpen) return "betting"
+        if (this.awaitingPlayerId) return "players"
+        return "dealer"
+    }
+
+    buildProbabilityState() {
+        const deck = Array.isArray(this.cards) ? this.cards.filter(Boolean) : []
+        const players = Array.isArray(this.players)
+            ? this.players.map((player) => ({
+                id: player?.id,
+                hands: Array.isArray(player?.hands)
+                    ? player.hands.map((hand, index) => ({
+                        index,
+                        cards: Array.isArray(hand?.cards) ? hand.cards.filter(Boolean) : [],
+                        bet: Number(hand?.bet) || 0,
+                        locked: Boolean(hand?.locked || hand?.busted || hand?.result),
+                        busted: Boolean(hand?.busted),
+                        blackjack: Boolean(hand?.BJ),
+                        result: typeof hand?.result === "string" ? hand.result : null,
+                        fromSplitAce: Boolean(hand?.fromSplitAce),
+                        doubleDown: Boolean(hand?.doubleDown)
+                    }))
+                    : []
+            }))
+            : []
+        const dealerCards = Array.isArray(this.dealer?.cards) ? this.dealer.cards.filter(Boolean) : []
+        const dealerResult = this.dealer?.busted
+            ? "busted"
+            : (this.dealer?.BJ ? "blackjack" : null)
+        return {
+            deck: { remaining: deck },
+            players,
+            dealer: {
+                cards: dealerCards,
+                result: dealerResult
+            },
+            awaitingPlayerId: this.awaitingPlayerId || null,
+            stage: this.getProbabilityStage()
+        }
+    }
+
+    applyProbabilitySnapshot(result, meta = {}) {
+        if (!result?.payload?.players) return null
+        const playerStats = result.payload.players
+        for (const player of this.players) {
+            if (!player) continue
+            if (!player.status) player.status = {}
+            const stats = playerStats[player.id]
+            if (stats) {
+                player.status.winProbability = stats.win ?? 0
+                player.status.pushProbability = stats.push ?? 0
+                player.status.lossProbability = stats.lose ?? 0
+                player.status.probabilitySamples = stats.samples ?? 0
+                if (Array.isArray(player.hands) && Array.isArray(stats.hands)) {
+                    stats.hands.forEach((handStats, index) => {
+                        const target = player.hands[index]
+                        if (!target) return
+                        target.winProbability = handStats.win ?? 0
+                        target.pushProbability = handStats.push ?? 0
+                        target.loseProbability = handStats.lose ?? 0
+                    })
+                }
+            } else {
+                delete player.status.winProbability
+                delete player.status.pushProbability
+                delete player.status.lossProbability
+                delete player.status.probabilitySamples
+                if (Array.isArray(player.hands)) {
+                    for (const hand of player.hands) {
+                        delete hand.winProbability
+                        delete hand.pushProbability
+                        delete hand.loseProbability
+                    }
+                }
+            }
+        }
+        return this.setProbabilitySnapshot("blackjack", {
+            ...result.payload,
+            updatedAt: result.updatedAt,
+            durationMs: result.durationMs,
+            reason: meta?.reason || result.reason || null
+        })
+    }
+
+    queueProbabilityUpdate(reason = "stateChange") {
+        if (!this.playing || !Array.isArray(this.players) || this.players.length === 0) {
+            this.clearProbabilitySnapshot()
+            return
+        }
+        const engine = this.getProbabilityEngine()
+        if (!engine || typeof engine.calculateBlackjack !== "function") return
+        const state = this.buildProbabilityState()
+        const sequence = ++this.probabilitySequence
+        this.pendingProbabilityTask = engine
+            .calculateBlackjack(state, { reason })
+            .then((result) => {
+                if (!result || sequence !== this.probabilitySequence) {
+                    return null
+                }
+                if (!result.payload) {
+                    this.clearProbabilitySnapshot()
+                    return null
+                }
+                return this.applyProbabilitySnapshot(result, { reason })
+            })
+            .catch((error) => {
+                logger.warn("Blackjack probability calculation failed", {
+                    scope: "blackjackGame",
+                    reason,
+                    error: error?.message
+                })
+            })
     }
 
     async UpdateBetsMessage(message, { reason = "update", leavingPlayer = null } = {}) {
@@ -1812,7 +1938,7 @@ module.exports = class BlackJack extends Game {
             }
             return { forceInactivePlayerId: player.id }
         }
-
+        try {
         switch(type) {
             case `stand`:
                 const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
@@ -1820,6 +1946,7 @@ module.exports = class BlackJack extends Game {
                 if (player.status.actionLog) {
                     player.status.actionLog.push(`Stand${handLabel}`)
                 }
+                player.hands[hand].locked = true
                 shouldUpdateEmbed = true
                 actionEndsHand = true
             break
@@ -1855,6 +1982,8 @@ module.exports = class BlackJack extends Game {
                 player.bets.total += additionalBet
                 player.hands[hand].bet += additionalBet
                 await this.ComputeHandsValue(player)
+                player.hands[hand].locked = true
+                player.hands[hand].doubleDown = true
                 const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
                 this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} doubles bet (${formatCardLabel(newCard[0])}).`)
                 if (player.status.actionLog) {
@@ -1894,7 +2023,9 @@ module.exports = class BlackJack extends Game {
                     display: [],
                     fromSplitAce: splitAce,
                     result: null,
-                    payout: 0
+                    payout: 0,
+                    locked: false,
+                    doubleDown: false
                 })
                 currentHand.cards = await currentHand.cards.concat(await this.PickRandom(this.cards, 1))
                 await this.ComputeHandsValue(player)
@@ -1954,6 +2085,7 @@ module.exports = class BlackJack extends Game {
         if (player.hands[hand].busted) {
             const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
             this.appendDealerTimeline(`${formatPlayerName(player)} busts${handLabel}.`)
+            player.hands[hand].locked = true
             shouldUpdateEmbed = true
             actionEndsHand = true
             postActionPauseMs = config.delays.medium.default
@@ -1982,6 +2114,9 @@ module.exports = class BlackJack extends Game {
             if (next) this.NextPlayer(next)
                 else this.DealerAction()
         }
+        } finally {
+            this.queueProbabilityUpdate("playerAction")
+        }
     }
 
     async updateRoundProgressEmbed(player, autoStanding = false, renderOptions = {}) {
@@ -2006,6 +2141,23 @@ module.exports = class BlackJack extends Game {
                 .setDescription(paused
                     ? `⏸️ Tavolo in pausa dagli admin.\n\n${timelineText}`
                     : timelineText)
+                .addFields(
+                    { name: "Hands", value: handSummary, inline: false },
+                    { name: "Action log", value: actionLogText, inline: false }
+                )
+
+            const probabilityField = buildProbabilityField({
+                win: player.status?.winProbability,
+                tie: player.status?.pushProbability,
+                lose: player.status?.lossProbability,
+                samples: player.status?.probabilitySamples
+            }, {
+                title: "Outcome probability",
+                tieLabel: "Push"
+            })
+            if (probabilityField) {
+                embed.addFields(probabilityField)
+            }
 
             const components = []
             if (!autoStanding && !paused) {
@@ -2210,6 +2362,7 @@ module.exports = class BlackJack extends Game {
     async DealerAction() {
         await this.ComputeHandsValue(null, this.dealer)
         await this.UpdateInGame()
+        this.queueProbabilityUpdate("dealer:start")
 
         let remainingPlayers = this.inGamePlayers.filter((pl) => {
             return pl.hands.some((hand) => {
@@ -2263,7 +2416,11 @@ module.exports = class BlackJack extends Game {
                     bankrollManager.depositStackOnly(player, insurancePayout)
                     player.status.insurance.settled = true
                     player.status.won.grossValue += insurancePayout
-                    player.status.won.netValue += (insurancePayout - insuranceWager)
+                    const insuranceNet = insurancePayout - insuranceWager
+                    player.status.won.netValue += insuranceNet
+                    if (insuranceNet > 0) {
+                        recordNetWin(player, insuranceNet)
+                    }
                     this.appendDealerTimeline(`${formatPlayerName(player)} receives insurance payout (+${setSeparator(insurancePayout)}$).`)
                     await sleep(1000)
                 }
@@ -2319,6 +2476,9 @@ module.exports = class BlackJack extends Game {
                         player.status.won.grossValue += grossWinning
                         player.status.won.netValue += netWinning
                         hand.payout = netWinning - hand.bet
+                        if (hand.payout > 0) {
+                            recordNetWin(player, hand.payout)
+                        }
                     }
 
                     // Count individual hand wins
@@ -2346,6 +2506,7 @@ module.exports = class BlackJack extends Game {
 
         this.appendDealerTimeline(`Round #${this.hands} showdown.`)
         await this.updateDealerProgressEmbed(true)
+        this.queueProbabilityUpdate("dealer:complete")
 
         if (eliminationResult?.endedGame) {
             await this.Stop({ notify: false, reason: "allPlayersRanOutOfMoney" })
@@ -2525,6 +2686,9 @@ module.exports = class BlackJack extends Game {
             await delete player.newEntry
         }
         this.dealerTimeline = []
+        this.pendingProbabilityTask = null
+        this.probabilitySequence = 0
+        this.clearProbabilitySnapshot()
     }
     async Stop(options = {}) {
         if (this.__stopping) {

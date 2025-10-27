@@ -140,7 +140,8 @@ const formatConsoleMessage = ({ level, message, meta = {}, timestamp = new Date(
     const scopeLabel = typeof meta === "object"
         ? (meta.scope || meta.process || "")
         : ""
-    const scopePart = scopeLabel ? `${scopeLabel.padEnd(14)} | ` : ""
+    const scopeValue = typeof scopeLabel === "string" ? scopeLabel : String(scopeLabel || "")
+    const scopePart = scopeValue ? `${scopeValue.padEnd(14)} | ` : ""
     const messageText = typeof message === "string" ? message : inspect(message)
     const metaSegments = buildMetaSegments(meta)
 

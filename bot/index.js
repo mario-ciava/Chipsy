@@ -26,7 +26,7 @@ let internalServer = null
 const bootstrap = async() => {
     if (bootstrapPromise) return bootstrapPromise
 
-    bootstrapPromise = (async() => {
+    const runBootstrap = async() => {
         logger.info("Starting Chipsy bot", { scope: "bootstrap", icon: "🚀" })
 
         try {
@@ -99,7 +99,12 @@ const bootstrap = async() => {
             })
             throw error
         }
-    })()
+    }
+
+    bootstrapPromise = runBootstrap().catch((error) => {
+        bootstrapPromise = null
+        throw error
+    })
 
     return bootstrapPromise
 }

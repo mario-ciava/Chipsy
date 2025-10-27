@@ -63,9 +63,7 @@ const progressBar = (current, max, length = 10) => {
     const ratio = Math.min(Math.max(current / max, 0), 1)
     const filled = Math.round(ratio * length)
     const empty = length - filled
-    const percentage = Math.round(ratio * 100)
-
-    return `${'🟩'.repeat(filled)}${'⬜'.repeat(empty)} ${percentage}%`
+    return `${"🟩".repeat(filled)}${"⬜".repeat(empty)}`
 }
 
 module.exports = {

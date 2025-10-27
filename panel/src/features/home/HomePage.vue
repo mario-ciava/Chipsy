@@ -80,6 +80,8 @@
                 />
             </section>
 
+            <LeaderboardTop />
+
             <HomeMarketingSection
                 id="home-marketing"
                 :why-chipsy-content="whyChipsyContent"
@@ -90,21 +92,25 @@
                 :readiness-content="readinessContent"
                 :readiness-stats="readinessStats"
                 :readiness-assurances="readinessAssurances"
+                :guild-invite-url="communityGuildInviteUrl"
             />
         </section>
 
-        <HomeMarketingSection
-            v-else
-            id="home-marketing"
-            :why-chipsy-content="whyChipsyContent"
-            :why-chipsy-pillars="whyChipsyPillars"
-            :why-chipsy-badges="whyChipsyBadges"
-            :launch-playbook="launchPlaybook"
-            :launch-steps="launchSteps"
-            :readiness-content="readinessContent"
-            :readiness-stats="readinessStats"
-            :readiness-assurances="readinessAssurances"
-        />
+        <div v-else class="space-y-8">
+            <LeaderboardTop />
+            <HomeMarketingSection
+                id="home-marketing"
+                :why-chipsy-content="whyChipsyContent"
+                :why-chipsy-pillars="whyChipsyPillars"
+                :why-chipsy-badges="whyChipsyBadges"
+                :launch-playbook="launchPlaybook"
+                :launch-steps="launchSteps"
+                :readiness-content="readinessContent"
+                :readiness-stats="readinessStats"
+                :readiness-assurances="readinessAssurances"
+                :guild-invite-url="communityGuildInviteUrl"
+            />
+        </div>
 
         <div v-if="processing" class="chip-notice chip-notice-info">
             Validating your access…
@@ -123,15 +129,18 @@ import { mapGetters } from "vuex"
 import GuildOverview from "../dashboard/components/GuildOverview.vue"
 import ProfileOverviewCard from "./components/ProfileOverviewCard.vue"
 import HomeMarketingSection from "./components/HomeMarketingSection.vue"
+import LeaderboardTop from "../../components/LeaderboardTop.vue"
 import api from "../../services/api"
 import { formatCurrency, formatExpRange, formatFriendlyDateTime } from "../../utils/formatters"
 import { getControlPanelRedirect, consumePostLoginRoute } from "../../utils/runtime"
 import { hasManageGuildPermission as sharedHasManageGuildPermission, normalizeGuildList } from "../../utils/guilds"
 import homeMarketing from "../../config/homeContent"
+import communityContent from "../../config/communityContent"
 
 const INVITE_BASE = "https://discord.com/api/oauth2/authorize"
 const PROFILE_REFRESH_INTERVAL_MS = 20000
 const landingMarketing = homeMarketing || {}
+const communityLinks = communityContent || {}
 
 const SHARED_SHORTCUTS = Object.freeze([
     {
@@ -165,7 +174,8 @@ export default {
     components: {
         GuildOverview,
         ProfileOverviewCard,
-        HomeMarketingSection
+        HomeMarketingSection,
+        LeaderboardTop
     },
     data() {
         return {
@@ -189,6 +199,17 @@ export default {
         ...mapGetters("session", ["isAuthenticated", "isAdmin", "user", "canViewLogs", "panelConfig"]),
         marketingContent() {
             return landingMarketing
+        },
+        communityGuildInviteUrl() {
+            const inviteUrl = communityLinks?.guild?.inviteUrl
+            if (typeof inviteUrl !== "string" || !inviteUrl.trim()) {
+                return null
+            }
+            try {
+                return new URL(inviteUrl).toString()
+            } catch (error) {
+                return null
+            }
         },
         whyChipsyContent() {
             return this.marketingContent.whyChipsy || {}
@@ -376,7 +397,7 @@ export default {
     watch: {
         loginCode(code) {
             if (code) {
-                this.handleOAuthCode(code)
+                this.handleOAuthCode(code, this.loginState)
             }
         },
         isAuthenticated(newValue) {
@@ -409,7 +430,7 @@ export default {
             this.scheduleGuildReachFocus()
         }
         if (this.loginCode) {
-            this.handleOAuthCode(this.loginCode)
+            this.handleOAuthCode(this.loginCode, this.loginState)
         } else if (this.isAuthenticated) {
             this.loadHomeData()
             this.startProfileAutoRefresh()
@@ -453,11 +474,11 @@ export default {
                 this[handlerName](shortcut)
             }
         },
-        async handleOAuthCode(code) {
+        async handleOAuthCode(code, state) {
             this.processing = true
             this.errorMessage = null
             try {
-                await this.$store.dispatch("session/completeLogin", code)
+                await this.$store.dispatch("session/completeLogin", { code, state })
                 if (this.$store.getters["session/isAdmin"]) {
                     await this.$store.dispatch("bot/fetchStatus").catch(() => null)
                     await this.$store.dispatch("users/fetchUsers").catch(() => null)

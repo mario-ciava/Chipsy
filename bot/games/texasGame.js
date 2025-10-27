@@ -9,6 +9,8 @@ const logger = require("../utils/logger")
 const { logAndSuppress } = logger
 const { renderTexasTable, createTexasTableState, renderTexasPlayerPanel } = require("../rendering/texasTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
+const { recordNetWin } = require("../utils/netProfitTracker")
+const { buildProbabilityField } = require("../utils/probabilityFormatter")
 const config = require("../../config")
 
 const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
@@ -29,6 +31,7 @@ const createPlayerStatus = () => ({
     removed: false,
     lastAllInAmount: 0,
     lastReminderHand: 0,
+    totalContribution: 0,
     won: createWonState()
 })
 
@@ -58,6 +61,7 @@ module.exports = class TexasGame extends Game {
         this.currentHandHasInteraction = false
         this.inactiveHands = 0
         this.holeCardsSent = false
+        this.pendingProbabilityTask = null
     }
 
     createPlayerSession(user, stackAmount) {
@@ -200,6 +204,83 @@ module.exports = class TexasGame extends Game {
         }
     }
 
+    buildProbabilityState() {
+        const deck = Array.isArray(this.cards) ? this.cards.filter(Boolean) : []
+        const boardCards = Array.isArray(this.tableCards) ? this.tableCards.filter(Boolean) : []
+        const players = Array.isArray(this.players)
+            ? this.players.map((player) => ({
+                id: player?.id,
+                cards: Array.isArray(player?.cards) ? player.cards.filter(Boolean) : [],
+                folded: Boolean(player?.status?.folded),
+                removed: Boolean(player?.status?.removed),
+                allIn: Boolean(player?.status?.allIn)
+            }))
+            : []
+        return {
+            deck: { remaining: deck },
+            boardCards,
+            players,
+            round: this.hands,
+            awaitingPlayerId: this.awaitingPlayerId || null,
+            stage: boardCards.length
+        }
+    }
+
+    applyProbabilitySnapshot(result, meta = {}) {
+        if (!result?.payload?.players) return null
+        const playerStats = result.payload.players
+        for (const player of this.players) {
+            if (!player) continue
+            if (!player.status) player.status = {}
+            const stats = playerStats[player.id]
+            if (stats && stats.eligible) {
+                player.status.winProbability = stats.win ?? 0
+                player.status.tieProbability = stats.tie ?? 0
+                player.status.probabilitySamples = stats.samples ?? 0
+            } else {
+                delete player.status.winProbability
+                delete player.status.tieProbability
+                delete player.status.probabilitySamples
+            }
+        }
+        return this.setProbabilitySnapshot("texas", {
+            ...result.payload,
+            updatedAt: result.updatedAt,
+            durationMs: result.durationMs,
+            reason: meta?.reason || result.reason || null
+        })
+    }
+
+    queueProbabilityUpdate(reason = "stateChange") {
+        if (!this.playing || !Array.isArray(this.players) || this.players.length === 0) {
+            this.clearProbabilitySnapshot()
+            return
+        }
+        const engine = this.getProbabilityEngine()
+        if (!engine || typeof engine.calculateTexas !== "function") return
+        const state = this.buildProbabilityState()
+        const sequence = ++this.probabilitySequence
+        this.pendingProbabilityTask = engine
+            .calculateTexas(state, { reason })
+            .then((result) => {
+                if (!result || sequence !== this.probabilitySequence) {
+                    return null
+                }
+                if (!result.payload) {
+                    this.clearProbabilitySnapshot()
+                    return null
+                }
+                return this.applyProbabilitySnapshot(result, { reason })
+            })
+            .catch((error) => {
+                logger.warn("Texas probability calculation failed", {
+                    scope: "texasGame",
+                    reason,
+                    error: error?.message
+                })
+            })
+    }
+
     buildPlayerRenderPayload(player, options = {}) {
         if (!player) return null
         const reveal = Boolean(options.showdown || options.revealCards)
@@ -340,7 +421,16 @@ module.exports = class TexasGame extends Game {
         this.UpdateInGame()
 
         if (!skipStop && this.players.length < this.getMinimumPlayers() && this.playing) {
-            this.Stop({ reason: "notEnoughPlayers", ...stopOptions })
+            try {
+                await this.Stop({ reason: "notEnoughPlayers", ...stopOptions })
+            } catch (error) {
+                logger.error("Failed to stop Texas table after player removal", {
+                    scope: "texasGame",
+                    channelId: this.channel?.id,
+                    playerId,
+                    error: error?.message
+                })
+            }
         }
         return true
     }
@@ -487,6 +577,16 @@ module.exports = class TexasGame extends Game {
                 { name: "Pot", value: `${setSeparator(this.getDisplayedPotValue())}$`, inline: true },
                 { name: "Da chiamare", value: `${setSeparator(toCall)}$`, inline: true }
             )
+
+        const probabilityField = buildProbabilityField({
+            win: player.status?.winProbability,
+            tie: player.status?.tieProbability,
+            lose: player.status?.loseProbability,
+            samples: player.status?.probabilitySamples
+        })
+        if (probabilityField) {
+            embed.addFields(probabilityField)
+        }
 
         const footerParts = [
             `Round #${this.hands}`,
@@ -678,6 +778,7 @@ module.exports = class TexasGame extends Game {
         }
 
         if (!this.actionCollector) this.CreateOptions()
+        this.queueProbabilityUpdate("hand:start")
         const startingPlayer = this.findNextPendingPlayer() || this.inGamePlayers.find(p => !p.status.folded)
         if (startingPlayer) {
             await this.NextPlayer(startingPlayer)
@@ -772,6 +873,7 @@ module.exports = class TexasGame extends Game {
         })
         this.UpdateInGame()
         this.updateActionOrder(this.getBettingStartIndex())
+        this.queueProbabilityUpdate(`phase:${phase}`)
 
         const nextPlayer = this.findNextPendingPlayer()
         if (nextPlayer) {
@@ -895,84 +997,87 @@ module.exports = class TexasGame extends Game {
     async Action(type, player, params, options = {}) {
         const { isBlind = false, skipAdvance = false } = options
         if (!player || player.status?.removed) return
-
-        if (!isBlind) {
-            if (this.awaitingPlayerId && player.id !== this.awaitingPlayerId) {
-                return
-            }
-            const available = await this.GetAvailableOptions(player)
-            if (!available.includes(type)) return
-            this.awaitingPlayerId = null
-        }
-
-        if (this.timer) clearTimeout(this.timer)
-
-        const previousCurrentMax = this.bets.currentMax
-
-        switch (type) {
-            case "fold":
-                player.status.folded = true
-                player.status.movedone = true
-                break
-            case "check":
-                player.status.movedone = true
-                break
-            case "call": {
-                const callAmount = Math.max(0, this.bets.currentMax - player.bets.current)
-                if (callAmount > 0) {
-                    this.commitChips(player, callAmount)
-                }
-                player.status.movedone = true
-                break
-            }
-            case "bet": {
-                const requestedTotal = isBlind
-                    ? player.bets.current + toSafeInteger(params)
-                    : Math.max(this.getTableMinBet(), toSafeInteger(params) || this.getTableMinBet())
-                this.movePlayerToTotal(player, requestedTotal)
-                player.status.movedone = isBlind ? false : true
-                break
-            }
-            case "raise": {
-                const minimumTotal = this.bets.currentMax + this.bets.minRaise
-                let requestedTotal = Number.isFinite(params) && params > 0 ? Math.floor(params) : minimumTotal
-                if (requestedTotal < minimumTotal) requestedTotal = minimumTotal
-                this.movePlayerToTotal(player, requestedTotal)
-                player.status.movedone = true
-                break
-            }
-            case "allin": {
-                if (player.stack > 0) {
-                    this.commitChips(player, player.stack)
-                }
-                player.status.movedone = true
-                break
-            }
-            default:
-                return
-        }
-
-        if (player.bets.current > previousCurrentMax) {
-            const delta = player.bets.current - previousCurrentMax
-            this.bets.currentMax = player.bets.current
-            if (delta > 0) {
-                this.bets.minRaise = Math.max(delta, this.getTableMinBet())
-            }
+        try {
             if (!isBlind) {
-                this.resetPlayersAfterAggression(player)
+                if (this.awaitingPlayerId && player.id !== this.awaitingPlayerId) {
+                    return
+                }
+                const available = await this.GetAvailableOptions(player)
+                if (!available.includes(type)) return
+                this.awaitingPlayerId = null
             }
-        }
 
-        this.UpdateInGame()
+            if (this.timer) clearTimeout(this.timer)
 
-        const activePlayers = this.inGamePlayers.filter((p) => !p.status.folded)
-        if (activePlayers.length === 1) {
-            await this.handleFoldWin(activePlayers[0])
-            return
-        }
+            const previousCurrentMax = this.bets.currentMax
 
-        if (!skipAdvance) {
-            await this.advanceHand()
+            switch (type) {
+                case "fold":
+                    player.status.folded = true
+                    player.status.movedone = true
+                    break
+                case "check":
+                    player.status.movedone = true
+                    break
+                case "call": {
+                    const callAmount = Math.max(0, this.bets.currentMax - player.bets.current)
+                    if (callAmount > 0) {
+                        this.commitChips(player, callAmount)
+                    }
+                    player.status.movedone = true
+                    break
+                }
+                case "bet": {
+                    const requestedTotal = isBlind
+                        ? player.bets.current + toSafeInteger(params)
+                        : Math.max(this.getTableMinBet(), toSafeInteger(params) || this.getTableMinBet())
+                    this.movePlayerToTotal(player, requestedTotal)
+                    player.status.movedone = isBlind ? false : true
+                    break
+                }
+                case "raise": {
+                    const minimumTotal = this.bets.currentMax + this.bets.minRaise
+                    let requestedTotal = Number.isFinite(params) && params > 0 ? Math.floor(params) : minimumTotal
+                    if (requestedTotal < minimumTotal) requestedTotal = minimumTotal
+                    this.movePlayerToTotal(player, requestedTotal)
+                    player.status.movedone = true
+                    break
+                }
+                case "allin": {
+                    if (player.stack > 0) {
+                        this.commitChips(player, player.stack)
+                    }
+                    player.status.movedone = true
+                    break
+                }
+                default:
+                    return
+            }
+
+            if (player.bets.current > previousCurrentMax) {
+                const delta = player.bets.current - previousCurrentMax
+                this.bets.currentMax = player.bets.current
+                if (delta > 0) {
+                    this.bets.minRaise = Math.max(delta, this.getTableMinBet())
+                }
+                if (!isBlind) {
+                    this.resetPlayersAfterAggression(player)
+                }
+            }
+
+            this.UpdateInGame()
+
+            const activePlayers = this.inGamePlayers.filter((p) => !p.status.folded)
+            if (activePlayers.length === 1) {
+                await this.handleFoldWin(activePlayers[0])
+                return
+            }
+
+            if (!skipAdvance) {
+                await this.advanceHand()
+            }
+        } finally {
+            this.queueProbabilityUpdate("playerAction")
         }
     }
 
@@ -1031,6 +1136,9 @@ module.exports = class TexasGame extends Game {
         player.stack -= amount
         player.bets.current += amount
         player.bets.total += amount
+        if (player.status) {
+            player.status.totalContribution = (player.status.totalContribution || 0) + amount
+        }
         this.bets.total += amount
         if (player.stack === 0) {
             player.status.allIn = true
@@ -1128,6 +1236,12 @@ module.exports = class TexasGame extends Game {
         if (winnings > 0) {
             const netValue = this.GetNetValue(winnings, player)
             player.stack += netValue
+            const contribution = Math.max(0, player.status?.totalContribution || 0)
+            const netGain = Math.max(0, netValue - contribution)
+            if (netGain > 0) {
+                recordNetWin(player, netGain)
+            }
+            player.status.totalContribution = 0
             player.status.won = createWonState()
             if (player.data) {
                 player.data.hands_won = (Number(player.data.hands_won) || 0) + 1
@@ -1155,6 +1269,9 @@ module.exports = class TexasGame extends Game {
         this.currentHandHasInteraction = false
         this.inactiveHands = 0
         this.holeCardsSent = false
+        this.pendingProbabilityTask = null
+        this.probabilitySequence = 0
+        this.clearProbabilitySnapshot()
     }
 
     getDisplayedPotValue() {
@@ -1235,6 +1352,7 @@ module.exports = class TexasGame extends Game {
         winner.status.won.grossValue += this.bets.total
         this.bets.pots = [{ amount: this.bets.total, winners: [{ player: winner, amount: this.bets.total }] }]
         this.bets.total = 0
+        this.clearProbabilitySnapshot()
         await this.SendMessage("handEnded")
         const stopped = await this.evaluateHandInactivity()
         if (!stopped) {
@@ -1281,6 +1399,7 @@ module.exports = class TexasGame extends Game {
         }
 
         this.bets.total = 0
+        this.clearProbabilitySnapshot()
         await this.SendMessage("handEnded")
         const stopped = await this.evaluateHandInactivity()
         if (!stopped) {

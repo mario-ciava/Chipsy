@@ -1,7 +1,14 @@
+jest.mock("../shared/database/ensureSchema", () => jest.fn().mockResolvedValue())
+
 const createDataHandler = require("../shared/database/dataHandler")
+const ensureSchema = require("../shared/database/ensureSchema")
 const createSetData = require("../bot/utils/createSetData")
 const Game = require("../bot/games/game")
 const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
+
+beforeEach(() => {
+    ensureSchema.mockClear()
+})
 
 const createMockConnection = (initialRows = [], initialAccessRows = []) => {
     const startingRequiredExp = calculateRequiredExp(DEFAULT_PLAYER_LEVEL)
@@ -63,6 +70,18 @@ const createMockConnection = (initialRows = [], initialAccessRows = []) => {
         if (sql.startsWith("DELETE FROM `user_access` WHERE `user_id` = ?")) {
             const [id] = parameters
             accessData.delete(id)
+            return [{ affectedRows: 1 }]
+        }
+
+        if (sql.includes("FROM `leaderboard_cache`")) {
+            return [[]]
+        }
+
+        if (sql.startsWith("INSERT INTO `leaderboard_cache`")) {
+            return [{ affectedRows: 1 }]
+        }
+
+        if (sql.startsWith("DELETE FROM `leaderboard_cache`")) {
             return [{ affectedRows: 1 }]
         }
 
@@ -323,4 +342,121 @@ describe("createSetData error handling", () => {
         expect(getUserData).toHaveBeenCalledTimes(3)
     })
 
+})
+
+describe("leaderboard queries", () => {
+    test("filters private bankrolls by default", async() => {
+        const cacheRow = {
+            metric: "net-profit",
+            user_id: "user-1",
+            money: 5_000_000,
+            gold: 5,
+            current_exp: 0,
+            required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
+            level: DEFAULT_PLAYER_LEVEL,
+            hands_played: 0,
+            hands_won: 0,
+            net_winnings: 0,
+            score: 0,
+            win_rate: 0,
+            trend_direction: 0,
+            bankroll_private: 0,
+            last_played: null,
+            join_date: new Date()
+        }
+
+        const pool = {
+            query: jest.fn().mockResolvedValue([[cacheRow]])
+        }
+
+        const dataHandler = createDataHandler(pool)
+        const result = await dataHandler.getLeaderboard({ limit: 5 })
+
+        expect(pool.query).toHaveBeenCalledTimes(1)
+        const executedQuery = pool.query.mock.calls[0][0]
+        expect(executedQuery.includes("FROM `leaderboard_cache`")).toBe(true)
+        expect(executedQuery.includes("COALESCE(`bankroll_private`, 0) = 0")).toBe(true)
+        expect(result.meta.privacyFilterApplied).toBe(true)
+    })
+
+    test("repairs schema and retries when bankroll column is missing", async() => {
+        const unknownColumnError = Object.assign(
+            new Error("Unknown column 'bankroll_private' in 'field list'"),
+            { code: "ER_BAD_FIELD_ERROR", errno: 1054 }
+        )
+
+        const pool = {
+            query: jest.fn()
+        }
+
+        pool.query
+            .mockRejectedValueOnce(unknownColumnError)
+            .mockResolvedValueOnce([[{
+                metric: "net-profit",
+                user_id: "user-1",
+                money: 7_500_000,
+                gold: 3,
+                current_exp: 0,
+                required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
+                level: DEFAULT_PLAYER_LEVEL,
+                hands_played: 0,
+                hands_won: 0,
+                net_winnings: 0,
+                score: 0,
+                win_rate: 0,
+                trend_direction: 0,
+                bankroll_private: 0,
+                last_played: null,
+                join_date: new Date()
+            }]])
+
+        const dataHandler = createDataHandler(pool)
+        const result = await dataHandler.getLeaderboard({ limit: 5 })
+
+        expect(pool.query).toHaveBeenCalledTimes(2)
+        expect(ensureSchema).toHaveBeenCalledWith(pool)
+        expect(result.items[0].money).toBe(7_500_000)
+    })
+
+    test("net profit metric selects the persisted net winnings column when hydrating cache", async() => {
+        const fallbackRow = {
+            id: "user-1",
+            money: 4_000,
+            gold: 1,
+            current_exp: 0,
+            required_exp: calculateRequiredExp(DEFAULT_PLAYER_LEVEL),
+            level: DEFAULT_PLAYER_LEVEL,
+            hands_played: 0,
+            hands_won: 0,
+            net_winnings: 2_500,
+            withholding_upgrade: 0,
+            reward_amount_upgrade: 0,
+            reward_time_upgrade: 0,
+            bankroll_private: 0,
+            next_reward: null,
+            last_played: null,
+            join_date: new Date()
+        }
+
+        const connection = {
+            beginTransaction: jest.fn(),
+            query: jest.fn(),
+            commit: jest.fn(),
+            rollback: jest.fn(),
+            release: jest.fn()
+        }
+
+        const pool = {
+            query: jest.fn()
+                .mockResolvedValueOnce([[]])
+                .mockResolvedValueOnce([[fallbackRow]]),
+            getConnection: jest.fn().mockResolvedValue(connection)
+        }
+
+        const dataHandler = createDataHandler(pool)
+        await dataHandler.getLeaderboard({ metric: "net-profit", limit: 5 })
+
+        const executedQuery = pool.query.mock.calls[1][0]
+        expect(executedQuery.includes("COALESCE(u.`net_winnings`, 0) AS net_profit")).toBe(true)
+    })
 })

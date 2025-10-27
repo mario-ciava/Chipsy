@@ -10,6 +10,7 @@ import DashboardPage from "../features/dashboard/DashboardPage.vue"
 import UserDetailPage from "../features/users/UserDetailPage.vue"
 import LogsPage from "../features/logs/LogsPage.vue"
 import TablesPage from "../features/tables/TablesPage.vue"
+import LeaderboardPage from "../pages/Leaderboard.vue"
 
 Vue.use(Router)
 
@@ -20,6 +21,11 @@ const router = new Router({
             path: "/",
             name: "Home",
             component: HomePage
+        },
+        {
+            path: "/leaderboard",
+            name: "Leaderboard",
+            component: LeaderboardPage
         },
         {
             path: "/login",

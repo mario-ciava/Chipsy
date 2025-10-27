@@ -1,6 +1,7 @@
 const mysql = require("mysql2/promise")
 const { constants } = require("../../config")
 const logger = require("../../shared/logger")
+const ensureSchema = require("../../shared/database/ensureSchema")
 
 const createMysqlPool = async(mysqlConfig) => {
     if (!mysqlConfig) {
@@ -17,6 +18,8 @@ const createMysqlPool = async(mysqlConfig) => {
         connectionLimit: constants.database.pool.connectionLimit,
         queueLimit: constants.database.pool.queueLimit
     })
+
+    await ensureSchema(pool)
 
     logger.info("API MySQL pool initialized", {
         scope: "mysql",

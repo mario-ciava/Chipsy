@@ -188,6 +188,242 @@
         @apply flex flex-col gap-6;
     }
 
+    .loader {
+        @apply h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white;
+    }
+
+    .chip-leaderboard {
+        @apply border-violet-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-violet-900/40 shadow-chip-card;
+    }
+
+    .leaderboard-top__header {
+        @apply flex flex-col gap-6 md:flex-row md:items-start md:justify-between;
+    }
+
+    .leaderboard-top__title {
+        @apply text-3xl font-semibold tracking-tight text-white;
+    }
+
+    .leaderboard-top__subtitle {
+        @apply text-base text-slate-300;
+    }
+
+    .leaderboard-top__actions {
+        @apply flex flex-col gap-4 md:items-end;
+    }
+
+    .leaderboard-top__metric-switch {
+        @apply flex flex-wrap gap-2;
+    }
+
+    .leaderboard-top__metric {
+        @apply chip-pill-ghost flex items-center gap-2 text-sm font-semibold;
+    }
+
+    .leaderboard-top__metric--active {
+        @apply border-white/40 bg-white/10 text-white;
+    }
+
+    .leaderboard-top__metric-icon {
+        @apply text-lg;
+    }
+
+    .leaderboard-top__empty {
+        @apply flex flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-white/10 py-10 text-center text-slate-300;
+    }
+
+    .leaderboard-top__empty-title {
+        @apply text-lg font-semibold text-white;
+    }
+
+    .leaderboard-top__empty-copy {
+        @apply text-sm text-slate-300;
+    }
+
+    .leaderboard-top__body {
+        @apply flex flex-col gap-6;
+    }
+
+    .leaderboard-top__podium {
+        @apply grid gap-4 md:grid-cols-3;
+    }
+
+    .leaderboard-top__podium-card {
+        @apply relative flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur;
+    }
+
+    .leaderboard-top__podium-card--viewer {
+        @apply border-emerald-400/50 shadow-chip-soft;
+    }
+
+    .leaderboard-top__podium-rank {
+        @apply text-sm font-semibold uppercase tracking-[0.3em] text-slate-300;
+    }
+
+    .leaderboard-top__podium-avatar {
+        @apply h-20 w-20 rounded-full border-4 border-white/20 object-cover shadow-chip-soft;
+    }
+
+    .leaderboard-top__podium-meta {
+        @apply flex flex-col gap-1;
+    }
+
+    .leaderboard-top__podium-name {
+        @apply text-lg font-semibold text-white;
+    }
+
+    .leaderboard-top__podium-value {
+        @apply text-base font-medium text-emerald-200;
+    }
+
+    .leaderboard-top__podium-detail {
+        @apply text-xs uppercase tracking-[0.35em] text-slate-400;
+    }
+
+    .leaderboard-top__status {
+        @apply mt-auto w-max text-xs font-semibold uppercase tracking-[0.3em];
+    }
+
+    .leaderboard-top__list {
+        @apply flex flex-col divide-y divide-white/10;
+    }
+
+    .leaderboard-top__list-row {
+        @apply flex items-center gap-4 py-3 text-sm text-slate-200;
+    }
+
+    .leaderboard-top__list-row--viewer {
+        @apply bg-white/5;
+    }
+
+    .leaderboard-top__list-rank {
+        @apply w-8 text-base font-semibold text-white;
+    }
+
+    .leaderboard-top__list-avatar {
+        @apply h-10 w-10 rounded-full object-cover;
+    }
+
+    .leaderboard-top__list-player {
+        @apply flex flex-col;
+    }
+
+    .leaderboard-top__list-name {
+        @apply font-semibold text-white;
+    }
+
+    .leaderboard-top__list-meta {
+        @apply text-xs uppercase tracking-[0.3em] text-slate-400;
+    }
+
+    .leaderboard-top__list-value {
+        @apply ml-auto text-base font-semibold text-emerald-200;
+    }
+
+    .leaderboard-top__list-trend {
+        @apply w-8 text-right text-base;
+    }
+
+    .leaderboard-page {
+        @apply gap-8;
+    }
+
+    .leaderboard-page__panel {
+        @apply chip-card;
+    }
+
+    .leaderboard-page__header {
+        @apply flex flex-col gap-6 md:flex-row md:items-start md:justify-between;
+    }
+
+    .leaderboard-page__title {
+        @apply text-4xl font-semibold text-white;
+    }
+
+    .leaderboard-page__subtitle {
+        @apply text-base text-slate-300;
+    }
+
+    .leaderboard-page__metric-switch {
+        @apply flex flex-wrap gap-2;
+    }
+
+    .leaderboard-page__toolbar {
+        @apply flex flex-wrap items-end gap-4 border-t border-white/5 pt-6;
+    }
+
+    .leaderboard-page__search {
+        @apply flex-1 min-w-[200px];
+    }
+
+    .leaderboard-page__notice {
+        @apply text-sm text-amber-200;
+    }
+
+    .leaderboard-page__viewer {
+        @apply mt-4 flex flex-col gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100;
+    }
+
+    .leaderboard-page__table {
+        @apply mt-6 rounded-3xl border border-white/10 bg-slate-900/60;
+    }
+
+    .leaderboard-page__table-head {
+        @apply grid grid-cols-[80px_2fr_1fr_1fr_1.5fr] gap-4 border-b border-white/10 px-6 py-4 text-xs font-semibold uppercase tracking-[0.3em] text-slate-400;
+    }
+
+    .leaderboard-page__table-body {
+        @apply divide-y divide-white/5;
+    }
+
+    .leaderboard-page__footer {
+        @apply mt-6 flex items-center justify-between text-sm text-slate-300;
+    }
+
+    .leaderboard-row {
+        @apply grid grid-cols-[80px_2fr_1fr_1fr_1.5fr] items-center gap-4 px-6 py-4 text-sm text-slate-200;
+    }
+
+    .leaderboard-row--viewer {
+        @apply bg-white/5;
+    }
+
+    .leaderboard-row__rank {
+        @apply text-base font-semibold text-white;
+    }
+
+    .leaderboard-row__avatar {
+        @apply h-10 w-10 rounded-full object-cover;
+    }
+
+    .leaderboard-row__player {
+        @apply flex items-center gap-4;
+    }
+
+    .leaderboard-row__name {
+        @apply font-semibold text-white;
+    }
+
+    .leaderboard-row__meta {
+        @apply text-xs uppercase tracking-[0.3em] text-slate-400;
+    }
+
+    .leaderboard-row__metric {
+        @apply text-base font-semibold text-emerald-200;
+    }
+
+    .leaderboard-row__trend {
+        @apply text-lg;
+    }
+
+    .leaderboard-row__stats {
+        @apply flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-slate-400;
+    }
+
+    .leaderboard-row__status {
+        @apply justify-self-end text-xs font-semibold uppercase tracking-[0.3em];
+    }
+
     .chip-filter-form {
         @apply w-full;
     }

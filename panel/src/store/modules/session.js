@@ -17,6 +17,43 @@ const defaultPermissions = () => ({
     canWriteLogs: false
 })
 
+const SESSION_HINT_KEY = "chipsy:sessionHint"
+
+const safeSessionStorage = () => {
+    if (typeof window === "undefined" || !window.sessionStorage) {
+        return null
+    }
+    try {
+        return window.sessionStorage
+    } catch (error) {
+        return null
+    }
+}
+
+const hasSessionHint = () => {
+    const storage = safeSessionStorage()
+    if (!storage) return false
+    try {
+        return storage.getItem(SESSION_HINT_KEY) === "1"
+    } catch (error) {
+        return false
+    }
+}
+
+const setSessionHint = (value) => {
+    const storage = safeSessionStorage()
+    if (!storage) return
+    try {
+        if (value) {
+            storage.setItem(SESSION_HINT_KEY, "1")
+        } else {
+            storage.removeItem(SESSION_HINT_KEY)
+        }
+    } catch (error) {
+        // ignore
+    }
+}
+
 const initialState = () => ({
     user: null,
     csrfToken: null,
@@ -101,12 +138,14 @@ export default {
             return bootstrapPromise
         },
 
-        async completeLogin({ commit, dispatch }, code) {
+        async completeLogin({ commit, dispatch }, payload) {
             commit("SET_LOADING", true)
             commit("SET_ERROR", null)
+            const normalized = typeof payload === "string" ? { code: payload } : (payload || {})
+            const { code, state } = normalized
             try {
-                await api.exchangeCode(code)
-                await dispatch("refreshSession")
+                await api.exchangeCode(code, state)
+                await dispatch("refreshSession", { force: true })
             } catch (error) {
                 commit("SET_ERROR", error)
                 throw error
@@ -116,10 +155,22 @@ export default {
             }
         },
 
-        async refreshSession({ commit }) {
+        async refreshSession({ commit }, options = {}) {
+            const forceRefresh = Boolean(options?.force)
+            if (!forceRefresh && !hasSessionHint()) {
+                commit("SET_USER", null)
+                commit("SET_CLIENT_CONFIG", null)
+                commit("SET_CSRF_TOKEN", null)
+                commit("SET_PERMISSIONS", defaultPermissions())
+                applyRuntimeConfig()
+                return null
+            }
             commit("SET_ERROR", null)
             try {
                 const user = await api.getCurrentUser()
+                if (user) {
+                    setSessionHint(true)
+                }
                 let clientConfig = null
 
                 const permissions = user?.permissions || defaultPermissions()
@@ -159,6 +210,7 @@ export default {
             } catch (error) {
                 const status = error?.response?.status
                 if (status === 400 || status === 401) {
+                    setSessionHint(false)
                     commit("SET_USER", null)
                     commit("SET_CLIENT_CONFIG", null)
                     commit("SET_CSRF_TOKEN", null)
@@ -184,6 +236,7 @@ export default {
                 // eslint-disable-next-line no-console
                 console.warn("Failed to notify API about logout", error)
             } finally {
+                setSessionHint(false)
                 commit("RESET_STATE")
                 commit("SET_INITIALIZED", true)
                 applyRuntimeConfig()

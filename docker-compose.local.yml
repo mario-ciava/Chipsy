@@ -100,7 +100,8 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       API_PROXY_TARGET: http://api:8082
-      VUE_APP_API_BASE_URL: http://localhost:8080/api
+      VUE_APP_API_BASE_URL: http://localhost:8080/api/v1
+      VUE_APP_DISCORD_REDIRECT: http://localhost:8080
     volumes:
       - .:/workspace
       - panel_node_modules:/workspace/node_modules

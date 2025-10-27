@@ -104,7 +104,26 @@ const createCacheClient = async(config = {}) => {
 
         const del = async(key) => client.del(key)
 
-        const reset = async() => client.flushAll()
+        const reset = async() => {
+            try {
+                await client.flushDb()
+            } catch (flushError) {
+                warn("Redis flushDb failed - falling back to namespace scan", {
+                    scope: "cache",
+                    message: flushError.message
+                })
+                let cursor = 0
+                do {
+                    // eslint-disable-next-line no-await-in-loop
+                    const [nextCursor, keys] = await client.scan(cursor, { MATCH: "*", COUNT: 500 })
+                    cursor = Number(nextCursor)
+                    if (Array.isArray(keys) && keys.length) {
+                        // eslint-disable-next-line no-await-in-loop
+                        await client.del(...keys)
+                    }
+                } while (cursor !== 0)
+            }
+        }
 
         return {
             type: "redis",

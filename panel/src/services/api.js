@@ -1,8 +1,8 @@
 import axios from "axios"
 import { getRuntimeOrigin } from "../utils/runtime"
 
-// Fallback is constants.urls.vueDevLocal + '/api'; assume the Vue dev proxy otherwise.
-const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || "http://localhost:8080/api"
+// Fallback è runtime origin + '/api/v1' per evitare hardcode su localhost
+const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || `${getRuntimeOrigin()}/api/v1`
 
 // Timeout loosely mirrors constants.server.sessionMaxAge, because axios needs a number anyway.
 const DEFAULT_TIMEOUT = 15000
@@ -40,11 +40,27 @@ const withCsrf = (csrfToken, headers = {}) => {
 }
 
 const api = {
-    async exchangeCode(code) {
+    async getOAuthState(redirectUri) {
+        const params = {}
+        if (redirectUri) {
+            params.redirectUri = redirectUri
+        }
+        const response = await http.get("/auth/state", { params })
+        return response.data
+    },
+
+    async exchangeCode(code, state) {
         const origin = getRuntimeOrigin()
+        const params = {}
+        if (code) {
+            params.code = code
+        }
+        if (state) {
+            params.state = state
+        }
         const response = await http.get("/auth", {
+            params,
             headers: {
-                code,
                 "x-redirect-origin": origin
             }
         })
@@ -57,7 +73,7 @@ const api = {
     },
 
     async getClientConfig() {
-        const response = await http.get("/client")
+        const response = await http.get("/admin/client")
         return response.data
     },
 
@@ -329,6 +345,45 @@ const api = {
         const response = await http.delete("/admin/logs/cleanup", {
             headers: withCsrf(csrfToken)
         })
+        return response.data
+    },
+
+    async getLeaderboardTop({ metric, limit } = {}) {
+        const params = {}
+        if (metric) {
+            params.metric = metric
+        }
+        if (limit) {
+            params.limit = limit
+        }
+        const response = await http.get("/leaderboard/top", { params })
+        return response.data
+    },
+
+    async listLeaderboard({ metric, page, pageSize, search } = {}) {
+        const params = {}
+        if (metric) {
+            params.metric = metric
+        }
+        if (page) {
+            params.page = page
+        }
+        if (pageSize) {
+            params.pageSize = pageSize
+        }
+        if (typeof search === "string" && search.trim()) {
+            params.search = search.trim()
+        }
+        const response = await http.get("/leaderboard", { params })
+        return response.data
+    },
+
+    async getLeaderboardMe({ metric } = {}) {
+        const params = {}
+        if (metric) {
+            params.metric = metric
+        }
+        const response = await http.get("/leaderboard/me", { params })
         return response.data
     }
 }

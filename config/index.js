@@ -5,6 +5,7 @@ const { z } = require("zod")
 const uiTheme = require("./uiTheme")
 const marketingContent = require("./marketingContent")
 const userDetailLayout = require("./userDetailLayout")
+const communityConfig = require("./community")
 
 const projectRoot = path.resolve(__dirname, "..")
 
@@ -241,6 +242,113 @@ const designTokens = Object.freeze({
     roleBadges
 })
 
+const leaderboardConfig = Object.freeze({
+    defaultMetric: "net-profit",
+    entries: 10,
+    maxEntries: 25,
+    podiumSize: 3,
+    interactionTimeoutMs: 3 * 60 * 1000,
+    cache: Object.freeze({
+        table: "leaderboard_cache",
+        hydrateBatchSize: 250,
+        staleAfterMs: 10 * 60 * 1000
+    }),
+    access: Object.freeze({
+        requireAuthForSearch: true,
+        maskWinRateWhenPublic: true,
+        maskHandsWhenPublic: true
+    }),
+    highlight: Object.freeze({
+        glowColor: uiTheme.colors.highlight,
+        podiumIcons: Object.freeze(["🥇", "🥈", "🥉"]),
+        listIcon: "➤"
+    }),
+    activity: Object.freeze({
+        highlightDays: 7,
+        dormantDays: 30,
+        lastPlayedFreshHours: 12
+    }),
+    winRate: Object.freeze({
+        minHands: 25,
+        decimals: 2,
+        activityHalfLifeDays: 10
+    }),
+    privacy: Object.freeze({
+        hidePrivateBalances: true
+    }),
+    metrics: Object.freeze([
+        Object.freeze({
+            id: "net-profit",
+            label: "Net Winnings",
+            icon: "💼",
+            description: "Players ranked by their cumulative winnings earned at the tables.",
+            type: "currency",
+            valueSuffix: "net win",
+            valueKey: Object.freeze(["net_profit", "net_winnings"])
+        }),
+        Object.freeze({
+            id: "chips",
+            label: "Current Chips",
+            icon: "🎲",
+            description: "Live bankroll without subtracting the starter stack.",
+            type: "currency",
+            valueKey: "money"
+        }),
+        Object.freeze({
+            id: "win-rate",
+            label: "Win Rate",
+            icon: "🎯",
+            description: "Ranking players by consistency. Requires enough recorded hands.",
+            type: "percentage",
+            valueSuffix: "WR",
+            valueKey: "win_rate"
+        })
+    ]),
+    sparkline: Object.freeze({
+        symbols: "▁▂▃▄▅▆▇█",
+        points: 5
+    }),
+    trend: Object.freeze({
+        activityHalfLifeDays: 10,
+        fallbackSymbol: "━",
+        upColor: uiTheme.colors.success,
+        downColor: uiTheme.colors.warning,
+        idleColor: uiTheme.colors.secondary
+    }),
+    tokens: Object.freeze({
+        card: Object.freeze({
+            background: "rgba(12, 20, 38, 0.92)",
+            border: "rgba(99, 102, 241, 0.35)",
+            glow: "rgba(14, 165, 233, 0.12)"
+        }),
+        podium: Object.freeze([
+            Object.freeze({ ring: "#fbbf24", accent: "#fde68a", contrast: "#0f172a" }),
+            Object.freeze({ ring: "#94a3b8", accent: "#cbd5f5", contrast: "#0f172a" }),
+            Object.freeze({ ring: "#fb923c", accent: "#fed7aa", contrast: "#0f172a" })
+        ]),
+        badges: Object.freeze({
+            default: Object.freeze({ background: "rgba(15, 23, 42, 0.85)", color: "#e2e8f0" }),
+            active: Object.freeze({ background: "rgba(52, 211, 153, 0.16)", color: "#34d399" }),
+            dormant: Object.freeze({ background: "rgba(248, 113, 113, 0.12)", color: "#f87171" })
+        }),
+        rows: Object.freeze({
+            hover: "rgba(15, 23, 42, 0.65)",
+            divider: "rgba(148, 163, 184, 0.12)"
+        })
+    }),
+    links: Object.freeze({
+        full: "/leaderboard"
+    }),
+    cta: Object.freeze({
+        label: "View Full Leaderboard",
+        emoji: "🔐"
+    }),
+    emptyState: Object.freeze({
+        title: "Leaderboard warming up",
+        description: "Once players start competing, rankings will appear here."
+    })
+})
+
 const constants = {
     timeouts: {
         serverShutdown: 15000,
@@ -271,6 +379,7 @@ const constants = {
             hands_won: 0,
             biggest_won: 0,
             biggest_bet: 0,
+            net_winnings: 0,
             withholding_upgrade: 0,
             reward_amount_upgrade: 0,
             reward_time_upgrade: 0
@@ -570,6 +679,8 @@ const config = {
             }
         }
     },
+    leaderboard: leaderboardConfig,
+    community: communityConfig,
     marketing: marketingContent,
     security: securityConfig,
     blackjack: {
@@ -696,6 +807,36 @@ const config = {
         long: {
             default: 5000,
             allowedRange: { min: 2000, max: 15000 }
+        }
+    },
+    probabilities: {
+        shared: {
+            yieldEvery: 200,
+            telemetrySampleWindow: 20
+        },
+        texas: {
+            samples: {
+                default: 1200,
+                min: 150,
+                max: 6000
+            },
+            chunkSize: 150,
+            minPlayers: 2
+        },
+        blackjack: {
+            samples: {
+                default: 900,
+                min: 150,
+                max: 5000
+            },
+            chunkSize: 120,
+            playerStrategy: {
+                standOnValue: 17,
+                hitSoft17: true
+            },
+            dealer: {
+                hitSoft17: false
+            }
         }
     },
     cards: {

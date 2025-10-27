@@ -17,7 +17,7 @@
                         <button
                             type="button"
                             class="chip-btn chip-btn-secondary w-full justify-center"
-                            :disabled="launching"
+                            :disabled="launching || !authReady"
                             @click="openAuth"
                         >
                             <span v-if="launching" class="chip-spinner mr-2"></span>
@@ -32,6 +32,9 @@
                         </button>
                         <p class="chip-field-hint text-center text-slate-400">
                             We&apos;ll launch Discord automatically, but you can retry manually if it doesn&apos;t open.
+                        </p>
+                        <p v-if="oauthError" class="chip-notice chip-notice-warning text-center text-sm">
+                            {{ oauthError }}
                         </p>
                     </template>
                     <p v-else class="chip-notice chip-notice-warning text-center text-sm">
@@ -71,6 +74,7 @@
 </template>
 
 <script>
+import api from "../../services/api"
 import { getRuntimeOrigin, rememberPostLoginRoute } from "../../utils/runtime"
 
 export default {
@@ -79,6 +83,10 @@ export default {
         return {
             launching: false,
             autoLaunchTimer: null,
+            oauthState: null,
+            oauthRedirect: null,
+            oauthError: null,
+            fetchingState: false,
             loginSteps: [
                 {
                     title: "Grant Chipsy visibility",
@@ -100,19 +108,31 @@ export default {
             return process.env.VUE_APP_DISCORD_CLIENT_ID
         },
         redirectTarget() {
-            return getRuntimeOrigin()
+            return this.oauthRedirect || getRuntimeOrigin()
         },
         redirectUri() {
-            return encodeURIComponent(this.redirectTarget)
+            return this.redirectTarget
         },
         authUrl() {
             const base = "https://discordapp.com/api/oauth2/authorize"
-            return `${base}?client_id=${this.clientId}&redirect_uri=${this.redirectUri}&response_type=code&scope=identify%20guilds`
+            const params = new URLSearchParams({
+                client_id: this.clientId,
+                redirect_uri: this.redirectUri,
+                response_type: "code",
+                scope: "identify guilds"
+            })
+            if (this.oauthState) {
+                params.set("state", this.oauthState)
+            }
+            return `${base}?${params.toString()}`
+        },
+        authReady() {
+            return Boolean(this.oauthState)
         }
     },
     mounted() {
         if (this.clientId) {
-            this.scheduleAutoLaunch()
+            this.bootstrapOAuthState()
         }
         if (this.$route?.query?.redirect) {
             rememberPostLoginRoute(this.$route.query.redirect)
@@ -125,9 +145,31 @@ export default {
         }
     },
     methods: {
+        async bootstrapOAuthState() {
+            if (!this.clientId) return
+            this.fetchingState = true
+            this.oauthError = null
+            try {
+                const payload = await api.getOAuthState(this.redirectTarget)
+                this.oauthState = payload?.state || null
+                this.oauthRedirect = payload?.redirectUri || this.redirectTarget
+                if (this.oauthState) {
+                    this.scheduleAutoLaunch()
+                }
+            } catch (error) {
+                this.oauthError = "Unable to initialize Discord OAuth. Retry later."
+                // eslint-disable-next-line no-console
+                console.error("Failed to obtain OAuth state", error)
+            } finally {
+                this.fetchingState = false
+            }
+        },
         scheduleAutoLaunch() {
             if (this.autoLaunchTimer) {
                 clearTimeout(this.autoLaunchTimer)
+            }
+            if (!this.authReady) {
+                return
             }
             this.autoLaunchTimer = setTimeout(() => {
                 if (!this.launching) {
@@ -135,13 +177,20 @@ export default {
                 }
             }, 250)
         },
-        openAuth() {
+        async openAuth() {
             if (!this.clientId) {
                 // eslint-disable-next-line no-console
                 console.error("Missing VUE_APP_DISCORD_CLIENT_ID environment variable.")
                 return
             }
             if (this.launching) {
+                return
+            }
+            if (!this.authReady && !this.fetchingState) {
+                await this.bootstrapOAuthState()
+            }
+            if (!this.authReady) {
+                this.oauthError = this.oauthError || "Discord login is not ready yet."
                 return
             }
             rememberPostLoginRoute(this.$route?.query?.redirect || "/")

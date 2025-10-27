@@ -2,6 +2,11 @@ const express = require("express")
 const { ROLES } = require("../services/accessControlService")
 const { userSchemas, validate } = require("../validation/schemas")
 const { constants } = require("../../config")
+const { buildAccessPayload } = require("../../shared/mappers/accessMapper")
+const {
+    createUserSummaryMapper,
+    buildStatsUpdatePayload
+} = require("../../shared/mappers/userMapper")
 
 const SESSION_EXPIRED_MESSAGE = constants.messages?.sessionExpired
     || "401: Session expired. Please log in again."
@@ -18,6 +23,7 @@ const createUsersRouter = (dependencies) => {
     } = dependencies
 
     const router = express.Router()
+    const resolvedOwnerId = ownerIdOverride || client.config?.ownerid
 
     const ensureAuthenticated = (req, res) => {
         if (!getAccessToken(req)) {
@@ -82,21 +88,6 @@ const createUsersRouter = (dependencies) => {
         return true
     }
 
-    const buildAccessPayload = (userId, accessRecord) => {
-        const ownerId = ownerIdOverride || client.config?.ownerid
-        const isOwner = ownerId && userId === ownerId
-
-        const role = accessRecord?.role
-            || (isOwner ? ROLES.MASTER : ROLES.USER)
-
-        return {
-            role,
-            isBlacklisted: Boolean(accessRecord?.isBlacklisted),
-            isWhitelisted: isOwner ? true : Boolean(accessRecord?.isWhitelisted),
-            updatedAt: accessRecord?.updatedAt || null
-        }
-    }
-
     const resolveUsernameFallback = async(id) => {
         if (!id) return null
         const cached = client.users?.cache?.get?.(id)
@@ -130,135 +121,32 @@ const createUsersRouter = (dependencies) => {
         return resolveUsernameFallback(id)
     }
 
-    const toUserSummary = async(user, accessRecord) => {
-        if (!user) return null
-        const handsPlayed = Number(user.hands_played || 0)
-        const handsWon = Number(user.hands_won || 0)
-        const winRate = handsPlayed > 0 ? Number(((handsWon / handsPlayed) * 100).toFixed(2)) : 0
-        const accessPayload = buildAccessPayload(user.id, accessRecord)
-
-        return {
-            id: user.id,
-            username: await resolveUsername(user.id),
-            money: user.money,
-            gold: user.gold,
-            level: user.level,
-            currentExp: user.current_exp,
-            requiredExp: user.required_exp,
-            handsPlayed,
-            handsWon,
-            winRate,
-            biggestWon: user.biggest_won,
-            biggestBet: user.biggest_bet,
-            withholdingUpgrade: user.withholding_upgrade,
-            rewardAmountUpgrade: user.reward_amount_upgrade,
-            rewardTimeUpgrade: user.reward_time_upgrade,
-            nextReward: user.next_reward,
-            lastPlayed: user.last_played,
-            panelRole: accessPayload.role,
-            access: accessPayload
-        }
-    }
-
-    const MAX_NAME_MATCHES = 50
-
-    const collectNameCandidates = (userLike) => {
-        if (!userLike) return []
-        const source = userLike.user || userLike
-        const values = [
-            userLike.tag,
-            userLike.username,
-            userLike.globalName,
-            userLike.displayName,
-            userLike.nickname,
-            source?.tag,
-            source?.username,
-            source?.globalName,
-            source?.displayName
-        ]
-
-        if (source?.username && typeof source?.discriminator !== "undefined") {
-            values.push(`${source.username}#${source.discriminator}`)
-        }
-
-        return values.filter(Boolean)
-    }
-
-    const lookupUserIdsByNameLocal = (query) => {
-        if (!query || typeof query !== "string") return []
-        const normalized = query.trim().toLowerCase()
-        if (!normalized) return []
-
-        const matches = new Set()
-
-        const checkCandidate = (candidate) => {
-            if (matches.size >= MAX_NAME_MATCHES) {
-                return
-            }
-            if (!candidate) return
-            const names = collectNameCandidates(candidate)
-            const hasMatch = names.some((value) => typeof value === "string" && value.toLowerCase().includes(normalized))
-            if (hasMatch) {
-                const id = candidate.id || candidate.user?.id
-                if (id) {
-                    matches.add(id)
-                }
-            }
-        }
-
-        const visitCache = (cache, extractor = (entry) => entry) => {
-            if (matches.size >= MAX_NAME_MATCHES || !cache) {
-                return
-            }
-            if (typeof cache.values === "function") {
-                for (const value of cache.values()) {
-                    if (matches.size >= MAX_NAME_MATCHES) {
-                        break
-                    }
-                    checkCandidate(extractor(value))
-                }
-                return
-            }
-            if (typeof cache.forEach === "function") {
-                cache.forEach((value) => {
-                    if (matches.size >= MAX_NAME_MATCHES) {
-                        return
-                    }
-                    checkCandidate(extractor(value))
-                })
-                return
-            }
-            if (Array.isArray(cache)) {
-                for (const value of cache) {
-                    if (matches.size >= MAX_NAME_MATCHES) {
-                        break
-                    }
-                    checkCandidate(extractor(value))
-                }
-            }
-        }
-
-        visitCache(client?.users?.cache)
-        visitCache(client?.guilds?.cache, (guild) => {
-            if (!guild?.members?.cache) return null
-            const members = []
-            guild.members.cache.forEach((member) => members.push(member))
-            members.forEach((member) => {
-                checkCandidate(member)
-                if (member?.user) {
-                    checkCandidate(member.user)
-                }
-            })
-            return null
+    const mapUserSummary = createUserSummaryMapper({
+        resolveUsername,
+        ownerId: resolvedOwnerId,
+        buildAccessPayload: ({ userId, accessRecord }) => buildAccessPayload({
+            userId,
+            ownerId: resolvedOwnerId,
+            accessRecord
         })
+    })
 
-        return Array.from(matches)
-    }
     const lookupUserIdsByName = async(query) => {
-        if (discordDirectory?.lookupUserIdsByName) {
-            return discordDirectory.lookupUserIdsByName(query)
+        if (!query || typeof query !== "string") {
+            return []
         }
-        return lookupUserIdsByNameLocal(query)
+        if (discordDirectory?.lookupUserIdsByName) {
+            try {
+                return await discordDirectory.lookupUserIdsByName(query)
+            } catch (error) {
+                client?.logger?.warn?.("User lookup failed via directory", {
+                    scope: "users",
+                    query,
+                    message: error.message
+                })
+            }
+        }
+        return []
     }
 
     const activityToDays = (value) => {
@@ -318,7 +206,7 @@ const createUsersRouter = (dependencies) => {
             }
 
             res.status(200).json({
-                items: await Promise.all(result.items.map((item) => toUserSummary(item, accessMap.get(item.id)))),
+                items: await Promise.all(result.items.map((item) => mapUserSummary(item, accessMap.get(item.id)))),
                 pagination: result.pagination
             })
         } catch (error) {
@@ -396,7 +284,7 @@ const createUsersRouter = (dependencies) => {
                 accessRecord = await accessControl.getAccessRecord(userId)
             }
 
-            res.status(200).json(await toUserSummary(user, accessRecord))
+            res.status(200).json(await mapUserSummary(user, accessRecord))
         } catch (error) {
             next(error)
         }
@@ -419,7 +307,11 @@ const createUsersRouter = (dependencies) => {
                 nextRole: desiredRole
             })
 
-            const access = buildAccessPayload(userId, updated)
+            const access = buildAccessPayload({
+                userId,
+                ownerId: resolvedOwnerId,
+                accessRecord: updated
+            })
             res.status(200).json({
                 role: access.role,
                 access
@@ -457,7 +349,11 @@ const createUsersRouter = (dependencies) => {
                 isWhitelisted
             })
 
-            const access = buildAccessPayload(userId, updated)
+            const access = buildAccessPayload({
+                userId,
+                ownerId: resolvedOwnerId,
+                accessRecord: updated
+            })
             res.status(200).json(access)
         } catch (error) {
             if (error.status) {
@@ -480,13 +376,7 @@ const createUsersRouter = (dependencies) => {
                 return res.status(404).json({ message: "404: User not found" })
             }
 
-            const { level, currentExp, money, gold } = req.body
-            const updatePayload = {
-                level,
-                current_exp: currentExp,
-                money,
-                gold
-            }
+            const updatePayload = buildStatsUpdatePayload(req.body)
 
             const updated = await dataHandler.updateUserData(userId, updatePayload)
             let accessRecord = null
@@ -494,7 +384,7 @@ const createUsersRouter = (dependencies) => {
                 accessRecord = await accessControl.getAccessRecord(userId)
             }
 
-            const summary = await toUserSummary(updated, accessRecord)
+            const summary = await mapUserSummary(updated, accessRecord)
             res.status(200).json(summary)
         } catch (error) {
             next(error)

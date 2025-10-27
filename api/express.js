@@ -14,7 +14,8 @@ const { notFoundHandler, errorHandler } = require("./middleware/errorHandler")
 const createAuthRouter = require("./routes/auth")
 const createUsersRouter = require("./routes/users")
 const createHealthRouter = require("./routes/health")
-const createEnhancedAdminRouter = require("./routes/adminEnhanced")
+const createAdminRouter = require("./routes/admin")
+const createLeaderboardRouter = require("./routes/leaderboard")
 const createStatusWebSocketServer = require("./websocket/statusServer")
 const createTokenCache = require("./utils/tokenCache")
 const { buildPermissionMatrix } = require("./services/accessControlService")
@@ -94,9 +95,16 @@ module.exports = (client, webSocket, options = {}) => {
 
     const app = express()
     app.disable("x-powered-by")
-    const apiRouter = express.Router()
     const v1Router = express.Router()
-    const legacyRouter = express.Router()
+    const deriveClientSignature = (req) => ({
+        ip: (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim(),
+        userAgent: req.get("user-agent") || "unknown"
+    })
+
+    const createTokenBinding = (req) => ({
+        ...deriveClientSignature(req),
+        mismatchCount: 0
+    })
     const tokenCache = createTokenCache({
         ttlMs: Number(process.env.TOKEN_CACHE_TTL_MS) || constants.server.tokenCacheTtlMs,
         maxEntries: Number(process.env.TOKEN_CACHE_MAX_ENTRIES) || constants.server.tokenCacheMaxEntries
@@ -205,7 +213,8 @@ module.exports = (client, webSocket, options = {}) => {
         )
     }
 
-    app.use(session(sessionConfig))
+    const sessionMiddleware = session(sessionConfig)
+    app.use(sessionMiddleware)
 
     const ensureCsrfToken = (req) => {
         if (!req.session) return null
@@ -274,13 +283,53 @@ module.exports = (client, webSocket, options = {}) => {
         return buildPermissionMatrix(user.role)
     }
 
+    const resolveTokenBinding = (req, token) => {
+        if (!token) return null
+        const entry = tokenCache.get(token)
+        if (!entry) {
+            return null
+        }
+        const payload = entry.user ? entry.user : entry
+        if (!entry.binding) {
+            return payload
+        }
+
+        const signature = deriveClientSignature(req)
+        const ipMatches = entry.binding.ip === signature.ip
+        const agentMatches = entry.binding.userAgent === signature.userAgent
+
+        if (ipMatches && agentMatches) {
+            entry.binding.mismatchCount = 0
+            return payload
+        }
+
+        entry.binding.mismatchCount = (entry.binding.mismatchCount || 0) + 1
+        structuredLogger.warn("Token binding mismatch detected", {
+            scope: "auth",
+            requestId: req.requestId,
+            userId: payload?.id,
+            mismatchCount: entry.binding.mismatchCount
+        })
+
+        if (entry.binding.mismatchCount >= 2) {
+            tokenCache.delete(token)
+            structuredLogger.warn("Token invalidated after repeated binding mismatches", {
+                scope: "auth",
+                requestId: req.requestId,
+                userId: payload?.id
+            })
+        }
+
+        return null
+    }
+
     app.use((req, res, next) => {
         const sessionUser = req.session?.user
 
         if (sessionUser) {
             req.user = sessionUser
         } else if (req.headers.token) {
-            const cachedUser = tokenCache.get(req.headers.token)
+            const cachedUser = resolveTokenBinding(req, req.headers.token)
             if (cachedUser) {
                 req.user = cachedUser
             }
@@ -309,7 +358,7 @@ module.exports = (client, webSocket, options = {}) => {
     // Global rate limiting
     const limiterMiddleware = rateLimiter === undefined ? globalLimiter : rateLimiter
     if (limiterMiddleware) {
-        app.use("/api", limiterMiddleware)
+        app.use("/api/v1", limiterMiddleware)
     }
 
     const clientCredentials = Buffer.from(`${client.config.id}:${client.config.secret}`).toString("base64")
@@ -341,14 +390,14 @@ module.exports = (client, webSocket, options = {}) => {
         accessControl,
         dataHandler,
         guildDirectory: discordDirectory,
-        ownerId: client.config?.ownerid
+        ownerId: client.config?.ownerid,
+        createTokenBinding
     })
 
     // Auth router (auth rate limiting applied in auth router itself)
     v1Router.use("/", authRouter)
-    legacyRouter.use("/", authRouter)
 
-    const { router: adminRouter, handlers: adminHandlers, middleware: adminMiddleware } = createEnhancedAdminRouter({
+    const { router: adminRouter, handlers: adminHandlers } = createAdminRouter({
         client,
         webSocket,
         requireCsrfToken,
@@ -364,20 +413,6 @@ module.exports = (client, webSocket, options = {}) => {
 
     // All admin endpoints are under /admin prefix
     v1Router.use("/admin", adminRouter)
-    legacyRouter.use("/admin", adminRouter)
-
-    // Backwards compatibility for legacy /api/client endpoint
-    if (adminHandlers?.getClient) {
-        legacyRouter.get("/client", adminHandlers.getClient)
-    }
-
-    if (adminHandlers?.turnOff) {
-        legacyRouter.post("/turnoff", requireCsrfToken, adminHandlers.turnOff)
-    }
-
-    if (adminHandlers?.turnOn) {
-        legacyRouter.post("/turnon", requireCsrfToken, adminHandlers.turnOn)
-    }
 
     const usersRouter = createUsersRouter({
         client,
@@ -390,7 +425,13 @@ module.exports = (client, webSocket, options = {}) => {
     })
 
     v1Router.use("/users", usersRouter)
-    legacyRouter.use("/users", usersRouter)
+
+    const leaderboardRouter = createLeaderboardRouter({
+        dataHandler,
+        discordDirectory
+    })
+
+    v1Router.use("/leaderboard", leaderboardRouter)
 
     const { router: healthRouter } = createHealthRouter({
         client,
@@ -400,15 +441,8 @@ module.exports = (client, webSocket, options = {}) => {
 
     // Health check endpoints (no rate limiting, no auth)
     v1Router.use("/health", healthRouter)
-    apiRouter.use("/health", healthRouter)
+    app.use("/api/v1", v1Router)
 
-    apiRouter.use("/v1", v1Router)
-
-    if (legacyRouter.stack.length > 0) {
-        apiRouter.use("/", legacyRouter)
-    }
-
-    app.use("/api", apiRouter)
 
     // Serve static files from the Vue build output (panel/dist)
     const publicPath = path.join(__dirname, "../panel/dist")
@@ -422,7 +456,7 @@ module.exports = (client, webSocket, options = {}) => {
         // SPA fallback - serve index.html for all non-API routes (Vue Router history mode)
         app.get("*", (req, res, next) => {
             // Skip API routes
-            if (req.path.startsWith("/api")) {
+            if (req.path.startsWith("/api/v1")) {
                 return next()
             }
             // Serve index.html for all other routes
@@ -455,7 +489,8 @@ module.exports = (client, webSocket, options = {}) => {
                 server: httpServer,
                 webSocketEmitter: webSocket,
                 statusService,
-                path: options.webSocketPath
+                path: options.webSocketPath,
+                sessionMiddleware
             })
             structuredLogger.info("WebSocket bridge initialized", { scope: "server" })
         } catch (error) {

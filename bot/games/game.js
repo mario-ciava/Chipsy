@@ -2,6 +2,7 @@ const Discord = require("discord.js")
 const setSeparator = require("../utils/setSeparator")
 const cards = require("./cards.js")
 const features = require("./features.js")
+const { probabilityEngine } = require("../../shared/probability")
 const { calculateRequiredExp, normalizeUserExperience } = require("../utils/experience")
 module.exports = class Game {
     constructor(info) {
@@ -30,6 +31,9 @@ module.exports = class Game {
             createdAt: new Date().toISOString(),
             type: (this.constructor?.name || "game").replace(/Game$/i, "").toLowerCase()
         }
+        this.probabilityEngine = probabilityEngine
+        this.probabilitySnapshot = null
+        this.probabilitySequence = 0
     }
 
     async Rotate(item, n) {
@@ -131,6 +135,30 @@ module.exports = class Game {
                 timestamp: new Date().toISOString()
             }
         })
+    }
+
+    getProbabilityEngine() {
+        return this.probabilityEngine
+    }
+
+    setProbabilitySnapshot(kind, payload = {}) {
+        const snapshot = {
+            type: kind,
+            updatedAt: payload?.updatedAt || new Date().toISOString(),
+            ...payload
+        }
+        this.probabilitySnapshot = snapshot
+        this.setRemoteMeta({ probabilities: snapshot })
+        return snapshot
+    }
+
+    clearProbabilitySnapshot() {
+        this.probabilitySnapshot = null
+        this.setRemoteMeta({ probabilities: null })
+    }
+
+    getProbabilitySnapshot() {
+        return this.probabilitySnapshot
     }
 
 }

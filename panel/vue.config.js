@@ -11,14 +11,26 @@ const HMR_SOCKET_PATH = process.env.HMR_SOCKET_PATH || "/__hmr_panel"
 module.exports = defineConfig({
   transpileDependencies: true,
 
+  chainWebpack: (config) => {
+    if (!config.resolve.extensions.has(".ts")) {
+      config.resolve.extensions.add(".ts")
+    }
+    config.module
+      .rule("ts")
+      .test(/\.ts$/)
+      .use("babel-loader")
+      .loader("babel-loader")
+      .end()
+  },
+
   // Development server configuration
   devServer: {
     port: VUE_DEV_PORT, // Pannello Vue su porta 8080 in sviluppo (sync con constants.ports.vueDev)
 
     // Proxy API calls and WebSocket to the bot server
     proxy: {
-      '/api': {
-        target: BOT_API_URL, // Sync con constants.ports.botApi
+      '/api/v1': {
+        target: BOT_API_URL,
         changeOrigin: true,
         ws: true,
         logLevel: 'warn'

@@ -67,13 +67,69 @@ module.exports = createCommand({
         }
 
         const amount = await features.applyUpgrades("reward-amount", profile.reward_amount_upgrade)
-        profile.money += amount
-
         const cooldownHours = await features.applyUpgrades("reward-time", profile.reward_time_upgrade)
         const cooldownMs = Math.max(60 * 60 * 1000, Math.floor(cooldownHours * 60 * 60 * 1000))
-        profile.next_reward = new Date(now + cooldownMs)
 
-        await dataHandler.updateUserData(author.id, dataHandler.resolveDBUser(author))
+        let redemption = null
+        if (typeof dataHandler.redeemReward === "function") {
+            redemption = await dataHandler.redeemReward(author.id, {
+                amount,
+                cooldownMs,
+                now: new Date(now)
+            })
+        } else {
+            const nextRewardDate = new Date(now + cooldownMs)
+            profile.money = (profile.money || 0) + amount
+            profile.next_reward = nextRewardDate
+
+            const payload = typeof dataHandler.resolveDBUser === "function"
+                ? dataHandler.resolveDBUser(author)
+                : { money: profile.money, gold: profile.gold }
+
+            await dataHandler.updateUserData(author.id, {
+                money: payload.money,
+                gold: payload.gold
+            })
+
+            redemption = {
+                ok: true,
+                data: {
+                    ...profile
+                }
+            }
+        }
+
+        if (!redemption) {
+            throw new Error("Reward redemption service unavailable.")
+        }
+
+        if (!redemption.ok) {
+            if (redemption.reason === "cooldown") {
+                const nextAvailable = redemption.nextReward || rewardDate
+                const embed = new EmbedBuilder()
+                    .setColor(Colors.Red)
+                    .addFields({
+                        name: "Too soon!",
+                        value: `${author}, you cannot redeem your reward yet. Please come back later.`
+                    })
+                    .setFooter({
+                        text: nextAvailable ? `Next reward: ${nextAvailable.toString()}` : undefined,
+                        iconURL: author.displayAvatarURL({ extension: "png" })
+                    })
+                await respond({ embeds: [embed] })
+                return
+            }
+
+            await respond({
+                content: "❌ Unable to process your reward right now. Please try again later.",
+                flags: MessageFlags.Ephemeral
+            })
+            return
+        }
+
+        if (redemption.data) {
+            author.data = redemption.data
+        }
 
         const embed = new EmbedBuilder()
             .setColor(Colors.Green)

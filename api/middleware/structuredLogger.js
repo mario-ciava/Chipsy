@@ -61,7 +61,7 @@ logger.add(new winston.transports.Console({
     level: LOG_LEVEL
 }))
 
-const SKIP_PATHS = new Set(["/api/health", "/health", "/favicon.ico"])
+const SKIP_PATHS = new Set(["/api/v1/health", "/health", "/favicon.ico"])
 const SKIP_PREFIXES = ["/__webpack", "/sockjs", "/static/", "/assets/"]
 const isProduction = process.env.NODE_ENV === "production"
 

@@ -2,6 +2,13 @@ const express = require("express")
 const { logger } = require("../middleware/structuredLogger")
 const { constants } = require("../../config")
 const createAdminServiceFactory = require("../../shared/services/adminService")
+const { adminSchemas, validate } = require("../validation/schemas")
+const {
+    adminReadLimiter,
+    adminWriteLimiter,
+    criticalActionLimiter,
+    logWriteLimiter
+} = require("../middleware/rateLimiter")
 
 const SESSION_EXPIRED_MESSAGE = constants.messages?.sessionExpired
     || "401: Session expired. Please log in again."
@@ -72,6 +79,18 @@ const createAdminRouter = (dependencies) => {
         return true
     }
 
+    const auditAdminAction = (req, action, meta = {}) => {
+        logger.info("Admin action executed", {
+            scope: "admin-audit",
+            action,
+            actorId: req.user?.id || null,
+            actorRole: req.user?.role || null,
+            guildId: meta.guildId || null,
+            tableId: meta.tableId || null,
+            targetId: meta.targetId || null
+        })
+    }
+
     const handleGetStatus = async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         try {
@@ -91,6 +110,7 @@ const createAdminRouter = (dependencies) => {
 
         try {
             const status = await resolvedAdminService.setBotEnabled(enabled, { actor: req.user?.id, reason: "admin:toggle" })
+            auditAdminAction(req, enabled ? "bot-enable" : "bot-disable")
             return res.status(200).json(status)
         } catch (error) {
             return respondWithServiceError(error, res, next)
@@ -126,6 +146,7 @@ const createAdminRouter = (dependencies) => {
         if (!ensurePanelAdmin(req, res)) return
         try {
             const status = await resolvedAdminService.setBotEnabled(false, { actor: req.user?.id, reason: "admin:turnoff" })
+            auditAdminAction(req, "bot-turnoff")
             res.status(200).json({ message: "200: OK", status })
         } catch (error) {
             respondWithServiceError(error, res, next)
@@ -136,20 +157,27 @@ const createAdminRouter = (dependencies) => {
         if (!ensurePanelAdmin(req, res)) return
         try {
             const status = await resolvedAdminService.setBotEnabled(true, { actor: req.user?.id, reason: "admin:turnon" })
+            auditAdminAction(req, "bot-turnon")
             res.status(200).json({ message: "200: OK", status })
         } catch (error) {
             respondWithServiceError(error, res, next)
         }
     }
 
-    router.get("/status", handleGetStatus)
-    router.patch("/bot", requireCsrfToken, handleBotStateChange)
-    router.get("/client", handleGetClient)
-    router.get("/guild", handleGetGuild)
-    router.post("/turnoff", requireCsrfToken, handleTurnOff)
-    router.post("/turnon", requireCsrfToken, handleTurnOn)
+    router.get("/status", adminReadLimiter, handleGetStatus)
+    router.patch(
+        "/bot",
+        criticalActionLimiter,
+        validate(adminSchemas.toggleBot, "body"),
+        requireCsrfToken,
+        handleBotStateChange
+    )
+    router.get("/client", adminReadLimiter, handleGetClient)
+    router.get("/guild", adminReadLimiter, handleGetGuild)
+    router.post("/turnoff", criticalActionLimiter, requireCsrfToken, handleTurnOff)
+    router.post("/turnon", criticalActionLimiter, requireCsrfToken, handleTurnOn)
 
-    router.get("/tables", async(req, res, next) => {
+    router.get("/tables", adminReadLimiter, async(req, res, next) => {
         if (!ensureLogsAccess(req, res)) return
         try {
             const payload = resolvedAdminService.listTables()
@@ -159,7 +187,13 @@ const createAdminRouter = (dependencies) => {
         }
     })
 
-    router.post("/tables/:tableId/actions", requireCsrfToken, async(req, res, next) => {
+    router.post(
+        "/tables/:tableId/actions",
+        adminWriteLimiter,
+        validate(adminSchemas.tableActionParams, "params"),
+        validate(adminSchemas.tableAction, "body"),
+        requireCsrfToken,
+        async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         const tableId = req.params?.tableId
         const action = req.body?.action
@@ -173,29 +207,42 @@ const createAdminRouter = (dependencies) => {
                     label: req.user?.username || null
                 }
             })
+            auditAdminAction(req, `table:${action}`, { tableId })
             res.status(200).json(result)
         } catch (error) {
             respondWithServiceError(error, res, next)
         }
     })
 
-    router.post("/guild/leave", requireCsrfToken, async(req, res, next) => {
+    router.post(
+        "/guild/leave",
+        adminWriteLimiter,
+        validate(adminSchemas.leaveGuild, "body"),
+        requireCsrfToken,
+        async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         const { id: guildId } = req.body
         try {
             await resolvedAdminService.leaveGuild(guildId, { actor: req.user?.id })
+            auditAdminAction(req, "guild-leave", { guildId })
             return res.status(200).json({ message: "200: OK" })
         } catch (error) {
             return respondWithServiceError(error, res, next)
         }
     })
 
-    router.post("/guild/invite/complete", requireCsrfToken, async(req, res, next) => {
+    router.post(
+        "/guild/invite/complete",
+        adminWriteLimiter,
+        validate(adminSchemas.completeInvite, "body"),
+        requireCsrfToken,
+        async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         const { code, guildId } = req.body
 
         try {
             const status = await resolvedAdminService.completeInvite({ code, guildId, meta: { actor: req.user?.id } })
+            auditAdminAction(req, "guild-invite-complete", { guildId })
             res.status(200).json({ status })
         } catch (error) {
             respondWithServiceError(error, res, next)
@@ -214,19 +261,20 @@ const createAdminRouter = (dependencies) => {
                 actor: req.user?.id,
                 reason: `admin:${actionId}`
             })
+            auditAdminAction(req, `remote-action:${actionId}`)
             return res.status(200).json(result)
         } catch (error) {
             return respondWithServiceError(error, res, next)
         }
     }
 
-    router.get("/actions", (req, res) => {
+    router.get("/actions", adminReadLimiter, (req, res) => {
         if (!ensurePanelAdmin(req, res)) return
         res.status(200).json(resolvedAdminService.listActions())
     })
-    router.post("/actions/:actionId", requireCsrfToken, handleExecuteAction)
+    router.post("/actions/:actionId", adminWriteLimiter, requireCsrfToken, handleExecuteAction)
 
-    router.post("/kill", requireCsrfToken, async(req, res) => {
+    router.post("/kill", criticalActionLimiter, requireCsrfToken, async(req, res) => {
         if (!ensurePanelAdmin(req, res)) return
 
         res.status(200).json({ message: "200: Bot process terminating" })
@@ -235,13 +283,19 @@ const createAdminRouter = (dependencies) => {
             scope: "admin",
             userId: req.user?.id
         })
+        auditAdminAction(req, "bot-kill")
 
         setTimeout(() => {
             process.exit(0)
         }, 1000)
     })
 
-    router.post("/logs", requireCsrfToken, async(req, res, next) => {
+    router.post(
+        "/logs",
+        logWriteLimiter,
+        validate(adminSchemas.createLog, "body"),
+        requireCsrfToken,
+        async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         const { level, message, logType, userId } = req.body
         if (!req.permissions?.canWriteLogs) {
@@ -250,13 +304,14 @@ const createAdminRouter = (dependencies) => {
 
         try {
             await resolvedAdminService.createLog({ level, message, logType, userId })
+            auditAdminAction(req, "log-create", { targetId: userId })
             res.status(201).json({ message: "201: Log saved" })
         } catch (error) {
             respondWithServiceError(error, res, next)
         }
     })
 
-    router.get("/logs", async(req, res, next) => {
+    router.get("/logs", adminReadLimiter, validate(adminSchemas.getLogs, "query"), async(req, res, next) => {
         if (!ensureLogsAccess(req, res)) return
         const { type: logType, limit, cursor } = req.query
 
@@ -268,11 +323,12 @@ const createAdminRouter = (dependencies) => {
         }
     })
 
-    router.delete("/logs/cleanup", requireCsrfToken, async(req, res, next) => {
+    router.delete("/logs/cleanup", adminWriteLimiter, requireCsrfToken, async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
 
         try {
             const result = await resolvedAdminService.cleanupLogs()
+            auditAdminAction(req, "log-cleanup")
             res.status(200).json(result)
         } catch (error) {
             respondWithServiceError(error, res, next)

@@ -44,10 +44,41 @@ module.exports = createCommand({
 
         const respond = (payload = {}) => sendInteractionResponse(interaction, payload)
 
+        const ensureProfileLoaded = async(user, { allowCreate = true } = {}) => {
+            if (!user?.id) {
+                return { error: { type: "invalid-user" } }
+            }
+
+            if (allowCreate && typeof client?.SetData === "function") {
+                return client.SetData(user)
+            }
+
+            if (!client?.dataHandler || typeof client.dataHandler.getUserData !== "function") {
+                return { error: { type: "data-handler-unavailable" } }
+            }
+
+            try {
+                const existing = await client.dataHandler.getUserData(user.id)
+                if (!existing) {
+                    return { error: { type: "not-found" } }
+                }
+                user.data = existing
+                return { data: existing, created: false }
+            } catch (error) {
+                return {
+                    error: {
+                        type: "database",
+                        message: error.message
+                    }
+                }
+            }
+        }
+
         const author = interaction.user
         const targetUser = interaction.options.getUser("user") || author
         const isViewingOther = targetUser.id !== author.id
-        const targetIsBot = targetUser?.bot || targetUser?.system
+        const profileUser = targetUser.id === author.id ? author : targetUser
+        const targetIsBot = profileUser?.bot || profileUser?.system
 
         if (!author) {
             await respond({
@@ -65,20 +96,31 @@ module.exports = createCommand({
             return
         }
 
-        // Force reload data from database to ensure freshness
-        if (client && typeof client.SetData === "function") {
-            const result = await client.SetData(targetUser)
-            if (result.error) {
-                await respond({
-                    content: `❌ Unable to load ${isViewingOther ? "that player's" : "your"} profile data. Please try again later.`,
-                    flags: MessageFlags.Ephemeral
-                })
-                return
-            }
+        const viewerProfile = await ensureProfileLoaded(author, { allowCreate: true })
+        if (viewerProfile.error) {
+            await respond({
+                content: "❌ Unable to load your profile data. Please try again later.",
+                flags: MessageFlags.Ephemeral
+            })
+            return
+        }
+
+        const targetLoad = await ensureProfileLoaded(profileUser, { allowCreate: !isViewingOther })
+        if (targetLoad?.error) {
+            const message = isViewingOther
+                ? (targetLoad.error.type === "not-found"
+                    ? "⚠️ That player has not joined Chipsy yet."
+                    : "❌ Unable to load that player's profile data. Please try again later.")
+                : "❌ Unable to load your profile data. Please try again later."
+            await respond({
+                content: message,
+                flags: MessageFlags.Ephemeral
+            })
+            return
         }
 
         // Build message - if viewing another user, don't show interactive components
-        const { embed, components } = buildProfileMessage(targetUser, { showSelectMenu: false, viewOnly: isViewingOther, showUpgrades: false })
+        const { embed, components } = buildProfileMessage(profileUser, { showSelectMenu: false, viewOnly: isViewingOther, showUpgrades: false })
         const message = await respond({ embeds: [embed], components })
 
         // Set up component collector for buttons and select menu (only if viewing own profile)
@@ -124,7 +166,7 @@ module.exports = createCommand({
                         state.showUpgrades = !state.showUpgrades
 
                         // Re-render with updated state
-                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                         try {
                             await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents })
                         } catch (error) {
@@ -197,7 +239,7 @@ module.exports = createCommand({
                         state.selectedSetting = null
 
                         // Re-render with settings menu
-                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async(error) => {
                             logComponentError("Failed to edit profile view when showing settings", { error: error?.message })
                             await componentInteraction.followUp({
@@ -230,7 +272,7 @@ module.exports = createCommand({
                         state.selectedSetting = null
 
                         // Re-render without settings menu
-                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async(error) => {
                             logComponentError("Failed to edit profile view when canceling setting", { error: error?.message })
                             await componentInteraction.followUp({
@@ -304,7 +346,7 @@ module.exports = createCommand({
                             state.showSettingsMenu = false
                             state.selectedSetting = null
 
-                            const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                            const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                             const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                                 await componentInteraction.followUp({
                                     content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}!\n\n⚠️ Profile view expired. Use \`/profile\` to see updated settings.`,
@@ -341,7 +383,7 @@ module.exports = createCommand({
                         state.selectedUpgrade = null
 
                         // Re-render with select menu
-                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                             await componentInteraction.followUp({
                                 content: "❌ This profile view is no longer available. Please use `/profile` again.",
@@ -369,7 +411,7 @@ module.exports = createCommand({
                         state.selectedUpgrade = null
 
                         // Re-render without select menu
-                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                             // Message no longer exists, notify user
                             await componentInteraction.followUp({
@@ -472,7 +514,7 @@ module.exports = createCommand({
                         state.showSelectMenu = false
                         state.selectedUpgrade = null
 
-                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(author, state)
+                        const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                         const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                             // Message no longer exists, notify user with upgrade confirmation
                             await componentInteraction.followUp({
@@ -517,10 +559,11 @@ module.exports = createCommand({
 
             collector.on("end", () => {
                 // Disable all components after collector ends
-                const disabledComponents = components.map((row) => {
+                const { components: latestComponents } = buildProfileMessage(profileUser, state)
+                const disabledComponents = latestComponents.map((row) => {
                     const newRow = ActionRowBuilder.from(row)
                     newRow.components.forEach((component) => {
-                        if (typeof component.setDisabled === 'function') {
+                        if (typeof component.setDisabled === "function") {
                             component.setDisabled(true)
                         }
                     })
@@ -557,35 +600,81 @@ function buildProfileMessage(author, state = {}) {
     const winLossRatioString = `${winLossRatio.toFixed(1)}%`
     const joinDate = new Date(data.join_date).toLocaleDateString("en-US", { day: "2-digit", month: "long", year: "numeric" })
 
-    const upgradeFields = []
+    const trimZeros = (value) => value.replace(/(\.\d*?[1-9])0+$/u, "$1").replace(/\.0+$/u, "")
+    const formatPercentageValue = (value, { showMinus = false } = {}) => {
+        if (!Number.isFinite(value) || value === 0) {
+            return "—"
+        }
+        const sign = showMinus ? "-" : "+"
+        const percent = trimZeros((Math.abs(value) * 100).toFixed(3))
+        return `${sign}${percent}%`
+    }
+    const formatCurrencyValue = (value, { prefix = "+" } = {}) => {
+        if (!Number.isFinite(value) || value === 0) {
+            return `${prefix}0$`
+        }
+        const rounded = Math.round(value)
+        return `${prefix}${setSeparator(rounded)}$`
+    }
+    const formatHoursValue = (value) => {
+        if (!Number.isFinite(value)) return "—"
+        const rounded = Number.isInteger(value) ? value : parseFloat(value.toFixed(1))
+        return `${rounded}h`
+    }
+    const resolveUpgradeValue = (upgrade, level) => {
+        const safeLevel = Math.min(level, upgrade.maxLevel)
+        let result = calculateUpgradeValue(upgrade.id, safeLevel)
+        if (upgrade.id === "withholding") {
+            result *= upgrade.blackjackMultiplier * upgrade.effectMultiplier
+        }
+        return result
+    }
+    const formatUpgradeValue = (upgrade, value) => {
+        if (!Number.isFinite(value)) return "—"
+        if (upgrade.id === "withholding") {
+            return formatPercentageValue(value, { showMinus: true })
+        }
+        if (upgrade.id === "reward_amount") {
+            return formatCurrencyValue(value, { prefix: "+" })
+        }
+        if (upgrade.id === "reward_time") {
+            return formatHoursValue(value)
+        }
+        if (typeof upgrade.format === "function") {
+            return (upgrade.formatPrefix || "") + upgrade.format(value)
+        }
+        return value.toString()
+    }
 
-    // Build upgrade fields dynamically from config
-    getAllUpgradeIds().forEach(upgradeId => {
+    const upgradeEntries = []
+
+    getAllUpgradeIds().forEach((upgradeId) => {
         const upgrade = UPGRADES[upgradeId]
         const currentLevel = data[upgrade.dbField] || 0
         const maxLevel = upgrade.maxLevel
-
-        // Calculate current value
-        let currentValue = calculateUpgradeValue(upgradeId, currentLevel)
-
-        // Special handling for withholding in blackjack context
-        if (upgradeId === 'withholding') {
-            currentValue = currentValue * upgrade.blackjackMultiplier * upgrade.effectMultiplier
-        }
+        const currentValue = resolveUpgradeValue(upgrade, currentLevel)
+        const nextValue = currentLevel < maxLevel
+            ? resolveUpgradeValue(upgrade, currentLevel + 1)
+            : null
 
         const bar = progressBar(currentLevel, maxLevel)
         const costDisplay = currentLevel < maxLevel
             ? `💰 **${setSeparator(calculateUpgradeCost(upgradeId, currentLevel))}$**`
             : "✅ **MAX LEVEL**"
 
-        // Format value based on upgrade config
-        const formattedValue = upgrade.format
-            ? (upgrade.formatPrefix || "") + upgrade.format(currentValue)
-            : currentValue
+        const nextLabel = nextValue !== null && Number.isFinite(nextValue)
+            ? `(**${formatUpgradeValue(upgrade, currentValue)}** -> **${formatUpgradeValue(upgrade, nextValue)}**)`
+            : "(**Maxed out**)"
 
-        upgradeFields.push({
-            name: `${upgrade.emoji} ${upgrade.name}`,
-            value: `${bar}\nLevel **${currentLevel}/${maxLevel}** • Current: **${formattedValue}**\nNext upgrade cost: ${costDisplay}`,
+        const lines = [
+            `${bar}\n`,
+            `⬆️ **${currentLevel}/${maxLevel}** ${nextLabel}`,
+            `${costDisplay}`
+        ]
+
+        upgradeEntries.push({
+            name: `${upgrade.name} ${upgrade.emoji}`,
+            value: lines.join("\n"),
             inline: false
         })
     })
@@ -594,10 +683,12 @@ function buildProfileMessage(author, state = {}) {
     const balancePrivate = data.bankroll_private === 1 && viewOnly
 
     const className = playerClass.getUserClass(data.money)
+    const classLabel = balancePrivate ? null : className
+    const titleSuffix = classLabel ? ` | 🔰 ${classLabel}` : ""
 
     const embed = new EmbedBuilder()
         .setColor(Colors.Gold)
-        .setTitle(`${author.username}'s Chipsy Profile | 🔰 ${className}`)
+        .setTitle(`${author.username}'s Chipsy Profile${titleSuffix}`)
         .addFields(
             {
                 name: "Money 💰",
@@ -633,8 +724,15 @@ function buildProfileMessage(author, state = {}) {
             }
         )
 
-    if (state.showUpgrades) {
-        embed.addFields(...upgradeFields)
+    if (state.showUpgrades && upgradeEntries.length > 0) {
+        const spacer = () => ({ name: "\u200B", value: "\u200B", inline: false })
+        const inlineEntries = upgradeEntries.slice(0, 2).map((entry) => ({ ...entry, inline: true }))
+        const remainingEntries = upgradeEntries.slice(2).map((entry) => ({ ...entry, inline: false }))
+        const upgradeSection = [spacer(), ...inlineEntries]
+        if (remainingEntries.length) {
+            upgradeSection.push(spacer(), ...remainingEntries)
+        }
+        embed.addFields(...upgradeSection)
     }
 
     embed.setThumbnail(avatarURL)
