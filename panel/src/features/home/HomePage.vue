@@ -314,9 +314,11 @@ export default {
             if (!this.profileStats) return []
             const handsPlayed = Number(this.profileStats.handsPlayed) || 0
             const handsWon = Number(this.profileStats.handsWon) || 0
+            const handsLost = Math.max(handsPlayed - handsWon, 0)
             const winRate = handsPlayed > 0 ? (handsWon / handsPlayed) * 100 : null
             const biggestBet = Number(this.profileStats.biggestBet) || 0
             const biggestWon = Number(this.profileStats.biggestWon) || 0
+            const netWinnings = Number(this.profileStats.netWinnings) || 0
             let playerSince = "Unknown"
             if (this.profileStats.joinDate) {
                 const formattedJoin = formatFriendlyDateTime(this.profileStats.joinDate)
@@ -339,6 +341,12 @@ export default {
                     hint: "Across all games"
                 },
                 {
+                    key: "hands-lost",
+                    label: "Hands lost",
+                    display: handsLost.toLocaleString(),
+                    hint: "Lifetime defeats"
+                },
+                {
                     key: "biggest-bet",
                     label: "Biggest bet",
                     display: formatCurrency(biggestBet, { currencySymbol: "chips" }),
@@ -349,6 +357,13 @@ export default {
                     label: "Biggest win",
                     display: formatCurrency(biggestWon, { currencySymbol: "chips" }),
                     hint: "Largest payout"
+                },
+                {
+                    key: "net-winnings",
+                    label: "Net winnings",
+                    display: formatCurrency(netWinnings, { currencySymbol: "chips" }),
+                    hint: "Lifetime delta",
+                    toneClass: netWinnings >= 0 ? "chip-status__value--ok" : "chip-status__value--danger"
                 },
                 {
                     key: "win-rate",

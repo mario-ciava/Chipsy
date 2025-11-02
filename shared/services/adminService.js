@@ -23,7 +23,8 @@ const formatTypeLabel = (name = "Game") => {
 const ACTION_IDS = {
     SYNC_COMMANDS: "bot-sync-commands",
     RELOAD_CONFIG: "bot-reload-config",
-    RUN_DIAGNOSTICS: "bot-diagnostics"
+    RUN_DIAGNOSTICS: "bot-diagnostics",
+    CACHE_PURGE: "ops-cache-purge"
 }
 
 const createAdminService = ({
@@ -48,6 +49,7 @@ const createAdminService = ({
         statusService,
         logger
     })
+    const hasCacheLayer = () => Boolean(client?.cache && typeof client.cache.reset === "function")
 
     const encodeCursor = (row) => {
         if (!row) return null
@@ -214,6 +216,10 @@ const createAdminService = ({
             ? "paused"
             : (game.playing ? "running" : "lobby")
 
+        const timeline = typeof game.getTimelineSnapshot === "function"
+            ? game.getTimelineSnapshot()
+            : null
+
         return {
             id,
             type: typeName,
@@ -239,6 +245,7 @@ const createAdminService = ({
                 communityCards: Array.isArray(game.tableCards) ? game.tableCards.length : null
             },
             actions: computeActions(game, remoteState),
+            timeline: timeline || null,
             meta: {
                 createdAt: remoteState.createdAt || null,
                 startedAt: remoteState.startedAt || null,
@@ -315,6 +322,73 @@ const createAdminService = ({
         }
     }
 
+    const purgePanelCache = async(meta = {}) => {
+        if (!hasCacheLayer()) {
+            throw createHttpError(503, "Cache layer unavailable")
+        }
+        if (cachePurgePending) {
+            throw createHttpError(409, "Cache purge already in progress")
+        }
+
+        cachePurgePending = true
+        const startedAt = Date.now()
+        const cacheDetails = {
+            type: client.cache?.type || "unknown",
+            memory: Boolean(client.cache?.isMemory)
+        }
+        let runtimeStatus = null
+        let refreshSucceeded = true
+
+        try {
+            try {
+                await client.cache.reset()
+                logger.info("Panel cache purge completed", {
+                    scope: "admin",
+                    actionId: ACTION_IDS.CACHE_PURGE,
+                    cacheType: cacheDetails.type,
+                    inMemory: cacheDetails.memory,
+                    actor: meta.actor || null
+                })
+            } catch (error) {
+                logger.error("Panel cache purge failed", {
+                    scope: "admin",
+                    actionId: ACTION_IDS.CACHE_PURGE,
+                    cacheType: cacheDetails.type,
+                    error: error.message
+                })
+                throw createHttpError(500, "Unable to purge cache layer")
+            }
+
+            try {
+                runtimeStatus = await statusLayer.refreshStatus({
+                    reason: meta.reason || "admin:cache-purge",
+                    actor: meta.actor || null
+                })
+            } catch (error) {
+                logger.warn("Failed to refresh runtime status after cache purge", {
+                    scope: "admin",
+                    actionId: ACTION_IDS.CACHE_PURGE,
+                    error: error.message
+                })
+                refreshSucceeded = false
+            }
+
+            const duration = Date.now() - startedAt
+            return {
+                actionId: ACTION_IDS.CACHE_PURGE,
+                status: refreshSucceeded ? "ok" : "warning",
+                message: refreshSucceeded
+                    ? "Panel cache cleared and runtime keys refreshed."
+                    : "Panel cache cleared but runtime keys could not be refreshed.",
+                cache: cacheDetails,
+                durationMs: duration,
+                runtimeStatus
+            }
+        } finally {
+            cachePurgePending = false
+        }
+    }
+
     const stopActiveGames = async({ notify = false } = {}) => {
         const trackedGames = new Set(getActiveGames(client))
         const channels = client?.channels?.cache
@@ -366,6 +440,7 @@ const createAdminService = ({
     }
 
     let botStateChangePending = false
+    let cachePurgePending = false
 
     const setBotEnabled = async(enabled, meta = {}) => {
         if (botStateChangePending) {
@@ -539,6 +614,18 @@ const createAdminService = ({
                     label: "Run service diagnostics",
                     description: "Check Discord, MySQL, cache layers, and internal health checks.",
                     type: "command"
+                },
+                {
+                    id: ACTION_IDS.CACHE_PURGE,
+                    label: "Cache purge",
+                    description: "Flush stale panel caches and refresh runtime keys across all regions.",
+                    type: hasCacheLayer() ? "command" : "concept",
+                    pendingLabel: hasCacheLayer() ? undefined : "Cache offline",
+                    order: 30,
+                    confirmation: {
+                        stepOne: "Redis namespaces and in-memory caches will be cleared immediately.",
+                        stepTwo: "Expect a brief cache miss window while runtime keys are rebuilt."
+                    }
                 }
             ]
         }
@@ -852,6 +939,8 @@ const createAdminService = ({
                     throw createHttpError(500, "Unable to run diagnostics")
                 }
             }
+            case ACTION_IDS.CACHE_PURGE:
+                return purgePanelCache(meta)
             default:
                 throw createHttpError(404, "Action not found")
         }

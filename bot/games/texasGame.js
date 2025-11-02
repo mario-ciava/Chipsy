@@ -7,10 +7,12 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")
 const { logAndSuppress } = logger
+const { withAccessGuard } = require("../utils/interactionAccess")
 const { renderTexasTable, createTexasTableState, renderTexasPlayerPanel } = require("../rendering/texasTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
 const { recordNetWin } = require("../utils/netProfitTracker")
 const { buildProbabilityField } = require("../utils/probabilityFormatter")
+const { hasWinProbabilityInsight } = require("../utils/playerUpgrades")
 const config = require("../../config")
 
 const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
@@ -233,7 +235,7 @@ module.exports = class TexasGame extends Game {
             if (!player) continue
             if (!player.status) player.status = {}
             const stats = playerStats[player.id]
-            if (stats && stats.eligible) {
+            if (stats && stats.eligible && hasWinProbabilityInsight(player)) {
                 player.status.winProbability = stats.win ?? 0
                 player.status.tieProbability = stats.tie ?? 0
                 player.status.probabilitySamples = stats.samples ?? 0
@@ -251,8 +253,27 @@ module.exports = class TexasGame extends Game {
         })
     }
 
+    resetPlayerProbabilityState() {
+        if (!Array.isArray(this.players)) return
+        for (const player of this.players) {
+            if (!player?.status) continue
+            delete player.status.winProbability
+            delete player.status.tieProbability
+            delete player.status.probabilitySamples
+        }
+    }
+
+    hasProbabilitySubscribers() {
+        return Array.isArray(this.players) && this.players.some((player) => hasWinProbabilityInsight(player))
+    }
+
     queueProbabilityUpdate(reason = "stateChange") {
         if (!this.playing || !Array.isArray(this.players) || this.players.length === 0) {
+            this.clearProbabilitySnapshot()
+            return
+        }
+        if (!this.hasProbabilitySubscribers()) {
+            this.resetPlayerProbabilityState()
             this.clearProbabilitySnapshot()
             return
         }
@@ -578,16 +599,6 @@ module.exports = class TexasGame extends Game {
                 { name: "Da chiamare", value: `${setSeparator(toCall)}$`, inline: true }
             )
 
-        const probabilityField = buildProbabilityField({
-            win: player.status?.winProbability,
-            tie: player.status?.tieProbability,
-            lose: player.status?.loseProbability,
-            samples: player.status?.probabilitySamples
-        })
-        if (probabilityField) {
-            embed.addFields(probabilityField)
-        }
-
         const footerParts = [
             `Round #${this.hands}`,
             `${Math.round(this.actionTimeoutMs / 1000)}s per turno`
@@ -676,6 +687,20 @@ module.exports = class TexasGame extends Game {
 
         if (panel) {
             embed.setImage(`attachment://${panel.filename}`)
+        }
+
+        if (hasWinProbabilityInsight(player)) {
+            const probabilityField = buildProbabilityField({
+                win: player.status?.winProbability,
+                tie: player.status?.tieProbability,
+                lose: player.status?.loseProbability,
+                samples: player.status?.probabilitySamples
+            }) || {
+                name: "Win probability",
+                value: "Calculating...",
+                inline: false
+            }
+            embed.addFields(probabilityField)
         }
 
         const embedsForEphemeral = [embed]
@@ -884,12 +909,16 @@ module.exports = class TexasGame extends Game {
     }
 
     CreateOptions() {
-        this.actionCollector = this.channel.createMessageComponentCollector({
-            filter: (i) => {
+        const actionFilter = withAccessGuard(
+            (i) => {
                 if (!i?.customId) return false
                 if (!i.customId.startsWith("tx_action:")) return false
                 return Boolean(this.GetPlayer(i.user.id))
             },
+            { scope: "texas:actions" }
+        )
+        this.actionCollector = this.channel.createMessageComponentCollector({
+            filter: actionFilter,
             time: config.texas.collectorTimeout.default
         })
 
@@ -919,7 +948,8 @@ module.exports = class TexasGame extends Game {
 
             let amount = null
             if (action === "bet" || action === "raise") {
-                const modal = new ModalBuilder().setCustomId(`tx_modal:${interaction.id}`).setTitle(`Amount for ${action}`)
+                const modalCustomId = `tx_modal:${interaction.id}`
+                const modal = new ModalBuilder().setCustomId(modalCustomId).setTitle(`Amount for ${action}`)
                 const amountInput = new TextInputBuilder().setCustomId("amount").setLabel("Amount").setStyle(TextInputStyle.Short).setRequired(true)
                 modal.addComponents(new ActionRowBuilder().addComponents(amountInput))
 
@@ -930,7 +960,13 @@ module.exports = class TexasGame extends Game {
                     return
                 }
 
-                const submission = await interaction.awaitModalSubmit({ time: config.texas.modalTimeout.default }).catch((error) => {
+                const submission = await interaction.awaitModalSubmit({
+                    time: config.texas.modalTimeout.default,
+                    filter: withAccessGuard(
+                        (i) => i.customId === modalCustomId && i.user.id === interaction.user.id,
+                        { scope: "texas:betModal" }
+                    )
+                }).catch((error) => {
                     buildTexasInteractionLog(interaction, "Failed to await Texas modal submission", {
                         phase: "bettingModal",
                         action,

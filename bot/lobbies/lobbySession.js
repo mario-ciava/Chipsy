@@ -2,6 +2,7 @@ const { EventEmitter } = require("node:events")
 const { MessageFlags, DiscordAPIError } = require("discord.js")
 const config = require("../../config")
 const { logAndSuppress } = require("../utils/logger")
+const { withAccessGuard } = require("../utils/interactionAccess")
 
 class LobbySession extends EventEmitter {
     constructor({
@@ -202,7 +203,7 @@ class LobbySession extends EventEmitter {
         try {
             const submission = await interaction.awaitModalSubmit({
                 time,
-                filter: (modalInteraction) => {
+                filter: withAccessGuard((modalInteraction) => {
                     if (typeof filter === "function") {
                         try {
                             return filter(modalInteraction)
@@ -211,7 +212,7 @@ class LobbySession extends EventEmitter {
                         }
                     }
                     return modalInteraction.user?.id === interaction.user?.id
-                }
+                }, { scope: "lobby:modal" })
             })
             return submission
         } catch (error) {
@@ -268,7 +269,7 @@ class LobbySession extends EventEmitter {
 
     #createCollector() {
         if (!this.statusMessage) return
-        const filter = (interaction) => {
+        const baseFilter = (interaction) => {
             if (!interaction) return false
             if (interaction.user?.bot) return false
             if (typeof interaction.isMessageComponent === "function" && !interaction.isMessageComponent()) {
@@ -282,6 +283,7 @@ class LobbySession extends EventEmitter {
             }
             return true
         }
+        const filter = withAccessGuard(baseFilter, { scope: "lobby:collector" })
         this.collector = this.statusMessage.createMessageComponentCollector({
             ...this.collectorOptions,
             filter

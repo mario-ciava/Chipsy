@@ -1,6 +1,7 @@
 const logger = require("../utils/logger");
 const config = require("../../config");
 const createCommandSync = require("../utils/commandSync");
+const { mapGuildRegistrationPayload } = require("../utils/interactionAccess");
 
 async function synchronizeBotIdentity(client) {
     const desiredUsername = config.bot.displayName || "Chipsy";
@@ -27,6 +28,40 @@ async function synchronizeBotIdentity(client) {
     }
 }
 
+async function primeGuildAccess(client) {
+    const registrar = client?.accessControl?.registerGuilds;
+    if (typeof registrar !== "function" || !client?.guilds?.cache) {
+        return;
+    }
+
+    const payloads = [];
+    client.guilds.cache.forEach((guild) => {
+        const entry = mapGuildRegistrationPayload(guild);
+        if (entry) {
+            payloads.push(entry);
+        }
+    });
+
+    if (!payloads.length) {
+        return;
+    }
+
+    try {
+        await registrar(payloads);
+        logger.debug("Registered guild roster for access control", {
+            scope: "events",
+            event: "ready",
+            guilds: payloads.length
+        });
+    } catch (error) {
+        logger.warn("Failed to register guild roster for access control", {
+            scope: "events",
+            event: "ready",
+            message: error?.message ?? String(error)
+        });
+    }
+}
+
 module.exports = async(client) => {
     const userTag = client?.user?.tag ?? "unknown user";
     logger.info(`Successfully logged-in as ${userTag}`, {
@@ -37,13 +72,11 @@ module.exports = async(client) => {
     });
 
     await synchronizeBotIdentity(client);
+    await primeGuildAccess(client);
 
     const commandSync = client.commandSync || createCommandSync({ client, config });
-    let slashCommands = [];
     try {
-        // Get all command payloads
-        slashCommands = client.commandRouter.getSlashCommandPayloads();
-
+        const slashCommands = client.commandRouter.getSlashCommandPayloads();
         logger.debug(`Preparing to register ${slashCommands.length} commands`, {
             scope: "events",
             event: "ready",

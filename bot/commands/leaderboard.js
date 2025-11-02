@@ -12,6 +12,7 @@ const setSeparator = require("../utils/setSeparator")
 const playerClass = require("../games/classes")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
 const logger = require("../utils/logger")
+const { withAccessGuard } = require("../utils/interactionAccess")
 const {
     buildMomentumSignature,
     formatWinRate,
@@ -69,37 +70,6 @@ const interactionTimeoutMs = leaderboardSettings.interactionTimeoutMs || 180000
 const pickColor = (color) => (typeof color === "number" ? color : null)
 const EMPTY_EMBED_COLOR = pickColor(Colors.DarkGold) || pickColor(Colors.Orange) || 0xf59e0b
 const MAX_EMBED_FIELD_LENGTH = 1024
-
-let cachedLeaderboardUrl
-const buildLeaderboardUrl = () => {
-    if (cachedLeaderboardUrl !== undefined) {
-        return cachedLeaderboardUrl
-    }
-    const target = leaderboardSettings.links?.full
-    if (!target) {
-        cachedLeaderboardUrl = null
-        return cachedLeaderboardUrl
-    }
-    if (/^https?:\/\//i.test(target)) {
-        cachedLeaderboardUrl = target
-        return cachedLeaderboardUrl
-    }
-    const origin = config.web?.redirectOrigin
-    if (!origin) {
-        cachedLeaderboardUrl = null
-        return cachedLeaderboardUrl
-    }
-    try {
-        cachedLeaderboardUrl = new URL(target, origin).toString()
-    } catch (error) {
-        cachedLeaderboardUrl = null
-        logger.warn("Failed to resolve leaderboard URL", {
-            scope: "commands.leaderboard",
-            error: error?.message
-        })
-    }
-    return cachedLeaderboardUrl
-}
 
 const getMetricDefinition = (metricId) => metricMap[metricId] || metricDefinitions[0] || fallbackMetricDefinitions[0]
 
@@ -321,10 +291,6 @@ const buildEmptyEmbed = (metricId) => {
         .setColor(EMPTY_EMBED_COLOR)
         .setTitle(title)
         .setDescription(description)
-    const leaderboardUrl = buildLeaderboardUrl()
-    if (leaderboardUrl) {
-        embed.setURL(leaderboardUrl)
-    }
     return embed
 }
 
@@ -337,10 +303,6 @@ const buildLeaderboardEmbed = ({ metricId, entries, viewerId }) => {
         .setColor(metricId === "win-rate" ? Colors.Blurple : Colors.Gold)
         .setTitle(`🏆 Chipsy Global Leaderboard — ${metric?.label || "Elite"}`)
         .setDescription(metric?.description || "Top Chipsy players ranked by pure competitiveness.")
-    const leaderboardUrl = buildLeaderboardUrl()
-    if (leaderboardUrl) {
-        embed.setURL(leaderboardUrl)
-    }
 
     if (podiumEntries.length) {
         const podiumBlock = podiumEntries.map((entry) => formatPodiumEntry(entry, metricId, viewerId)).join("\n\n")
@@ -455,8 +417,12 @@ module.exports = createCommand({
             return
         }
 
+        const selectFilter = withAccessGuard(
+            (componentInteraction) => componentInteraction.customId === selectCustomId,
+            { scope: "leaderboard:metricSelect" }
+        )
         const collector = message.createMessageComponentCollector({
-            filter: (componentInteraction) => componentInteraction.customId === selectCustomId,
+            filter: selectFilter,
             time: interactionTimeoutMs
         })
 

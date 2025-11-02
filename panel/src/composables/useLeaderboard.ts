@@ -27,6 +27,31 @@ interface UseLeaderboardOptions {
 }
 
 const DEFAULT_METRIC = "net-profit"
+const DEFAULT_TOP_ERROR = "Unable to retrieve top players."
+const DEFAULT_TABLE_ERROR = "Unable to load the leaderboard right now."
+
+const resolveErrorMessage = (error: unknown, fallback: string) => {
+    if (!error) {
+        return fallback
+    }
+    if (typeof error === "string") {
+        return error
+    }
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+    if (typeof error === "object" && error !== null) {
+        const response = (error as { response?: { data?: Record<string, unknown> } }).response
+        const data = response?.data || {}
+        if (typeof data.message === "string" && data.message.trim()) {
+            return data.message
+        }
+        if (typeof data.error === "string" && data.error.trim()) {
+            return data.error
+        }
+    }
+    return fallback
+}
 
 export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
     const metric = ref<LeaderboardMetricId>(options.metric || DEFAULT_METRIC)
@@ -53,6 +78,8 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
     const debouncedSearch = ref("")
     const canSearch = ref(Boolean(options.canSearch ?? true))
     const viewer = ref<Record<string, unknown> | null>(null)
+    const topError = ref<string | null>(null)
+    const tableError = ref<string | null>(null)
 
     const withTop = options.withTop !== false
     const withTable = options.withTable !== false
@@ -85,6 +112,7 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
             return
         }
         topState.loading = true
+        topError.value = null
         try {
             const response = await api.getLeaderboardTop({ metric: cacheKey })
             assignTop({ items: response.items, meta: response.meta })
@@ -93,7 +121,7 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
             topCache.set(cacheKey, { items: response.items || [], meta: response.meta || null })
         } catch (error) {
             assignTop({ items: [], meta: null })
-            throw error
+            topError.value = resolveErrorMessage(error, DEFAULT_TOP_ERROR)
         } finally {
             topState.loading = false
         }
@@ -109,6 +137,7 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
             return
         }
         tableState.loading = true
+        tableError.value = null
         try {
             const response = await api.listLeaderboard({
                 metric: metric.value,
@@ -121,7 +150,7 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
             tableCache.set(cacheKey, { items: response.items || [], meta: response.meta || null })
         } catch (error) {
             assignTable({ items: [], meta: null })
-            throw error
+            tableError.value = resolveErrorMessage(error, DEFAULT_TABLE_ERROR)
         } finally {
             tableState.loading = false
         }
@@ -141,15 +170,23 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
         }
     }
 
+    const runSafe = async(task: Promise<unknown>) => {
+        try {
+            await task
+        } catch (_error) {
+            // Errors are surfaced through refs, so we intentionally swallow here.
+        }
+    }
+
     const refresh = async() => {
         const tasks: Array<Promise<unknown>> = []
         if (withTop) {
-            tasks.push(loadTop(true))
+            tasks.push(runSafe(loadTop(true)))
         }
         if (withTable) {
-            tasks.push(loadTable(true))
+            tasks.push(runSafe(loadTable(true)))
         }
-        tasks.push(refreshViewerPosition())
+        tasks.push(runSafe(refreshViewerPosition()))
         await Promise.all(tasks)
     }
 
@@ -201,9 +238,11 @@ export const useLeaderboard = (options: UseLeaderboardOptions = {}) => {
         topItems: computed(() => topState.items),
         topMeta: computed(() => topState.meta),
         topLoading: computed(() => topState.loading),
+        topError,
         tableItems: computed(() => tableState.items),
         tableMeta: computed(() => tableState.meta),
         tableLoading: computed(() => tableState.loading),
+        tableError,
         pagination,
         search,
         canSearch,

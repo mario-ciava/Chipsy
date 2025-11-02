@@ -137,6 +137,7 @@ const createDefaultProfile = () => ({
     withholding_upgrade: 0,
     reward_amount_upgrade: 0,
     reward_time_upgrade: 0,
+    win_probability_upgrade: 0,
     next_reward: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     last_played: new Date().toISOString()
 })
@@ -255,6 +256,7 @@ describe("profile command", () => {
                     withholding_upgrade: "1",
                     reward_amount_upgrade: "2",
                     reward_time_upgrade: "3",
+                    win_probability_upgrade: "0",
                     next_reward: null,
                     last_played: "2024-01-01T00:00:00.000Z"
                 }

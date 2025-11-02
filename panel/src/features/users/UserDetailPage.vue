@@ -6,6 +6,9 @@
                     <div class="flex flex-wrap items-center gap-3 text-slate-300">
                         <span class="chip-eyebrow">User detail</span>
                         <span :class="roleBadgeClass">{{ roleLabel }}</span>
+                        <span v-if="isBlacklisted" class="chip-pill chip-pill-danger">
+                            Blacklisted
+                        </span>
                         <span v-if="isSelfProfile" class="chip-pill chip-pill-info">Your profile</span>
                     </div>
                     <h1 class="chip-heading">{{ userDisplayName }}</h1>
@@ -65,258 +68,254 @@
                 </div>
             </header>
             <div class="chip-divider chip-divider--strong"></div>
-            <div class="chip-stack gap-8 lg:grid lg:grid-cols-2 lg:gap-10">
-                <section
-                    class="chip-stack gap-4"
-                    :class="roleSectionClass"
-                    :aria-disabled="roleSectionDisabled"
-                >
-                    <div class="chip-stack">
-                        <label for="user-role" class="chip-label">Role</label>
-                        <select
-                            id="user-role"
-                            v-model="roleForm.pending"
-                            class="chip-select"
-                            :disabled="!canEditRole || roleForm.saving"
-                        >
-                            <option v-for="role in availableRoleOptions" :key="role.value" :value="role.value">
-                                {{ role.label }}
-                            </option>
-                        </select>
-                        <p class="chip-field-hint text-slate-400">{{ roleDescription }}</p>
-                    </div>
-                    <p
-                        v-if="roleSectionDisabled"
-                        class="chip-field-hint text-slate-500"
+            <div class="chip-stack gap-10 xl:grid xl:grid-cols-[320px_minmax(0,_1fr)] xl:gap-12 xl:items-start">
+                <div class="chip-stack gap-8 xl:max-w-[360px]">
+                    <section
+                        class="chip-stack gap-4"
+                        :class="roleSectionClass"
+                        :aria-disabled="roleSectionDisabled"
                     >
-                        You cannot change your own role. Ask another admin for access updates.
+                        <div class="chip-stack">
+                        <label for="user-role" class="chip-label text-white">Role</label>
+                            <select
+                                id="user-role"
+                                v-model="roleForm.pending"
+                                class="chip-select"
+                                :disabled="!canEditRole || roleForm.saving"
+                            >
+                                <option v-for="role in availableRoleOptions" :key="role.value" :value="role.value">
+                                    {{ role.label }}
+                                </option>
+                            </select>
+                            <p class="chip-field-hint text-slate-400">{{ roleDescription }}</p>
+                        </div>
+                        <p
+                            v-if="roleSectionDisabled"
+                            class="chip-field-hint text-slate-500"
+                        >
+                            You cannot change your own role. Ask another admin for access updates.
+                        </p>
+                        <div class="flex flex-wrap items-center justify-center gap-3 text-center">
+                            <button
+                                type="button"
+                                class="chip-btn chip-btn-secondary"
+                                :disabled="!roleDirty || !canEditRole || roleForm.saving"
+                                @click="saveRole"
+                            >
+                                <span v-if="roleForm.saving" class="chip-spinner"></span>
+                                <span v-else>Save</span>
+                            </button>
+                            <button
+                                type="button"
+                                class="chip-btn chip-btn-ghost"
+                                :disabled="!roleDirty || roleForm.saving || roleSectionDisabled"
+                                @click="resetRoleForm"
+                            >
+                                Reset
+                            </button>
+                        </div>
+                        <p
+                            v-if="roleForm.error"
+                            class="chip-field-hint text-rose-200"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            {{ roleForm.error }}
+                        </p>
+                        <p
+                            v-else-if="roleForm.success"
+                            class="chip-field-hint text-emerald-200"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            {{ roleForm.success }}
+                        </p>
+                    </section>
+                    <section class="chip-stack gap-4">
+                        <div class="flex flex-col gap-4">
+                            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <label class="chip-label text-white" for="whitelist-toggle">Whitelist</label>
+                                    <p class="chip-field-hint text-slate-400">
+                                        Admit this ID whenever whitelist locks are enforced.
+                                    </p>
+                                </div>
+                                <ChipToggle
+                                    id="whitelist-toggle"
+                                    class="shrink-0"
+                                    :label="listsForm.pendingWhitelist ? 'Enabled' : 'Disabled'"
+                                    :checked="listsForm.pendingWhitelist"
+                                    :busy="listsForm.saving"
+                                    :disabled="!canEditLists || listsForm.saving"
+                                    :tone="listsForm.pendingWhitelist ? 'ok' : 'warn'"
+                                    aria-label="Whitelist toggle"
+                                    @toggle="updateListField('pendingWhitelist', $event)"
+                                />
+                            </div>
+                            <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <label class="chip-label text-white" for="blacklist-toggle">Blacklist</label>
+                                    <p class="chip-field-hint text-slate-400">
+                                        Silence every bot response for this ID.
+                                    </p>
+                                </div>
+                                <ChipToggle
+                                    id="blacklist-toggle"
+                                    class="shrink-0"
+                                    :label="listsForm.pendingBlacklist ? 'Enabled' : 'Disabled'"
+                                    :checked="listsForm.pendingBlacklist"
+                                    :busy="listsForm.saving"
+                                    :disabled="blacklistToggleDisabled || listsForm.saving"
+                                    :tone="listsForm.pendingBlacklist ? 'danger' : 'ok'"
+                                    aria-label="Blacklist toggle"
+                                    @toggle="updateListField('pendingBlacklist', $event)"
+                                />
+                            </div>
+                        </div>
+                        <p v-if="!canEditLists" class="chip-field-hint text-slate-400">
+                            Only admins can manage whitelist or blacklist entries.
+                        </p>
+                        <p v-else-if="isPrivilegedTarget && !listsForm.pendingBlacklist" class="chip-field-hint text-slate-400">
+                            Privileged roles cannot be blacklisted.
+                        </p>
+                        <div class="flex flex-wrap items-center justify-center gap-3 text-center">
+                            <button
+                                type="button"
+                                class="chip-btn chip-btn-secondary"
+                                :disabled="!listsDirty || !canEditLists || listsForm.saving"
+                                @click="saveLists"
+                            >
+                                <span v-if="listsForm.saving" class="chip-spinner"></span>
+                                <span v-else>Save</span>
+                            </button>
+                            <button
+                                type="button"
+                                class="chip-btn chip-btn-ghost"
+                                :disabled="!listsDirty || listsForm.saving"
+                                @click="resetListsForm"
+                            >
+                                Reset
+                            </button>
+                        </div>
+                        <p
+                            v-if="listsForm.error"
+                            class="chip-field-hint text-rose-200"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            {{ listsForm.error }}
+                        </p>
+                        <p
+                            v-else-if="listsForm.success"
+                            class="chip-field-hint text-emerald-200"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            {{ listsForm.success }}
+                        </p>
+                        <p class="chip-field-hint text-slate-500">
+                            Last access update: {{ formatted.updatedAccess || "Not available" }}
+                        </p>
+                    </section>
+                </div>
+                <section class="chip-stack gap-6 border-t border-white/5 pt-6 xl:border-t-0 xl:border-l xl:border-white/5 xl:pl-10">
+                    <div class="chip-stack">
+                        <span class="chip-eyebrow">Progression</span>
+                        <h3 class="text-2xl font-semibold text-white">Profile overrides</h3>
+                        <p class="chip-card__subtitle chip-card__subtitle--tight">
+                            Tune level, experience, and bankroll values without leaving the panel. These updates apply instantly to the bot.
+                        </p>
+                    </div>
+                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-4">
+                        <div class="chip-stack">
+                            <label class="chip-label text-white" for="stat-level">Level</label>
+                            <input
+                                id="stat-level"
+                                v-model.number="statsForm.level"
+                                type="number"
+                                min="0"
+                                max="500"
+                                class="chip-input"
+                                :disabled="statsForm.saving || !canEditStats"
+                            >
+                            <p class="chip-field-hint">Player tier (0-500).</p>
+                        </div>
+                        <div class="chip-stack">
+                            <label class="chip-label text-white" for="stat-exp">Experience</label>
+                            <input
+                                id="stat-exp"
+                                v-model.number="statsForm.currentExp"
+                                type="number"
+                                min="0"
+                                class="chip-input"
+                                :disabled="statsForm.saving || !canEditStats"
+                            >
+                            <p class="chip-field-hint">Current XP progress.</p>
+                        </div>
+                        <div class="chip-stack">
+                            <label class="chip-label text-white" for="stat-money">Money</label>
+                            <input
+                                id="stat-money"
+                                v-model.number="statsForm.money"
+                                type="number"
+                                min="0"
+                                class="chip-input"
+                                :disabled="statsForm.saving || !canEditStats"
+                            >
+                            <p class="chip-field-hint">Bankroll on record.</p>
+                        </div>
+                        <div class="chip-stack">
+                            <label class="chip-label text-white" for="stat-gold">Gold</label>
+                            <input
+                                id="stat-gold"
+                                v-model.number="statsForm.gold"
+                                type="number"
+                                min="0"
+                                class="chip-input"
+                                :disabled="statsForm.saving || !canEditStats"
+                            >
+                            <p class="chip-field-hint">Legacy gold tokens.</p>
+                        </div>
+                    </div>
+                    <p v-if="!canEditStats" class="chip-field-hint text-slate-400">
+                        {{ statsRestrictionMessage }}
                     </p>
                     <div class="flex flex-wrap items-center justify-center gap-3 text-center">
                         <button
                             type="button"
                             class="chip-btn chip-btn-secondary"
-                            :disabled="!roleDirty || !canEditRole || roleForm.saving"
-                            @click="saveRole"
+                            :disabled="!statsDirty || !canEditStats || statsForm.saving"
+                            @click="saveStats"
                         >
-                            <span v-if="roleForm.saving" class="chip-spinner"></span>
+                            <span v-if="statsForm.saving" class="chip-spinner"></span>
                             <span v-else>Save</span>
                         </button>
                         <button
                             type="button"
                             class="chip-btn chip-btn-ghost"
-                            :disabled="!roleDirty || roleForm.saving || roleSectionDisabled"
-                            @click="resetRoleForm"
+                            :disabled="!statsDirty || statsForm.saving"
+                            @click="resetStatsForm"
                         >
                             Reset
                         </button>
                     </div>
                     <p
-                        v-if="roleForm.error"
+                        v-if="statsForm.error"
                         class="chip-field-hint text-rose-200"
                         role="status"
                         aria-live="polite"
                     >
-                        {{ roleForm.error }}
+                        {{ statsForm.error }}
                     </p>
                     <p
-                        v-else-if="roleForm.success"
+                        v-else-if="statsForm.success"
                         class="chip-field-hint text-emerald-200"
                         role="status"
                         aria-live="polite"
                     >
-                        {{ roleForm.success }}
+                        {{ statsForm.success }}
                     </p>
                 </section>
-                <section class="chip-stack gap-4">
-                    <div class="flex flex-col gap-4">
-                        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <label class="chip-label" for="whitelist-toggle">Whitelist</label>
-                                <p class="chip-field-hint text-slate-400">
-                                    Admit this ID whenever whitelist locks are enforced.
-                                </p>
-                            </div>
-                            <ChipToggle
-                                id="whitelist-toggle"
-                                class="shrink-0"
-                                :label="listsForm.pendingWhitelist ? 'Enabled' : 'Disabled'"
-                                :checked="listsForm.pendingWhitelist"
-                                :busy="listsForm.saving"
-                                :disabled="!canEditLists || listsForm.saving"
-                                :tone="listsForm.pendingWhitelist ? 'ok' : 'warn'"
-                                aria-label="Whitelist toggle"
-                                @toggle="updateListField('pendingWhitelist', $event)"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <label class="chip-label" for="blacklist-toggle">Blacklist</label>
-                                <p class="chip-field-hint text-slate-400">
-                                    Silence every bot response for this ID.
-                                </p>
-                            </div>
-                            <ChipToggle
-                                id="blacklist-toggle"
-                                class="shrink-0"
-                                :label="listsForm.pendingBlacklist ? 'Enabled' : 'Disabled'"
-                                :checked="listsForm.pendingBlacklist"
-                                :busy="listsForm.saving"
-                                :disabled="blacklistToggleDisabled || listsForm.saving"
-                                :tone="listsForm.pendingBlacklist ? 'danger' : 'ok'"
-                                aria-label="Blacklist toggle"
-                                @toggle="updateListField('pendingBlacklist', $event)"
-                            />
-                        </div>
-                    </div>
-                    <p v-if="!canEditLists" class="chip-field-hint text-slate-400">
-                        Only admins can manage whitelist or blacklist entries.
-                    </p>
-                    <p v-else-if="isPrivilegedTarget && !listsForm.pendingBlacklist" class="chip-field-hint text-slate-400">
-                        Privileged roles cannot be blacklisted.
-                    </p>
-                    <div class="flex flex-wrap items-center justify-center gap-3 text-center">
-                        <button
-                            type="button"
-                            class="chip-btn chip-btn-secondary"
-                            :disabled="!listsDirty || !canEditLists || listsForm.saving"
-                            @click="saveLists"
-                        >
-                            <span v-if="listsForm.saving" class="chip-spinner"></span>
-                            <span v-else>Save</span>
-                        </button>
-                        <button
-                            type="button"
-                            class="chip-btn chip-btn-ghost"
-                            :disabled="!listsDirty || listsForm.saving"
-                            @click="resetListsForm"
-                        >
-                            Reset
-                        </button>
-                    </div>
-                    <p
-                        v-if="listsForm.error"
-                        class="chip-field-hint text-rose-200"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        {{ listsForm.error }}
-                    </p>
-                    <p
-                        v-else-if="listsForm.success"
-                        class="chip-field-hint text-emerald-200"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        {{ listsForm.success }}
-                    </p>
-                    <p class="chip-field-hint text-slate-500">
-                        Last access update: {{ formatted.updatedAccess || "Not available" }}
-                    </p>
-                </section>
-            </div>
-        </section>
-
-        <section class="chip-card chip-stack">
-            <header class="chip-card__header">
-                <div class="chip-stack">
-                    <span class="chip-eyebrow">Progression</span>
-                    <h3 class="text-2xl font-semibold text-white">Profile overrides</h3>
-                    <p class="chip-card__subtitle chip-card__subtitle--tight">
-                        Tune level, experience, and bankroll values without leaving the panel. These updates apply instantly to the bot.
-                    </p>
-                </div>
-            </header>
-            <div class="chip-divider chip-divider--strong"></div>
-            <div class="chip-stack">
-                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <div class="chip-stack">
-                        <label class="chip-label" for="stat-level">Level</label>
-                        <input
-                            id="stat-level"
-                            v-model.number="statsForm.level"
-                            type="number"
-                            min="0"
-                            max="500"
-                            class="chip-input"
-                            :disabled="statsForm.saving || !canEditStats"
-                        >
-                        <p class="chip-field-hint">Player tier (0-500).</p>
-                    </div>
-                    <div class="chip-stack">
-                        <label class="chip-label" for="stat-exp">Experience</label>
-                        <input
-                            id="stat-exp"
-                            v-model.number="statsForm.currentExp"
-                            type="number"
-                            min="0"
-                            class="chip-input"
-                            :disabled="statsForm.saving || !canEditStats"
-                        >
-                        <p class="chip-field-hint">Current XP progress.</p>
-                    </div>
-                    <div class="chip-stack">
-                        <label class="chip-label" for="stat-money">Money</label>
-                        <input
-                            id="stat-money"
-                            v-model.number="statsForm.money"
-                            type="number"
-                            min="0"
-                            class="chip-input"
-                            :disabled="statsForm.saving || !canEditStats"
-                        >
-                        <p class="chip-field-hint">Bankroll on record.</p>
-                    </div>
-                    <div class="chip-stack">
-                        <label class="chip-label" for="stat-gold">Gold</label>
-                        <input
-                            id="stat-gold"
-                            v-model.number="statsForm.gold"
-                            type="number"
-                            min="0"
-                            class="chip-input"
-                            :disabled="statsForm.saving || !canEditStats"
-                        >
-                        <p class="chip-field-hint">Legacy gold tokens.</p>
-                    </div>
-                </div>
-                <p v-if="!canEditStats" class="chip-field-hint text-slate-400">
-                    {{ statsRestrictionMessage }}
-                </p>
-                <div class="flex flex-wrap items-center justify-center gap-3 text-center">
-                    <button
-                        type="button"
-                        class="chip-btn chip-btn-secondary"
-                        :disabled="!statsDirty || !canEditStats || statsForm.saving"
-                        @click="saveStats"
-                    >
-                        <span v-if="statsForm.saving" class="chip-spinner"></span>
-                        <span v-else>Save</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="chip-btn chip-btn-ghost"
-                        :disabled="!statsDirty || statsForm.saving"
-                        @click="resetStatsForm"
-                    >
-                        Reset
-                    </button>
-                </div>
-                <p
-                    v-if="statsForm.error"
-                    class="chip-field-hint text-rose-200"
-                    role="status"
-                    aria-live="polite"
-                >
-                    {{ statsForm.error }}
-                </p>
-                <p
-                    v-else-if="statsForm.success"
-                    class="chip-field-hint text-emerald-200"
-                    role="status"
-                    aria-live="polite"
-                >
-                    {{ statsForm.success }}
-                </p>
             </div>
         </section>
     </div>
@@ -424,18 +423,46 @@ export default {
         },
         formatted() {
             const user = this.user || {}
+            const getNumber = (...candidates) => {
+                for (const value of candidates) {
+                    const numeric = Number(value)
+                    if (Number.isFinite(numeric)) {
+                        return numeric
+                    }
+                }
+                return 0
+            }
+            const formatCount = (...values) => getNumber(...values).toLocaleString()
+            const pickDate = (...values) => values.find((value) => value) || null
+            const trimDateLabel = (value) => {
+                if (!value) return "Unknown"
+                return value.includes(" at ") ? value.split(" at ")[0] : value
+            }
+            const handsPlayedRaw = getNumber(user.hands_played, user.handsPlayed)
+            const handsWonRaw = getNumber(user.hands_won, user.handsWon)
+            const handsLostRaw = Math.max(handsPlayedRaw - handsWonRaw, 0)
+            const joinDate = pickDate(user.join_date, user.joinDate)
+            const nextReward = pickDate(user.next_reward, user.nextReward)
+
             return {
-                money: formatCurrency(user.money),
-                gold: Number.isFinite(Number(user.gold)) ? Number(user.gold).toLocaleString() : "0",
-                biggestWon: formatCurrency(user.biggest_won),
-                biggestBet: formatCurrency(user.biggest_bet),
+                money: formatCurrency(getNumber(user.money)),
+                gold: formatCount(user.gold),
+                biggestWon: formatCurrency(getNumber(user.biggest_won, user.biggestWon)),
+                biggestBet: formatCurrency(getNumber(user.biggest_bet, user.biggestBet)),
                 level: user.level !== undefined ? user.level : 0,
-                exp: formatExpRange(user.current_exp, user.required_exp),
+                exp: formatExpRange(
+                    getNumber(user.current_exp, user.currentExp),
+                    getNumber(user.required_exp, user.requiredExp)
+                ),
                 winRate: formatPercentage(user.winRate),
-                lastPlayed: formatFriendlyDateTime(user.last_played),
+                lastPlayed: formatFriendlyDateTime(pickDate(user.last_played, user.lastPlayed)),
+                nextReward: nextReward ? formatFriendlyDateTime(nextReward) : "Available",
+                playerSince: trimDateLabel(joinDate ? formatFriendlyDateTime(joinDate) : null),
+                netWinnings: formatCurrency(getNumber(user.net_winnings, user.netWinnings)),
                 updatedAccess: formatDetailedDateTime(user.access?.updatedAt),
-                handsWon: Number.isFinite(Number(user.hands_won)) ? Number(user.hands_won).toLocaleString() : "0",
-                handsPlayed: Number.isFinite(Number(user.hands_played)) ? Number(user.hands_played).toLocaleString() : "0"
+                handsWon: handsWonRaw.toLocaleString(),
+                handsPlayed: handsPlayedRaw.toLocaleString(),
+                handsLost: handsLostRaw.toLocaleString()
             }
         },
         targetRole() {
@@ -451,6 +478,9 @@ export default {
         },
         whitelistActive() {
             return Boolean(this.accessPolicy?.enforceWhitelist)
+        },
+        isBlacklisted() {
+            return Boolean(this.user?.access?.isBlacklisted)
         },
         canEditRole() {
             return this.canManageRoles && !this.isMasterTarget && !this.isSelfProfile
@@ -479,20 +509,11 @@ export default {
         },
         statusBanner() {
             if (!this.user?.access) return null
-            if (this.user.access.isBlacklisted) {
+            if (this.user.access.isWhitelisted && this.whitelistActive) {
                 return {
-                    tone: "danger",
-                    message: "This account is blacklisted and Chipsy will ignore all of its commands."
+                    tone: "info",
+                    message: "Whitelist enforcement is active and this account is allowed to use Chipsy."
                 }
-            }
-            if (this.user.access.isWhitelisted) {
-                if (this.whitelistActive) {
-                    return {
-                        tone: "info",
-                        message: "Whitelist enforcement is active and this account is allowed to use Chipsy."
-                    }
-                }
-                return null
             }
             return null
         },
@@ -548,8 +569,12 @@ export default {
                 exp: this.formatted.exp,
                 winRate: this.formatted.winRate,
                 lastPlayed: this.formatted.lastPlayed,
+                nextReward: this.formatted.nextReward,
+                playerSince: this.formatted.playerSince,
                 handsWon: this.formatted.handsWon,
-                handsPlayed: this.formatted.handsPlayed
+                handsPlayed: this.formatted.handsPlayed,
+                handsLost: this.formatted.handsLost,
+                netWinnings: this.formatted.netWinnings
             }
         },
         overviewSections() {

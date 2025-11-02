@@ -14,6 +14,30 @@ const createCommand = require("../utils/createCommand")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
 const logger = require("../utils/logger")
 const { logAndSuppress } = logger
+const { withAccessGuard } = require("../utils/interactionAccess")
+const isUnlockUpgrade = (upgrade) => Boolean(upgrade?.unlockOnly || upgrade?.effect?.strategy === "unlock")
+const buildUnlockProgressBar = (isUnlocked) => (isUnlocked ? "🟩" : "🟥").repeat(10)
+const upgradeCurrencyDescriptors = Object.freeze({
+    money: Object.freeze({
+        field: "money",
+        label: "money",
+        balanceLabel: "balance",
+        emoji: "💰",
+        suffix: "$"
+    }),
+    gold: Object.freeze({
+        field: "gold",
+        label: "gold",
+        balanceLabel: "gold balance",
+        emoji: "🪙",
+        suffix: " Gold"
+    })
+})
+const getCurrencyDescriptor = (upgrade) => upgrade?.currency === "gold"
+    ? upgradeCurrencyDescriptors.gold
+    : upgradeCurrencyDescriptors.money
+const formatCurrencyAmount = (value, descriptor) => `${setSeparator(Math.max(0, Number(value) || 0))}${descriptor.suffix}`
+const formatCostIndicator = (cost, descriptor) => `${descriptor.emoji} **${formatCurrencyAmount(cost, descriptor)}**`
 
 const slashCommand = new SlashCommandBuilder()
     .setName("profile")
@@ -125,8 +149,12 @@ module.exports = createCommand({
 
         // Set up component collector for buttons and select menu (only if viewing own profile)
         if (components.length > 0 && !isViewingOther) {
+            const componentFilter = withAccessGuard(
+                (i) => i.user.id === author.id,
+                { scope: "profile:components" }
+            )
             const collector = message.createMessageComponentCollector({
-                filter: (i) => i.user.id === author.id,
+                filter: componentFilter,
                 time: 180000 // 3 minutes
             })
 
@@ -478,13 +506,18 @@ module.exports = createCommand({
                             }).catch(handleProfilePromiseRejection)
                             return
                         }
-
+                        const currencyDescriptor = getCurrencyDescriptor(upgrade)
+                        const balanceField = currencyDescriptor.field
+                        const currentBalance = Number(freshData[balanceField]) || 0
+                        const unlockUpgrade = isUnlockUpgrade(upgrade)
                         const currentLevel = freshData[upgrade.dbField] || 0
                         const maxLevel = upgrade.maxLevel
 
                         if (currentLevel >= maxLevel) {
                             await componentInteraction.followUp({
-                                content: `❌ ${upgrade.emoji} **${upgrade.name}** is already at maximum level!`,
+                                content: unlockUpgrade
+                                    ? `❌ ${upgrade.emoji} **${upgrade.name}** is already unlocked!`
+                                    : `❌ ${upgrade.emoji} **${upgrade.name}** is already at maximum level!`,
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
@@ -492,16 +525,16 @@ module.exports = createCommand({
 
                         const cost = calculateUpgradeCost(state.selectedUpgrade, currentLevel)
 
-                        if (freshData.money < cost) {
+                        if (currentBalance < cost) {
                             await componentInteraction.followUp({
-                                content: `❌ You need **${setSeparator(cost)}$** to buy this upgrade!\n💰 Your balance: **${setSeparator(freshData.money)}$**`,
+                                content: `❌ You need ${formatCostIndicator(cost, currencyDescriptor)} to buy this upgrade!\n${currencyDescriptor.emoji} Your ${currencyDescriptor.label}: **${formatCurrencyAmount(currentBalance, currencyDescriptor)}**`,
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
                         }
 
                         // Apply upgrade
-                        freshData.money -= cost
+                        freshData[balanceField] = Math.max(0, currentBalance - cost)
                         freshData[upgrade.dbField] = currentLevel + 1
 
                         // Save to database
@@ -515,10 +548,19 @@ module.exports = createCommand({
                         state.selectedUpgrade = null
 
                         const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
+                        const successHeadline = unlockUpgrade
+                            ? `${upgrade.emoji} **${upgrade.name}** unlocked!`
+                            : `${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!`
+                        const insightLine = unlockUpgrade
+                            ? "\n🔮 Win probability insights now show up in Blackjack and Texas Hold'em."
+                            : ""
+                        const balanceLine = `${currencyDescriptor.emoji} New ${currencyDescriptor.balanceLabel}: **${formatCurrencyAmount(freshData[balanceField], currencyDescriptor)}**`
+                        const baseSuccessMessage = `✅ ${successHeadline}\n${balanceLine}${insightLine}`
+
                         const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                             // Message no longer exists, notify user with upgrade confirmation
                             await componentInteraction.followUp({
-                                content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**\n\n⚠️ Profile view expired. Use \`/profile\` to see updated stats.`,
+                                content: `${baseSuccessMessage}\n\n⚠️ Profile view expired. Use \`/profile\` to see updated stats.`,
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -528,7 +570,7 @@ module.exports = createCommand({
                         // Only send success message if edit succeeded
                         if (editSuccess) {
                             await componentInteraction.followUp({
-                                content: `✅ ${upgrade.emoji} **${upgrade.name}** upgraded to level **${freshData[upgrade.dbField]}**!\n💰 New balance: **${setSeparator(freshData.money)}$**`,
+                                content: baseSuccessMessage,
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                         }
@@ -650,32 +692,40 @@ function buildProfileMessage(author, state = {}) {
 
     getAllUpgradeIds().forEach((upgradeId) => {
         const upgrade = UPGRADES[upgradeId]
+        if (!upgrade) return
         const currentLevel = data[upgrade.dbField] || 0
         const maxLevel = upgrade.maxLevel
         const currentValue = resolveUpgradeValue(upgrade, currentLevel)
-        const nextValue = currentLevel < maxLevel
-            ? resolveUpgradeValue(upgrade, currentLevel + 1)
-            : null
-
-        const bar = progressBar(currentLevel, maxLevel)
-        const costDisplay = currentLevel < maxLevel
-            ? `💰 **${setSeparator(calculateUpgradeCost(upgradeId, currentLevel))}$**`
+        const hasNextLevel = currentLevel < maxLevel
+        const upgradeCost = hasNextLevel ? calculateUpgradeCost(upgradeId, currentLevel) : null
+        const descriptor = getCurrencyDescriptor(upgrade)
+        const costDisplay = hasNextLevel && Number.isFinite(upgradeCost)
+            ? formatCostIndicator(upgradeCost, descriptor)
             : "✅ **MAX LEVEL**"
 
-        const nextLabel = nextValue !== null && Number.isFinite(nextValue)
-            ? `(**${formatUpgradeValue(upgrade, currentValue)}** -> **${formatUpgradeValue(upgrade, nextValue)}**)`
-            : "(**Maxed out**)"
+        const lines = []
 
-        const lines = [
-            `${bar}\n`,
-            `⬆️ **${currentLevel}/${maxLevel}** ${nextLabel}`,
-            `${costDisplay}`
-        ]
+        if (isUnlockUpgrade(upgrade)) {
+            const unlocked = currentLevel >= maxLevel
+            lines.push(`${buildUnlockProgressBar(unlocked)}\n`)
+            lines.push(unlocked ? "🟢 Unlocked" : "🪄 Locked (-> Unlocked)")
+        } else {
+            const nextValue = hasNextLevel
+                ? resolveUpgradeValue(upgrade, currentLevel + 1)
+                : null
+            const bar = progressBar(currentLevel, maxLevel)
+            const nextLabel = nextValue !== null && Number.isFinite(nextValue)
+                ? `(**${formatUpgradeValue(upgrade, currentValue)}** -> **${formatUpgradeValue(upgrade, nextValue)}**)`
+                : "(**Maxed out**)"
+            lines.push(`${bar}\n`)
+            lines.push(`⬆️ **${currentLevel}/${maxLevel}** ${nextLabel}`)
+        }
+
+        lines.push(costDisplay)
 
         upgradeEntries.push({
             name: `${upgrade.name} ${upgrade.emoji}`,
-            value: lines.join("\n"),
-            inline: false
+            value: lines.join("\n")
         })
     })
 
@@ -726,13 +776,19 @@ function buildProfileMessage(author, state = {}) {
 
     if (state.showUpgrades && upgradeEntries.length > 0) {
         const spacer = () => ({ name: "\u200B", value: "\u200B", inline: false })
-        const inlineEntries = upgradeEntries.slice(0, 2).map((entry) => ({ ...entry, inline: true }))
-        const remainingEntries = upgradeEntries.slice(2).map((entry) => ({ ...entry, inline: false }))
-        const upgradeSection = [spacer(), ...inlineEntries]
-        if (remainingEntries.length) {
-            upgradeSection.push(spacer(), ...remainingEntries)
+        const fillerField = { name: "\u200B", value: "\u200B", inline: true }
+        const upgradeFields = []
+        for (let index = 0; index < upgradeEntries.length; index += 2) {
+            const rowEntries = upgradeEntries
+                .slice(index, index + 2)
+                .map((entry) => ({ ...entry, inline: true }))
+            if (rowEntries.length === 1) {
+                rowEntries.push({ ...fillerField })
+            }
+            upgradeFields.push(spacer(), ...rowEntries)
         }
-        embed.addFields(...upgradeSection)
+        upgradeFields.push(spacer())
+        embed.addFields(...upgradeFields)
     }
 
     embed.setThumbnail(avatarURL)
@@ -760,10 +816,14 @@ function buildProfileMessage(author, state = {}) {
 
             if (currentLevel < maxLevel) {
                 const cost = calculateUpgradeCost(upgradeId, currentLevel)
-                const canAfford = data.money >= cost
+                const descriptor = getCurrencyDescriptor(upgrade)
+                const availableBalance = Number(data[descriptor.field]) || 0
+                const canAfford = availableBalance >= cost
+                const unlockUpgrade = isUnlockUpgrade(upgrade)
+                const costLabel = `${descriptor.emoji} ${formatCurrencyAmount(cost, descriptor)}`
                 selectOptions.push({
-                    label: `${upgrade.name} (Lvl ${currentLevel + 1})`,
-                    description: `Cost: ${setSeparator(cost)}$ ${canAfford ? "✓" : "✗ Not enough money"}`,
+                    label: unlockUpgrade ? `${upgrade.name} (Unlock)` : `${upgrade.name} (Lvl ${currentLevel + 1})`,
+                    description: `${costLabel} ${canAfford ? "✓" : `✗ Not enough ${descriptor.label}`}`,
                     value: upgradeId,
                     emoji: upgrade.emoji
                 })

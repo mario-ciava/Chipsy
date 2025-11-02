@@ -132,7 +132,8 @@ jest.mock("../config", () => ({
         actionTimeout: { default: 100, allowedRange: { min: 50, max: 2000 } },
         modalTimeout: { default: 100, allowedRange: { min: 50, max: 2000 } },
         autobetShortTimeout: { default: 50, allowedRange: { min: 25, max: 500 } },
-        timelineMaxEntries: { default: 10, allowedRange: { min: 5, max: 50 } }
+        timelineMaxEntries: { default: 10, allowedRange: { min: 5, max: 50 } },
+        timelinePreview: { default: 5, allowedRange: { min: 2, max: 20 } }
     },
     delays: {
         short: { default: 0, allowedRange: { min: 0, max: 1000 } },
@@ -242,6 +243,7 @@ const buildPlayer = (game, overrides = {}) => {
         withholding_upgrade: 0,
         reward_amount_upgrade: 0,
         reward_time_upgrade: 0,
+        win_probability_upgrade: 0,
         next_reward: null,
         last_played: null,
         ...(overrides.data || {})
@@ -267,7 +269,6 @@ const buildPlayer = (game, overrides = {}) => {
         currentHand: overrides.currentHand ?? 0,
         insurance: { wager: 0, settled: false, ...(overrides.status?.insurance || {}) },
         won: { grossValue: 0, netValue: 0, expEarned: 0, ...(overrides.status?.won || {}) },
-        actionLog: [],
         infoMessage: null,
         ...(overrides.status || {})
     }
@@ -323,6 +324,31 @@ describe("BlackJack turn options", () => {
     })
 })
 
+describe("BlackJack timeline telemetry", () => {
+    test("getTimelineSnapshot exposes the most recent entries with ISO timestamps", () => {
+        const { game } = createTestGame()
+        const base = new Date("2024-02-01T00:00:00.000Z").getTime()
+        game.dealerTimeline = Array.from({ length: 7 }).map((_, index) => ({
+            at: new Date(base + index * 1000),
+            message: `Event ${index + 1}`
+        }))
+
+        const snapshot = game.getTimelineSnapshot()
+
+        expect(snapshot).not.toBeNull()
+        expect(Array.isArray(snapshot.entries)).toBe(true)
+        expect(snapshot.entries).toHaveLength(5)
+        expect(snapshot.entries[0]).toEqual({
+            at: new Date(base + 2000).toISOString(),
+            message: "Event 3"
+        })
+        expect(snapshot.entries[4]).toEqual({
+            at: new Date(base + 6000).toISOString(),
+            message: "Event 7"
+        })
+    })
+})
+
 describe("BlackJack player actions", () => {
     test("Action hit draws a card, records the bust, and hands off to the dealer when necessary", async() => {
         const { game } = createTestGame()
@@ -332,6 +358,7 @@ describe("BlackJack player actions", () => {
         player.hands = [createHand(["8H", "7D"], { bet: 150 })]
         game.cards = ["9C", "5D"]
         game.inGamePlayers = [player]
+        game.players = game.inGamePlayers
         const dealerActionSpy = jest.spyOn(game, "DealerAction").mockResolvedValue(undefined)
 
         await game.Action("hit", player, 0)
@@ -347,6 +374,51 @@ describe("BlackJack player actions", () => {
             ])
         )
         expect(dealerActionSpy).toHaveBeenCalledTimes(1)
+    })
+
+    test("Action stand keeps the same player active while advancing to the next hand", async() => {
+        const { game } = createTestGame()
+        const player = buildPlayer(game, { bet: 200, stack: 2000 })
+        player.status.current = true
+        player.status.currentHand = 0
+        player.availableOptions = ["stand"]
+        player.hands = [
+            createHand(["9H", "7D"], { bet: 200 }),
+            createHand(["6C", "8S"], { bet: 200 })
+        ]
+        game.inGamePlayers = [player]
+        const nextSpy = jest.spyOn(game, "NextPlayer").mockResolvedValue(undefined)
+        const dealerSpy = jest.spyOn(game, "DealerAction").mockResolvedValue(undefined)
+
+        await game.Action("stand", player, 0)
+
+        expect(player.status.currentHand).toBe(1)
+        expect(player.status.current).toBe(true)
+        expect(nextSpy).toHaveBeenCalledWith(player)
+        expect(dealerSpy).not.toHaveBeenCalled()
+    })
+
+    test("Action stand hands the turn to the next player after the final hand", async() => {
+        const { game } = createTestGame()
+        const firstPlayer = buildPlayer(game, { id: "player-1", bet: 200, stack: 1500 })
+        const secondPlayer = buildPlayer(game, { id: "player-2", bet: 200, stack: 1500 })
+        firstPlayer.status.current = true
+        firstPlayer.status.currentHand = 0
+        firstPlayer.availableOptions = ["stand"]
+        secondPlayer.status.current = false
+        secondPlayer.status.currentHand = 0
+        firstPlayer.hands = [createHand(["9H", "7D"], { bet: 200 })]
+        secondPlayer.hands = [createHand(["8C", "8S"], { bet: 200 })]
+        game.inGamePlayers = [firstPlayer, secondPlayer]
+        game.players = game.inGamePlayers
+        const nextSpy = jest.spyOn(game, "NextPlayer").mockResolvedValue(undefined)
+        const dealerSpy = jest.spyOn(game, "DealerAction").mockResolvedValue(undefined)
+
+        await game.Action("stand", firstPlayer, 0)
+
+        expect(firstPlayer.status.current).toBe(false)
+        expect(nextSpy).toHaveBeenCalledWith(secondPlayer)
+        expect(dealerSpy).not.toHaveBeenCalled()
     })
 })
 
@@ -417,6 +489,7 @@ describe("BlackJack lobby safety nets", () => {
                 withholding_upgrade: 0,
                 reward_amount_upgrade: 0,
                 reward_time_upgrade: 0,
+                win_probability_upgrade: 0,
                 next_reward: null,
                 last_played: null
             }
@@ -463,6 +536,7 @@ describe("BlackJack lobby safety nets", () => {
                 withholding_upgrade: 0,
                 reward_amount_upgrade: 0,
                 reward_time_upgrade: 0,
+                win_probability_upgrade: 0,
                 next_reward: null,
                 last_played: null
             }
@@ -501,6 +575,7 @@ describe("BlackJack lobby safety nets", () => {
                 withholding_upgrade: 0,
                 reward_amount_upgrade: 0,
                 reward_time_upgrade: 0,
+                win_probability_upgrade: 0,
                 next_reward: null,
                 last_played: null
             }

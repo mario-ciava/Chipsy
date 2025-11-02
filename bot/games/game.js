@@ -117,6 +117,10 @@ module.exports = class Game {
         return Boolean(this.remoteControl?.paused)
     }
 
+    getTimelineSnapshot() {
+        return null
+    }
+
     async handleRemotePause(meta = {}) {
         this.setRemoteMeta({
             paused: true,

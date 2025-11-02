@@ -19,9 +19,19 @@
                         :href="guildInviteUrl"
                         target="_blank"
                         rel="noopener noreferrer"
-                        aria-label="Open the Chipsy guild invite in Discord"
+                        aria-label="Open the Chipsy Discord invite"
                     >
-                        Join Chipsy guild
+                        <svg
+                            class="h-6 w-6"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M20.22 4.78a17.7 17.7 0 0 0-4.28-1.33l-.2.4a16.6 16.6 0 0 1 4 1.42 17.92 17.92 0 0 0-11.5 0 16.7 16.7 0 0 1 4-1.43l-.2-.4a17.68 17.68 0 0 0-4.28 1.34 19 19 0 0 0-3.45 13.8 15.9 15.9 0 0 0 4.16 2.08l.52-.8a11 11 0 0 1-1.73-.74l.22-.1c.14.1.4.24.4.24a12.7 12.7 0 0 0 10.3 0s.25-.14.4-.24l.21.1a11.2 11.2 0 0 1-1.72.74l.51.8a15.9 15.9 0 0 0 4.16-2.08 19 19 0 0 0-3.42-13.8ZM10 15.15c-.8 0-1.44-.73-1.44-1.62s.64-1.62 1.43-1.62 1.44.73 1.44 1.62-.64 1.62-1.43 1.62Zm4 0c-.8 0-1.44-.73-1.44-1.62s.65-1.62 1.44-1.62 1.44.73 1.44 1.62-.65 1.62-1.44 1.62Z"
+                            />
+                        </svg>
+                        <span>Join Chipsy</span>
                     </a>
                 </div>
             </header>

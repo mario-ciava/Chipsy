@@ -1,4 +1,12 @@
 const { inspect } = require("util")
+const appConfig = require("../config")
+
+const loggingConfig = appConfig?.logging || {}
+const SERVICE_NAME = loggingConfig.serviceName || null
+const ENVIRONMENT = loggingConfig.environment || process.env.NODE_ENV || null
+const LOG_FORMAT = (loggingConfig.format || "").toLowerCase()
+const JSON_OUTPUT = loggingConfig.jsonEnabled === true || LOG_FORMAT === "json"
+const SENSITIVE_KEYS = Array.isArray(loggingConfig.sensitiveKeys) ? loggingConfig.sensitiveKeys : []
 
 const LEVEL_SEVERITY = {
     error: 0,
@@ -43,9 +51,9 @@ const shouldUseColor = () => {
     return Boolean(process.stdout && process.stdout.isTTY)
 }
 
-const COLOR_ENABLED = shouldUseColor()
+const COLOR_ENABLED = JSON_OUTPUT ? false : shouldUseColor()
 
-const DEFAULT_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug")
+const DEFAULT_LEVEL = loggingConfig.level || process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug")
 let currentLevel = normalizeLevel(DEFAULT_LEVEL)
 
 const setLevel = (level) => {
@@ -98,6 +106,35 @@ const sanitizeMetaValue = (value) => {
         }
     }
     return String(value)
+}
+
+const escapePattern = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+const SENSITIVE_PATTERNS = SENSITIVE_KEYS
+    .filter((key) => typeof key === "string" && key.trim())
+    .map((key) => new RegExp(escapePattern(key.trim()), "i"))
+
+const maskSensitiveMeta = (meta) => {
+    if (!SENSITIVE_PATTERNS.length) {
+        return meta
+    }
+    for (const key of Object.keys(meta)) {
+        if (SENSITIVE_PATTERNS.some((pattern) => pattern.test(key))) {
+            meta[key] = "[REDACTED]"
+        }
+    }
+    return meta
+}
+
+const enrichMeta = (meta) => {
+    const next = { ...meta }
+    if (SERVICE_NAME && !next.service) {
+        next.service = SERVICE_NAME
+    }
+    if (ENVIRONMENT && !next.environment) {
+        next.environment = ENVIRONMENT
+    }
+    return maskSensitiveMeta(next)
 }
 
 const serializeError = (error) => {
@@ -165,11 +202,20 @@ const createLogPayload = (timestamp, level, message, meta) => ({
 const logWithLevel = (level, message, meta = {}) => {
     const normalizedLevel = normalizeLevel(level)
     const effectiveMessage = typeof message === "string" ? message : inspect(message)
-    const metaObject = meta && typeof meta === "object" ? { ...meta } : {}
+    const rawMeta = meta && typeof meta === "object" ? { ...meta } : {}
+    const metaObject = enrichMeta(rawMeta)
     const timestamp = new Date()
+    const payload = createLogPayload(timestamp, normalizedLevel, effectiveMessage, metaObject)
+
+    const method = LEVEL_METHOD[normalizedLevel] || "log"
 
     if (!isLevelEnabled(normalizedLevel)) {
-        return createLogPayload(timestamp, normalizedLevel, effectiveMessage, metaObject)
+        return payload
+    }
+
+    if (JSON_OUTPUT) {
+        console[method](JSON.stringify(payload))
+        return payload
     }
 
     const formatted = formatConsoleMessage({
@@ -179,10 +225,9 @@ const logWithLevel = (level, message, meta = {}) => {
         timestamp
     })
 
-    const method = LEVEL_METHOD[normalizedLevel] || "log"
     console[method](formatted)
 
-    return createLogPayload(timestamp, normalizedLevel, effectiveMessage, metaObject)
+    return payload
 }
 
 const logAndSuppress = (message, meta = {}, options = {}) => {

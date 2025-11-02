@@ -1,51 +1,19 @@
 const { Collection, MessageFlags } = require("discord.js")
+const config = require("../../config")
 const logger = require("./logger")
 const { logAndSuppress } = logger
 const { sendInteractionResponse } = require("./interactionResponse")
+const { getAccessDeniedMessage, buildGuildContext } = require("./interactionAccess")
+const { buildInteractionLogContext } = require("./interactionContext")
 
-const isAutocompleteInteraction = (interaction) => (
-    typeof interaction?.isAutocomplete === "function" && interaction.isAutocomplete()
-)
+const ROUTER_SCOPE = "commandRouter"
+const COMMAND_TELEMETRY_ENABLED = config?.logging?.commandTelemetry?.enabled !== false
 
-const resolveUserTag = (user) => {
-    if (!user) return null
-    if (user.tag) return user.tag
-    if (user.globalName && user.discriminator === "0") {
-        return user.globalName
+const ensureLoggerFn = (level) => {
+    if (typeof logger[level] === "function") {
+        return logger[level]
     }
-    if (user.username && user.discriminator) {
-        return `${user.username}#${user.discriminator}`
-    }
-    return user.username || null
-}
-
-const resolveCommandPath = (interaction) => {
-    if (!interaction?.commandName) return null
-    const segments = [interaction.commandName]
-
-    try {
-        if (typeof interaction.options?.getSubcommandGroup === "function") {
-            const group = interaction.options.getSubcommandGroup(false)
-            if (group) {
-                segments.push(group)
-            }
-        }
-    } catch (error) {
-        // No-op: method throws if group is not present and required flag omitted
-    }
-
-    try {
-        if (typeof interaction.options?.getSubcommand === "function") {
-            const sub = interaction.options.getSubcommand(false)
-            if (sub && sub !== segments[segments.length - 1]) {
-                segments.push(sub)
-            }
-        }
-    } catch (error) {
-        // Same as above
-    }
-
-    return segments.filter(Boolean).join(" ")
+    return logger.info
 }
 
 /**
@@ -56,6 +24,18 @@ class CommandRouter {
     constructor(client) {
         this.client = client
         this.commands = new Collection()
+    }
+
+    buildLogMeta(interaction, meta = {}) {
+        return buildInteractionLogContext(interaction, {
+            scope: ROUTER_SCOPE,
+            ...meta
+        })
+    }
+
+    log(level, message, interaction, meta = {}) {
+        const fn = ensureLoggerFn(level)
+        fn(message, this.buildLogMeta(interaction, meta))
     }
 
     /**
@@ -115,20 +95,33 @@ class CommandRouter {
      * Clean, simple, no abstractions.
      */
     async handleInteraction(interaction) {
-        if (isAutocompleteInteraction(interaction)) {
+        if (typeof interaction?.isAutocomplete === "function" && interaction.isAutocomplete()) {
             return this.handleAutocomplete(interaction)
         }
 
         if (!interaction.isChatInputCommand()) return
 
-        const command = this.commands.get(interaction.commandName.toLowerCase())
-        if (!command) return
+        const commandKey = interaction.commandName?.toLowerCase()
+        const command = this.commands.get(commandKey)
+        if (!command) {
+            this.log("warn", "command.notRegistered", interaction, { commandKey })
+            return
+        }
 
         const { config } = command
+        this.log("info", "command.accepted", interaction, {
+            commandKey,
+            autoDefer: config.defer ?? true,
+            deferEphemeral: config.deferEphemeral ?? true
+        })
 
         const accessResult = await this.ensureBotAccess(interaction)
         if (!accessResult.allowed) {
-            const denialMessage = this.getAccessDeniedMessage(accessResult.reason)
+            this.log("warn", "command.accessDenied", interaction, {
+                reason: accessResult.reason,
+                policyId: accessResult.policy?.id ?? null
+            })
+            const denialMessage = getAccessDeniedMessage(accessResult.reason)
             if (denialMessage) {
                 await this.replyOrFollowUp(interaction, {
                     content: denialMessage,
@@ -139,6 +132,7 @@ class CommandRouter {
         }
 
         // Auto-defer if configured
+        let didDefer = false
         try {
             const shouldDefer = config.defer ?? true
             const deferEphemeral = config.deferEphemeral ?? true
@@ -147,20 +141,28 @@ class CommandRouter {
                 await interaction.deferReply({
                     flags: deferEphemeral ? MessageFlags.Ephemeral : undefined
                 })
+                didDefer = true
+                this.log("debug", "command.deferred", interaction, {
+                    deferredEphemeral: deferEphemeral
+                })
             }
         } catch (error) {
-            logger.error("Failed to defer interaction", {
-                scope: "commandRouter",
-                command: interaction.commandName,
-                error: error.message
+            this.log("error", "command.deferFailed", interaction, {
+                errorMessage: error.message,
+                stack: error.stack
             })
         }
 
         const userResult = await this.ensureUserData(interaction)
         if (!userResult.ok) {
             if (userResult.error?.type === "bot-user") {
+                this.log("debug", "command.ignoredBotUser", interaction)
                 return
             }
+            this.log("warn", "command.userWarmupFailed", interaction, {
+                errorType: userResult.error?.type,
+                errorMessage: userResult.error?.message
+            })
             const content = userResult.error?.type === "database"
                 ? "❌ Database connection failed. Please try again later."
                 : "❌ Failed to load your profile. Please contact support."
@@ -174,22 +176,31 @@ class CommandRouter {
 
         // Execute command
         const executionStartedAt = Date.now()
+        const runId = `${interaction.id || "interaction"}:${executionStartedAt}`
+        this.log("info", "command.execution.start", interaction, {
+            runId,
+            wasDeferred: didDefer
+        })
 
         try {
             await command.execute(interaction, this.client)
+            const durationMs = Date.now() - executionStartedAt
+            this.log("info", "command.execution.success", interaction, {
+                runId,
+                durationMs
+            })
             this.logCommandUsage(interaction, {
                 status: "success",
-                durationMs: Date.now() - executionStartedAt
+                durationMs
             })
         } catch (error) {
-            logger.error("Command execution failed", {
-                scope: "commandRouter",
-                command: interaction.commandName,
-                userId: interaction.user.id,
-                error: error.message,
+            const durationMs = Date.now() - executionStartedAt
+            this.log("error", "command.execution.failed", interaction, {
+                runId,
+                durationMs,
+                errorMessage: error.message,
                 stack: error.stack
             })
-
             await this.replyOrFollowUp(interaction, {
                 content: "❌ An unexpected error occurred. Please try again later.",
                 flags: MessageFlags.Ephemeral
@@ -197,7 +208,7 @@ class CommandRouter {
 
             this.logCommandUsage(interaction, {
                 status: "error",
-                durationMs: Date.now() - executionStartedAt,
+                durationMs,
                 error
             })
         }
@@ -210,9 +221,8 @@ class CommandRouter {
         try {
             return await sendInteractionResponse(interaction, payload)
         } catch (error) {
-            logger.warn("Failed to send interaction response", {
-                scope: "commandRouter",
-                error: error.message
+            this.log("warn", "command.replyFailed", interaction, {
+                errorMessage: error.message
             })
         }
     }
@@ -220,6 +230,7 @@ class CommandRouter {
     async handleAutocomplete(interaction) {
         const command = this.commands.get(interaction.commandName.toLowerCase())
         if (!command) {
+            this.log("warn", "autocomplete.missingCommand", interaction)
             await interaction.respond([]).catch(
                 logAndSuppress("Failed to send empty autocomplete response - command missing", {
                     scope: "commandRouter",
@@ -230,6 +241,7 @@ class CommandRouter {
         }
 
         if (typeof command.autocomplete !== "function") {
+            this.log("warn", "autocomplete.handlerMissing", interaction)
             await interaction.respond([]).catch(
                 logAndSuppress("Failed to send empty autocomplete response - handler missing", {
                     scope: "commandRouter",
@@ -241,6 +253,9 @@ class CommandRouter {
 
         const accessResult = await this.ensureBotAccess(interaction)
         if (!accessResult.allowed) {
+            this.log("info", "autocomplete.accessDenied", interaction, {
+                reason: accessResult.reason
+            })
             await interaction.respond([]).catch(
                 logAndSuppress("Failed to send access denied autocomplete response", {
                     scope: "commandRouter",
@@ -252,11 +267,9 @@ class CommandRouter {
 
         const userResult = await this.ensureUserData(interaction)
         if (!userResult.ok) {
-            logger.warn("Skipping autocomplete - failed to warm up user data", {
-                scope: "commandRouter",
-                command: interaction.commandName,
-                error: userResult.error?.message,
-                type: userResult.error?.type
+            this.log("warn", "autocomplete.userWarmupFailed", interaction, {
+                errorType: userResult.error?.type,
+                errorMessage: userResult.error?.message
             })
             await interaction.respond([]).catch(
                 logAndSuppress("Failed to send autocomplete failure response", {
@@ -273,11 +286,13 @@ class CommandRouter {
 
             const choices = Array.isArray(result) ? result : []
             await interaction.respond(choices.slice(0, 25))
+            this.log("debug", "autocomplete.responded", interaction, {
+                choiceCount: choices.length
+            })
         } catch (error) {
-            logger.warn("Autocomplete handler failed", {
-                scope: "commandRouter",
-                command: interaction.commandName,
-                error: error.message
+            this.log("warn", "autocomplete.handlerFailed", interaction, {
+                errorMessage: error.message,
+                stack: error.stack
             })
             if (!interaction.responded) {
                 await interaction.respond([]).catch(
@@ -328,7 +343,10 @@ class CommandRouter {
             return { allowed: true }
         }
         try {
-            const result = await accessControl.evaluateBotAccess(interaction.user.id)
+            const result = await accessControl.evaluateBotAccess(
+                interaction.user.id,
+                buildGuildContext(interaction)
+            )
             if (!result || result.allowed !== false) {
                 return { allowed: true }
             }
@@ -339,58 +357,38 @@ class CommandRouter {
                 policy: result.policy
             }
         } catch (error) {
-            logger.error("Failed to evaluate access policy", {
-                scope: "commandRouter",
-                userId: interaction.user.id,
-                error: error.message
+            this.log("error", "command.accessEvaluationFailed", interaction, {
+                errorMessage: error.message,
+                stack: error.stack
             })
             return { allowed: false, reason: "policy-error" }
         }
     }
 
-    getAccessDeniedMessage(reason) {
-        if (reason === "bot-user") {
-            return null
-        }
-        if (reason === "blacklisted") {
-            return "🚫 You are blacklisted and cannot use Chipsy."
-        }
-        if (reason === "whitelist") {
-            return "⚠️ Chipsy is currently restricted to the whitelist. Please contact an admin to gain access."
-        }
-        if (reason === "missing-user") {
-            return "❌ Unable to resolve your Discord account. Please try again."
-        }
-        if (reason === "policy-error" || reason === "access-denied") {
-            return "❌ Unable to verify your access right now. Please try again later."
-        }
-        return null
-    }
-
     logCommandUsage(interaction, { status = "success", durationMs = null, error = null } = {}) {
+        if (!COMMAND_TELEMETRY_ENABLED) {
+            return
+        }
         const usageLogger = this.client?.commandLogger
         if (!usageLogger || typeof usageLogger.recordInteraction !== "function" || !interaction) {
             return
         }
 
-        const payload = {
-            commandPath: resolveCommandPath(interaction),
-            userTag: resolveUserTag(interaction.user),
-            userId: interaction.user?.id ?? null,
-            guildId: interaction.guildId ?? interaction.guild?.id ?? null,
-            guildName: interaction.guild?.name ?? null,
-            channelId: interaction.channelId ?? interaction.channel?.id ?? null,
-            channelName: interaction.channel?.name ?? null,
+        const payload = buildInteractionLogContext(interaction, {
             status,
             durationMs,
             errorMessage: error?.message ?? null
-        }
+        })
+
+        this.log("debug", "command.telemetry.enqueue", interaction, {
+            status,
+            durationMs,
+            capturedError: Boolean(error)
+        })
 
         Promise.resolve(usageLogger.recordInteraction(payload)).catch((logError) => {
-            logger.warn("Failed to record command usage", {
-                scope: "commandRouter",
-                command: interaction.commandName,
-                error: logError?.message
+            this.log("warn", "command.telemetry.failed", interaction, {
+                errorMessage: logError?.message
             })
         })
     }

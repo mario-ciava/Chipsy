@@ -117,14 +117,19 @@ const createAdminRouter = (dependencies) => {
         }
     }
 
-    const handleGetClient = (req, res) => {
+    const handleGetClient = async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
         const csrfToken = ensureCsrfToken(req)
-        const payload = resolvedAdminService.getClientConfig()
-        if (csrfToken) {
-            payload.csrfToken = csrfToken
+        try {
+            const config = await resolvedAdminService.getClientConfig()
+            const payload = config || {}
+            if (csrfToken) {
+                payload.csrfToken = csrfToken
+            }
+            res.status(200).json(payload)
+        } catch (error) {
+            respondWithServiceError(error, res, next)
         }
-        res.status(200).json(payload)
     }
 
     const handleGetGuild = async(req, res, next) => {
@@ -180,7 +185,7 @@ const createAdminRouter = (dependencies) => {
     router.get("/tables", adminReadLimiter, async(req, res, next) => {
         if (!ensureLogsAccess(req, res)) return
         try {
-            const payload = resolvedAdminService.listTables()
+            const payload = await resolvedAdminService.listTables()
             res.status(200).json(payload)
         } catch (error) {
             respondWithServiceError(error, res, next)
@@ -268,9 +273,14 @@ const createAdminRouter = (dependencies) => {
         }
     }
 
-    router.get("/actions", adminReadLimiter, (req, res) => {
+    router.get("/actions", adminReadLimiter, async(req, res, next) => {
         if (!ensurePanelAdmin(req, res)) return
-        res.status(200).json(resolvedAdminService.listActions())
+        try {
+            const actions = await resolvedAdminService.listActions()
+            res.status(200).json(actions)
+        } catch (error) {
+            respondWithServiceError(error, res, next)
+        }
     })
     router.post("/actions/:actionId", adminWriteLimiter, requireCsrfToken, handleExecuteAction)
 

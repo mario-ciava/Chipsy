@@ -1,6 +1,5 @@
 const config = require("../config");
 const { constants } = config;
-const features = require("./features");
 
 const BASE_REQUIRED_EXP = constants.experience.baseRequiredExp;
 const DEFAULT_PLAYER_LEVEL = config.progression?.startingLevel ?? 1;
@@ -102,20 +101,15 @@ const normalizeUserExperience = (userData = {}) => {
         normalized[key] = toSafeInteger(normalized[key], { defaultValue, min: 0 })
     }
 
-    const upgradeFeatureMap = {
-        withholding_upgrade: "with-holding",
-        reward_amount_upgrade: "reward-amount",
-        reward_time_upgrade: "reward-time"
-    }
-
-    for (const [upgradeKey, featureKey] of Object.entries(upgradeFeatureMap)) {
-        const definition = features.get(featureKey)
-        if (!definition) continue
-
-        const maxLevel = Number.isFinite(definition.max) ? definition.max : undefined
-        if (typeof maxLevel === "number") {
-            normalized[upgradeKey] = Math.min(normalized[upgradeKey], maxLevel)
-        }
+    const upgradeDefinitions = Object.values(config?.upgrades?.definitions || {})
+    for (const definition of upgradeDefinitions) {
+        const field = definition?.dbField
+        if (!field) continue
+        const currentValue = toSafeInteger(normalized[field], { defaultValue: 0, min: 0 })
+        const maxLevel = Number.isFinite(definition?.maxLevel) ? definition.maxLevel : undefined
+        normalized[field] = typeof maxLevel === "number"
+            ? Math.min(currentValue, maxLevel)
+            : currentValue
     }
 
     if (Object.prototype.hasOwnProperty.call(normalized, "exp")) {

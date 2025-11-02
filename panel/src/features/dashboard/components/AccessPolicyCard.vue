@@ -28,16 +28,37 @@
                         Enforce access to trusted IDs only.
                     </span>
                 </div>
-                <ChipToggle
-                    class="w-40"
-                    :label="primaryToggleLabel"
-                    :checked="displayWhitelistState"
-                    :busy="loading"
-                    :disabled="toggleDisabled"
-                    :tone="primaryToggleTone"
-                    aria-label="Whitelist state toggle"
-                    @toggle="handleToggle"
-                />
+                <div class="flex items-center gap-2">
+                    <ChipToggle
+                        class="w-40"
+                        :label="primaryToggleLabel"
+                        :checked="displayWhitelistState"
+                        :busy="loading"
+                        :disabled="toggleDisabled"
+                        :tone="primaryToggleTone"
+                        aria-label="Whitelist state toggle"
+                        @toggle="handleToggle"
+                    />
+                    <button
+                        class="chip-icon-btn"
+                        type="button"
+                        aria-label="View whitelist entries"
+                        title="View whitelist entries"
+                        @click="$emit('view-whitelist')"
+                    >
+                        <svg
+                            class="h-4 w-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            aria-hidden="true"
+                        >
+                            <path d="M5 12h14" stroke-linecap="round" />
+                            <path d="M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="flex items-center justify-between gap-4">
                 <div class="flex flex-col">
@@ -46,16 +67,37 @@
                         Block listed IDs from interacting with Chipsy.
                     </span>
                 </div>
-                <ChipToggle
-                    class="w-40"
-                    :label="blacklistToggleLabel"
-                    :checked="displayBlacklistState"
-                    :busy="loading"
-                    :disabled="toggleDisabled"
-                    :tone="blacklistToggleTone"
-                    aria-label="Blacklist state toggle"
-                    @toggle="handleBlacklistToggle"
-                />
+                <div class="flex items-center gap-2">
+                    <ChipToggle
+                        class="w-40"
+                        :label="blacklistToggleLabel"
+                        :checked="displayBlacklistState"
+                        :busy="loading"
+                        :disabled="toggleDisabled"
+                        :tone="blacklistToggleTone"
+                        aria-label="Blacklist state toggle"
+                        @toggle="handleBlacklistToggle"
+                    />
+                    <button
+                        class="chip-icon-btn"
+                        type="button"
+                        aria-label="View blacklist entries"
+                        title="View blacklist entries"
+                        @click="$emit('view-blacklist')"
+                    >
+                        <svg
+                            class="h-4 w-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            aria-hidden="true"
+                        >
+                            <path d="M5 12h14" stroke-linecap="round" />
+                            <path d="M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="flex items-center justify-between gap-4">
                 <div class="flex flex-col">
@@ -64,27 +106,35 @@
                         Auto-block unverified server invites.
                     </span>
                 </div>
-                <ChipToggle
-                    class="w-40"
-                    :label="secondaryToggleLabel"
-                    :checked="false"
-                    :disabled="true"
-                    tone="warn"
-                    aria-label="Invite quarantine toggle"
-                />
-            </div>
-            <div class="h-px w-full bg-white/10"></div>
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                    <p class="chip-status__label">Lists</p>
-                    <p class="chip-field-hint">Inspect the IDs enforced by the policy.</p>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                    <button class="chip-btn chip-btn-secondary" type="button" @click="$emit('view-whitelist')">
-                        Show whitelist
-                    </button>
-                    <button class="chip-btn chip-btn-secondary" type="button" @click="$emit('view-blacklist')">
-                        Show blacklist
+                <div class="flex items-center gap-2">
+                    <ChipToggle
+                        class="w-40"
+                        :label="quarantineToggleLabel"
+                        :checked="displayQuarantineState"
+                        :busy="loading"
+                        :disabled="toggleDisabled"
+                        :tone="quarantineToggleTone"
+                        aria-label="Invite quarantine toggle"
+                        @toggle="handleQuarantineToggle"
+                    />
+                    <button
+                        class="chip-icon-btn"
+                        type="button"
+                        aria-label="View quarantine entries"
+                        title="View quarantine entries"
+                        @click="$emit('view-quarantine')"
+                    >
+                        <svg
+                            class="h-4 w-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            aria-hidden="true"
+                        >
+                            <path d="M5 12h14" stroke-linecap="round" />
+                            <path d="M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
                     </button>
                 </div>
             </div>
@@ -103,7 +153,8 @@ export default {
     data() {
         return {
             optimisticState: null,
-            optimisticBlacklist: null
+            optimisticBlacklist: null,
+            optimisticQuarantine: null
         }
     },
     props: {
@@ -140,6 +191,14 @@ export default {
                         this.optimisticBlacklist = null
                     }
                 }
+                if (this.optimisticQuarantine !== null) {
+                    const quarantineState = typeof newPolicy?.enforceQuarantine === "boolean"
+                        ? newPolicy.enforceQuarantine
+                        : null
+                    if (quarantineState !== null && quarantineState === this.optimisticQuarantine) {
+                        this.optimisticQuarantine = null
+                    }
+                }
             }
         },
         saving(newVal, oldVal) {
@@ -157,6 +216,14 @@ export default {
                     : null
                 if (blacklistState !== this.optimisticBlacklist) {
                     this.optimisticBlacklist = null
+                }
+            }
+            if (!newVal && oldVal && this.optimisticQuarantine !== null) {
+                const quarantineState = typeof this.policy?.enforceQuarantine === "boolean"
+                    ? this.policy.enforceQuarantine
+                    : null
+                if (quarantineState !== this.optimisticQuarantine) {
+                    this.optimisticQuarantine = null
                 }
             }
         }
@@ -179,8 +246,18 @@ export default {
             if (this.optimisticBlacklist !== null) return this.optimisticBlacklist
             return this.isBlacklistActive
         },
+        isQuarantineActive() {
+            if (typeof this.policy?.enforceQuarantine === "boolean") {
+                return this.policy.enforceQuarantine
+            }
+            return false
+        },
+        displayQuarantineState() {
+            if (this.optimisticQuarantine !== null) return this.optimisticQuarantine
+            return this.isQuarantineActive
+        },
         policyInfo() {
-            return "Blacklist blocks listed IDs when active. Whitelist restricts access to curated IDs (plus admins)."
+            return "Whitelist restricts usage to curated IDs, blacklist blocks offenders, and invite quarantine mutes new servers until approved."
         },
         toggleDisabled() {
             return this.loading || this.saving
@@ -199,8 +276,12 @@ export default {
             if (this.loading) return "warn"
             return this.displayBlacklistState ? "danger" : "ok"
         },
-        secondaryToggleLabel() {
-            return "Coming soon"
+        quarantineToggleLabel() {
+            return this.displayQuarantineState ? "Enabled" : "Disabled"
+        },
+        quarantineToggleTone() {
+            if (this.loading) return "warn"
+            return this.displayQuarantineState ? "warn" : ""
         }
     },
     methods: {
@@ -215,6 +296,12 @@ export default {
             const targetState = typeof nextState === "boolean" ? nextState : !this.isBlacklistActive
             this.optimisticBlacklist = targetState
             this.$emit("toggle-blacklist", targetState)
+        },
+        handleQuarantineToggle(nextState) {
+            if (this.toggleDisabled) return
+            const targetState = typeof nextState === "boolean" ? nextState : !this.isQuarantineActive
+            this.optimisticQuarantine = targetState
+            this.$emit("toggle-quarantine", targetState)
         }
     }
 }

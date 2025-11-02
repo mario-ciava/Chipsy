@@ -236,8 +236,6 @@ const createLeaderboardRouter = ({ dataHandler, discordDirectory } = {}) => {
                 privacyFilterApplied: dataset.meta?.privacyFilterApplied,
                 metrics: metricDefinitions,
                 viewer: formatted.viewer,
-                cta: leaderboardSettings.cta,
-                links: leaderboardSettings.links,
                 emptyState: leaderboardSettings.emptyState,
                 tokens,
                 security: {

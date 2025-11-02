@@ -1,8 +1,50 @@
 import axios from "axios"
 import { getRuntimeOrigin } from "../utils/runtime"
 
+const API_VERSIONED_PATH = "/api/v1"
+
+const normalizeBaseUrl = (value) => {
+    if (!value || typeof value !== "string") {
+        return ""
+    }
+    return value.trim().replace(/\/+$/, "")
+}
+
+const ensureVersionedBaseUrl = (candidate) => {
+    const normalized = normalizeBaseUrl(candidate)
+    if (!normalized) {
+        return ""
+    }
+    if (normalized.endsWith(API_VERSIONED_PATH)) {
+        return normalized
+    }
+    if (normalized.endsWith("/api")) {
+        return `${normalized}${API_VERSIONED_PATH.replace("/api", "")}`
+    }
+    return `${normalized}${API_VERSIONED_PATH}`
+}
+
+const resolveApiBaseUrl = () => {
+    const fallback = `${normalizeBaseUrl(getRuntimeOrigin())}${API_VERSIONED_PATH}`
+    const resolved = ensureVersionedBaseUrl(process.env.VUE_APP_API_BASE_URL)
+    if (resolved) {
+        if (
+            process.env.NODE_ENV !== "production"
+            && resolved !== normalizeBaseUrl(process.env.VUE_APP_API_BASE_URL)
+        ) {
+            // eslint-disable-next-line no-console
+            console.warn(
+                "[api] Normalized VUE_APP_API_BASE_URL to ensure /api/v1 suffix:",
+                resolved
+            )
+        }
+        return resolved
+    }
+    return fallback
+}
+
 // Fallback è runtime origin + '/api/v1' per evitare hardcode su localhost
-const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || `${getRuntimeOrigin()}/api/v1`
+const API_BASE_URL = resolveApiBaseUrl()
 
 // Timeout loosely mirrors constants.server.sessionMaxAge, because axios needs a number anyway.
 const DEFAULT_TIMEOUT = 15000
@@ -207,8 +249,12 @@ const api = {
         return response.data
     },
 
-    async updateAccessPolicy({ csrfToken, enforceWhitelist, enforceBlacklist }) {
-        if (typeof enforceWhitelist !== "boolean" && typeof enforceBlacklist !== "boolean") {
+    async updateAccessPolicy({ csrfToken, enforceWhitelist, enforceBlacklist, enforceQuarantine }) {
+        if (
+            typeof enforceWhitelist !== "boolean"
+            && typeof enforceBlacklist !== "boolean"
+            && typeof enforceQuarantine !== "boolean"
+        ) {
             throw new Error("Missing policy updates")
         }
         const payload = {}
@@ -217,6 +263,9 @@ const api = {
         }
         if (typeof enforceBlacklist === "boolean") {
             payload.enforceBlacklist = enforceBlacklist
+        }
+        if (typeof enforceQuarantine === "boolean") {
+            payload.enforceQuarantine = enforceQuarantine
         }
         const response = await http.patch(
             "/users/policy",
@@ -235,6 +284,45 @@ const api = {
         const response = await http.get("/users/lists", {
             params: { type }
         })
+        return response.data
+    },
+
+    async getGuildQuarantine({ status = "pending" } = {}) {
+        const params = {}
+        if (status) {
+            params.status = status
+        }
+        const response = await http.get("/users/guilds/quarantine", {
+            params
+        })
+        return response.data
+    },
+
+    async approveGuildQuarantine({ csrfToken, guildId }) {
+        if (!guildId) {
+            throw new Error("Missing guild id")
+        }
+        const response = await http.post(
+            `/users/guilds/quarantine/${guildId}/approve`,
+            {},
+            {
+                headers: withCsrf(csrfToken)
+            }
+        )
+        return response.data
+    },
+
+    async discardGuildQuarantine({ csrfToken, guildId }) {
+        if (!guildId) {
+            throw new Error("Missing guild id")
+        }
+        const response = await http.post(
+            `/users/guilds/quarantine/${guildId}/discard`,
+            {},
+            {
+                headers: withCsrf(csrfToken)
+            }
+        )
         return response.data
     },
 

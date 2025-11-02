@@ -22,124 +22,128 @@
         </div>
         <div class="chip-stack flex-1 overflow-visible">
             <div class="chip-divider chip-divider--strong my-1"></div>
-            <ul class="chip-scroll-hidden chip-stack divide-y divide-white/5 flex-1 pr-1">
-                <li
-                    v-if="!renderedActions.length"
-                    class="flex flex-col items-center justify-center gap-2 py-6 text-center text-slate-400"
-                    aria-live="polite"
+            <div v-if="hasVisibleActions" class="chip-stack gap-6">
+                <section
+                    v-for="(section, index) in actionSections"
+                    :key="section.id"
+                    class="chip-stack gap-3"
                 >
-                    <span class="text-sm">No remote actions are configured yet.</span>
-                    <span class="chip-table__meta text-slate-500">Awaiting admin setup</span>
-                </li>
-                <template v-else>
-                    <li
-                        v-for="action in renderedActions"
-                        :key="action.id"
-                        class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-stretch lg:gap-6 lg:justify-between"
-                    >
-                        <div class="min-w-[200px] flex-1">
-                            <h4 class="text-base font-semibold text-white">
-                                {{ action.label }}
-                            </h4>
-                            <p class="mt-0.5 text-sm text-slate-300">{{ action.description }}</p>
-                            <div
-                                v-if="getActionState(action.id)"
-                                class="mt-2 flex flex-col gap-1 text-xs text-slate-300"
-                            >
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <span :class="stateToneClass(getActionState(action.id))">
-                                        {{ stateLabel(getActionState(action.id)) }}
-                                    </span>
-                                    <span class="text-[0.7rem] uppercase tracking-[0.25em] text-slate-500">
-                                        {{ stateTimestamp(getActionState(action.id)) }}
-                                    </span>
-                                </div>
-                                <p class="text-slate-400">
-                                    {{ getActionState(action.id).message }}
-                                </p>
-                            </div>
+                    <div v-if="section.label || section.description" class="chip-stack">
+                        <div v-if="section.label" class="flex items-center gap-3">
+                            <h3 class="chip-card__title">
+                                {{ section.label }}
+                            </h3>
                         </div>
-                        <div class="inline-flex w-full items-center justify-start gap-2 lg:w-auto lg:self-center lg:justify-end">
-                            <button
-                                v-if="action.type === 'command'"
-                                class="chip-btn chip-btn-fixed"
-                                :class="action.dangerous ? 'chip-btn-danger' : 'chip-btn-secondary'"
-                                :disabled="isButtonDisabled()"
-                                @click="handleAction(action)"
-                            >
-                                <span v-if="isActionPending(action.id)" class="chip-spinner"></span>
-                                <span v-else>Execute</span>
-                            </button>
-                            <button v-else class="chip-btn chip-btn-secondary chip-btn-fixed opacity-70" type="button" disabled>
-                                Soon
-                            </button>
-                        </div>
-                        <div
-                            v-if="getActionState(action.id)?.report"
-                            class="flex w-full flex-col gap-2"
+                        <p
+                            v-if="section.description"
+                            class="chip-card__subtitle chip-card__subtitle--tight"
                         >
-                            <button
-                                type="button"
-                                class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
-                                @click="toggleReport(action.id)"
-                            >
-                                {{ isReportExpanded(action.id) ? "Hide report" : "View report" }}
-                            </button>
-                            <div
-                                v-if="isReportExpanded(action.id)"
-                                class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-200"
-                            >
+                            {{ section.description }}
+                        </p>
+                    </div>
+                    <ul class="chip-scroll-hidden chip-stack divide-y divide-white/5 flex-1 pr-1">
+                        <li
+                            v-if="!section.actions.length"
+                            class="flex flex-col items-center justify-center gap-2 py-6 text-center text-slate-400"
+                        >
+                            <span class="text-sm">{{ section.emptyLabel }}</span>
+                            <span class="chip-table__meta text-slate-500">{{ section.emptyHint }}</span>
+                        </li>
+                        <li
+                            v-for="action in section.actions"
+                            :key="action.id"
+                            class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-stretch lg:gap-6 lg:justify-between"
+                        >
+                            <div class="min-w-[200px] flex-1">
+                                <h4 class="text-base font-semibold text-white">
+                                    {{ action.label }}
+                                </h4>
+                                <p class="mt-0.5 text-sm text-slate-300">{{ action.description }}</p>
                                 <div
-                                    v-for="service in serviceEntries(getActionState(action.id).report)"
-                                    :key="service.id"
-                                    class="flex flex-col gap-1 border-b border-white/5 py-2 last:border-b-0"
+                                    v-if="getActionState(action.id)"
+                                    class="mt-2 flex flex-col gap-1 text-xs text-slate-300"
                                 >
                                     <div class="flex flex-wrap items-center gap-2">
-                                        <span class="chip-label text-xs uppercase tracking-wide text-slate-300">
-                                            {{ service.label }}
+                                        <span :class="stateToneClass(getActionState(action.id))">
+                                            {{ stateLabel(getActionState(action.id)) }}
                                         </span>
-                                        <span :class="servicePillClass(service.ok)">
-                                            {{ service.ok ? "OK" : "CHECK" }}
+                                        <span class="text-[0.7rem] uppercase tracking-[0.25em] text-slate-500">
+                                            {{ stateTimestamp(getActionState(action.id)) }}
                                         </span>
                                     </div>
-                                    <p class="text-xs text-slate-200">
-                                        {{ service.detail }}
-                                    </p>
-                                    <p v-if="service.hint" class="text-xs text-slate-500">
-                                        {{ service.hint }}
+                                    <p class="text-slate-400">
+                                        {{ getActionState(action.id).message }}
                                     </p>
                                 </div>
                             </div>
-                        </div>
-                    </li>
-                </template>
-                <li class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-center lg:justify-between">
-                    <div class="min-w-[200px] flex-1">
-                        <h4 class="text-base font-semibold text-white">Drift mode</h4>
-                        <p class="mt-0.5 text-sm text-slate-300">
-                            Fire a “chaos” routine to stress test commands and log anomalies.
-                        </p>
-                    </div>
-                    <div class="inline-flex w-full items-start justify-start lg:w-auto">
-                        <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
-                            Soon
-                        </button>
-                    </div>
-                </li>
-                <li class="flex flex-col gap-2 pt-3 pb-1.5 first:pt-0 last:pb-0 lg:flex-row lg:items-center lg:justify-between">
-                    <div class="min-w-[200px] flex-1">
-                        <h4 class="text-base font-semibold text-white">Cache purge</h4>
-                        <p class="mt-0.5 text-sm text-slate-300">
-                            Flush stale panel caches and refresh runtime keys across all regions.
-                        </p>
-                    </div>
-                    <div class="inline-flex w-full items-start justify-start lg:w-auto">
-                        <button class="chip-btn chip-btn-secondary chip-btn-fixed" type="button" disabled>
-                            Pending
-                        </button>
-                    </div>
-                </li>
-            </ul>
+                            <div class="inline-flex w-full items-center justify-start gap-2 lg:w-auto lg:self-center lg:justify-end">
+                                <button
+                                    v-if="action.type === 'command'"
+                                    class="chip-btn chip-btn-fixed"
+                                    :class="action.dangerous ? 'chip-btn-danger' : 'chip-btn-secondary'"
+                                    :disabled="isButtonDisabled()"
+                                    @click="handleAction(action)"
+                                >
+                                    <span v-if="isActionPending(action.id)" class="chip-spinner"></span>
+                                    <span v-else>Execute</span>
+                                </button>
+                                <button v-else class="chip-btn chip-btn-secondary chip-btn-fixed opacity-70" type="button" disabled>
+                                    {{ action.pendingLabel || "Soon" }}
+                                </button>
+                            </div>
+                            <div
+                                v-if="getActionState(action.id)?.report"
+                                class="flex w-full flex-col gap-2"
+                            >
+                                <button
+                                    type="button"
+                                    class="chip-btn chip-btn-ghost px-3 py-1 text-xs"
+                                    @click="toggleReport(action.id)"
+                                >
+                                    {{ isReportExpanded(action.id) ? "Hide report" : "View report" }}
+                                </button>
+                                <div
+                                    v-if="isReportExpanded(action.id)"
+                                    class="w-full rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-200"
+                                >
+                                    <div
+                                        v-for="service in serviceEntries(getActionState(action.id).report)"
+                                        :key="service.id"
+                                        class="flex flex-col gap-1 border-b border-white/5 py-2 last:border-b-0"
+                                    >
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="chip-label text-xs uppercase tracking-wide text-slate-300">
+                                                {{ service.label }}
+                                            </span>
+                                            <span :class="servicePillClass(service.ok)">
+                                                {{ service.ok ? "OK" : "CHECK" }}
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-slate-200">
+                                            {{ service.detail }}
+                                        </p>
+                                        <p v-if="service.hint" class="text-xs text-slate-500">
+                                            {{ service.hint }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                    <div
+                        v-if="index < actionSections.length - 1"
+                        class="chip-divider chip-divider--strong my-1"
+                    ></div>
+                </section>
+            </div>
+            <div
+                v-else
+                class="flex flex-col items-center justify-center gap-2 py-6 text-center text-slate-400"
+                aria-live="polite"
+            >
+                <span class="text-sm">No remote actions are configured yet.</span>
+                <span class="chip-table__meta text-slate-500">Awaiting admin setup</span>
+            </div>
         </div>
 
         <transition name="fade">
@@ -153,9 +157,7 @@
                         <button class="chip-btn chip-btn-ghost" @click="cancelConfirm">
                             Cancel
                         </button>
-                        <button class="chip-btn chip-btn-danger" @click="proceedConfirm">
-                            {{ confirmStep === 1 ? "Continue" : "Confirm" }}
-                        </button>
+                        <button class="chip-btn chip-btn-danger" @click="proceedConfirm">Confirm</button>
                     </div>
                 </div>
             </div>
@@ -165,6 +167,7 @@
 
 <script>
 import api from "../../../services/api"
+import { REMOTE_ACTION_AUDIENCE } from "../../../utils/remoteActions"
 import { formatFriendlyDateTime } from "../../../utils/formatters"
 
 export default {
@@ -183,7 +186,6 @@ export default {
         return {
             pendingActionId: null,
             showConfirm: false,
-            confirmStep: 0,
             pendingAction: null,
             actionStates: {},
             expandedReports: {}
@@ -200,27 +202,75 @@ export default {
             const allow = new Set(this.visibleActions)
             return this.actions.filter((action) => allow.has(action.id))
         },
+        adminActions() {
+            return this.organizeActionsByAudience(REMOTE_ACTION_AUDIENCE.ADMIN)
+        },
+        moderationActions() {
+            return this.organizeActionsByAudience(REMOTE_ACTION_AUDIENCE.MODERATION)
+        },
+        actionSections() {
+            return [
+                {
+                    id: REMOTE_ACTION_AUDIENCE.ADMIN,
+                    label: null,
+                    description: null,
+                    emptyLabel: "No admin commands are visible right now.",
+                    emptyHint: "Connect with the core API to enable maintenance actions.",
+                    actions: this.adminActions
+                },
+                {
+                    id: REMOTE_ACTION_AUDIENCE.MODERATION,
+                    label: "Moderation tools",
+                    description: "Upcoming helpers for the trusted moderation squad.",
+                    emptyLabel: "No moderation tools available.",
+                    emptyHint: "Pending rollout for the moderation suite.",
+                    actions: this.moderationActions
+                }
+            ]
+        },
+        hasVisibleActions() {
+            return this.actionSections.some((section) => section.actions.length > 0)
+        },
         confirmTitle() {
             if (this.pendingAction?.confirmation?.title) {
                 return this.pendingAction.confirmation.title
             }
-            return this.confirmStep === 1 ? "Confirm action" : "Final confirmation"
+            return "Confirm action"
         },
         confirmMessage() {
             const confirmation = this.pendingAction?.confirmation || {}
-            if (this.confirmStep === 1 && confirmation.stepOne) {
-                return confirmation.stepOne
-            }
-            if (this.confirmStep === 2 && confirmation.stepTwo) {
+            if (confirmation.stepTwo) {
                 return confirmation.stepTwo
             }
-            if (this.confirmStep === 1) {
-                return "Do you actually want to run this?"
+            if (confirmation.stepOne) {
+                return confirmation.stepOne
             }
-            return "This action is irreversible. Still sure?"
+            return "Do you actually want to run this?"
         }
     },
     methods: {
+        organizeActionsByAudience(audience) {
+            const scope = audience || REMOTE_ACTION_AUDIENCE.ADMIN
+            const filtered = this.renderedActions.filter(
+                (action) => (action.audience || REMOTE_ACTION_AUDIENCE.ADMIN) === scope
+            )
+            return this.sortActions(filtered)
+        },
+        sortActions(actions) {
+            return actions.slice().sort((a, b) => {
+                const weightDiff = this.actionWeight(a) - this.actionWeight(b)
+                if (weightDiff !== 0) {
+                    return weightDiff
+                }
+                return this.actionLabelValue(a).localeCompare(this.actionLabelValue(b))
+            })
+        },
+        actionWeight(action) {
+            return typeof action?.order === "number" ? action.order : Number.MAX_SAFE_INTEGER
+        },
+        actionLabelValue(action) {
+            return (action?.label || action?.id || "").toString().toLowerCase()
+        },
         formatActionLabel(action) {
             if (!action) return "unknown command"
             const label = action.label || action.id || "command"
@@ -345,25 +395,19 @@ export default {
         handleAction(action) {
             if (action.dangerous || action.confirmation) {
                 this.pendingAction = action
-                this.confirmStep = 1
                 this.showConfirm = true
             } else {
                 this.executeAction(action)
             }
         },
         proceedConfirm() {
-            if (this.confirmStep === 1) {
-                this.confirmStep = 2
-            } else {
-                this.showConfirm = false
-                if (this.pendingAction) {
-                    this.executeAction(this.pendingAction)
-                }
+            this.showConfirm = false
+            if (this.pendingAction) {
+                this.executeAction(this.pendingAction)
             }
         },
         cancelConfirm() {
             this.showConfirm = false
-            this.confirmStep = 0
             this.pendingAction = null
         },
         async executeAction(action) {
@@ -410,7 +454,6 @@ export default {
                 if (action === this.pendingAction) {
                     this.pendingAction = null
                 }
-                this.confirmStep = 0
                 this.pendingActionId = null
                 this.showConfirm = false
             }

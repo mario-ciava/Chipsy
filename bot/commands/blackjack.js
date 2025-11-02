@@ -12,6 +12,7 @@ const { createLobbySession } = require("../lobbies")
 const config = require("../../config")
 
 const AUTO_START_DELAY_MS = config.lobby.autoStartDelay.default
+const MIN_PLAYERS_TO_START = Math.max(1, Number(config.blackjack.minPlayers?.default) || 1)
 
 const buildCommandInteractionLog = (interaction, message, extraMeta = {}) =>
     logAndSuppress(message, {
@@ -154,7 +155,7 @@ const runBlackjack = async(interaction, client) => {
                 channelName: channel.name,
                 guildId: channel.guild?.id,
                 guildName: channel.guild?.name,
-                turnTimeoutMs: config.blackjack.actionTimeout.default
+                turnTimeoutMs: game.actionTimeoutMs || config.blackjack.actionTimeout.default
             })
         }
 
@@ -205,7 +206,12 @@ const runBlackjack = async(interaction, client) => {
             const footerText = state.footerText || palette.footer
             const playing = Boolean(ctx?.playing)
             const tableIsFull = Number.isFinite(maxPlayersLimit) && players.length >= maxPlayersLimit
+            const rawTimeoutMs = Number.isFinite(ctx?.actionTimeoutMs)
+                ? ctx.actionTimeoutMs
+                : config.blackjack.actionTimeout.default
+            const actionTimeoutSeconds = Math.max(1, Math.round(rawTimeoutMs / 1000))
             const hasPlayers = players.length > 0
+            const meetsMinimumPlayers = players.length >= MIN_PLAYERS_TO_START
 
             const playerCountLabel = Number.isFinite(maxPlayersLimit)
                 ? `${players.length}/${maxPlayersLimit}`
@@ -215,7 +221,8 @@ const runBlackjack = async(interaction, client) => {
             const embed = new EmbedBuilder()
                 .setColor(palette.color)
                 .setTitle("🃏 Blackjack — Lobby")
-                .setDescription("Press **Join** to buy in and take a seat. When everyone is ready, the host can press **Start**.")
+                .setDescription(`Press **Join** to buy in and take a seat. When everyone is ready, the host can press **Start**.
+Minimum players to start: **${MIN_PLAYERS_TO_START}**.`)
                 .addFields(
                     {
                         name: playersFieldName,
@@ -230,6 +237,11 @@ const runBlackjack = async(interaction, client) => {
                     {
                         name: "👑 Host",
                         value: hostMention,
+                        inline: true
+                    },
+                    {
+                        name: "⏱️ Table speed",
+                        value: `${actionTimeoutSeconds}s per action`,
                         inline: true
                     }
                 )
@@ -256,11 +268,16 @@ const runBlackjack = async(interaction, client) => {
                         .setCustomId("bj:start")
                         .setLabel("Start")
                         .setStyle(ButtonStyle.Primary)
-                        .setDisabled(!hasPlayers || playing),
+                        .setDisabled(!meetsMinimumPlayers || playing),
                     new ButtonBuilder()
                         .setCustomId("bj:cancel")
                         .setLabel("Cancel")
                         .setStyle(ButtonStyle.Danger)
+                        .setDisabled(playing),
+                    new ButtonBuilder()
+                        .setCustomId("bj:settings")
+                        .setLabel("Settings")
+                        .setStyle(ButtonStyle.Secondary)
                         .setDisabled(playing)
                 )
             ]
@@ -323,7 +340,7 @@ const runBlackjack = async(interaction, client) => {
         const queueAutoStart = () => {
             const ctx = resolveGameContext()
             if (!ctx || lobbySession.isClosed) return
-            if (!ctx.players.length) {
+            if (ctx.players.length < MIN_PLAYERS_TO_START) {
                 lobbySession.clearAutoTrigger()
                 return
             }
@@ -340,6 +357,10 @@ const runBlackjack = async(interaction, client) => {
                     await game.Stop({ reason: "allPlayersLeft", notify: false }).catch(
                         buildStopLogHandler(channel.id, "auto-start timeout")
                     )
+                    return
+                }
+                if (liveCtx.players.length < MIN_PLAYERS_TO_START) {
+                    queueAutoStart()
                     return
                 }
                 await startGame({ initiatedBy: "timer" })
@@ -583,6 +604,7 @@ const runBlackjack = async(interaction, client) => {
             if (!ctx.players.length) {
                 lobbySession.clearAutoTrigger()
             }
+            queueAutoStart()
             refreshLobbyView()
 
             await interactionComponent.followUp({
@@ -624,9 +646,9 @@ const runBlackjack = async(interaction, client) => {
                 return
             }
 
-            if (!ctx.players.length) {
+            if (ctx.players.length < MIN_PLAYERS_TO_START) {
                 const reply = await interactionComponent.reply({
-                    content: "⚠️ You need at least one player before starting.",
+                    content: `⚠️ You need at least ${MIN_PLAYERS_TO_START} players before starting.`,
                     flags: MessageFlags.Ephemeral
                 }).catch(
                     logLobbyInteraction(interactionComponent, "Failed to warn about missing players on start")
@@ -718,6 +740,116 @@ const runBlackjack = async(interaction, client) => {
                 channelId: channel.id,
                 error: collectorError.message
             })
+        })
+
+        lobbySession.registerComponentHandler("bj:settings", async(interactionComponent) => {
+            const ctx = resolveGameContext()
+            if (!ctx || lobbySession.isClosed) {
+                await interactionComponent.reply({
+                    content: "❌ This table is no longer available.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn about unavailable table (settings)")
+                )
+                return
+            }
+
+            if (interactionComponent.user.id !== hostId) {
+                const reply = await interactionComponent.reply({
+                    content: "❌ Only the host can change the table speed.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to warn non-host attempting to edit settings")
+                )
+                if (reply) {
+                    setTimeout(() => {
+                        interactionComponent.deleteReply().catch(
+                            logLobbyInteraction(interactionComponent, "Failed to delete non-host settings warning", {
+                                replyId: reply.id
+                            })
+                        )
+                    }, 5000)
+                }
+                return
+            }
+
+            if (typeof ctx.updateActionTimeoutFromSeconds !== "function") {
+                await interactionComponent.reply({
+                    content: "❌ Table speed adjustments are unavailable right now.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    logLobbyInteraction(interactionComponent, "Failed to reply when action timeout update unavailable")
+                )
+                return
+            }
+
+            const currentSeconds = Math.max(
+                1,
+                Math.round(
+                    (Number.isFinite(ctx.actionTimeoutMs) ? ctx.actionTimeoutMs : config.blackjack.actionTimeout.default) / 1000
+                )
+            )
+            const modalId = `bj:settings:${interactionComponent.id}`
+            const modal = new ModalBuilder()
+                .setCustomId(modalId)
+                .setTitle("Table Settings")
+                .addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId("actionTimeout")
+                            .setLabel("Action time (seconds)")
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true)
+                            .setValue(String(currentSeconds))
+                    )
+                )
+
+            const submission = await lobbySession.presentModal(interactionComponent, modal)
+            if (!submission) {
+                return
+            }
+
+            const rawValue = submission.fields.getTextInputValue("actionTimeout")
+            const parsedSeconds = features.inputConverter(rawValue)
+            if (!Number.isFinite(parsedSeconds) || parsedSeconds <= 0) {
+                await submission.reply({
+                    content: "❌ Please enter a valid number of seconds.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    buildCommandInteractionLog(submission, "Failed to warn about invalid action timeout", { phase: "lobby" })
+                )
+                return
+            }
+
+            const updateResult = ctx.updateActionTimeoutFromSeconds(parsedSeconds)
+            if (!updateResult?.ok) {
+                await submission.reply({
+                    content: "❌ Unable to update the table speed.",
+                    flags: MessageFlags.Ephemeral
+                }).catch(
+                    buildCommandInteractionLog(submission, "Failed to reply after action timeout update error", { phase: "lobby" })
+                )
+                return
+            }
+
+            const seconds = Math.max(1, Math.round(updateResult.value / 1000))
+            const limits = typeof ctx.getActionTimeoutLimits === "function"
+                ? ctx.getActionTimeoutLimits()
+                : (config.blackjack.actionTimeout.allowedRange || {})
+            const minSeconds = Number.isFinite(limits?.min) ? Math.round(limits.min / 1000) : null
+            const maxSeconds = Number.isFinite(limits?.max) ? Math.round(limits.max / 1000) : null
+            const hasRange = Number.isFinite(minSeconds) && Number.isFinite(maxSeconds)
+            const note = updateResult.clamped && hasRange
+                ? ` (allowed range ${minSeconds}-${maxSeconds}s)`
+                : ""
+
+            await submission.reply({
+                content: `⏱️ Table speed updated to **${seconds}s**${note}.`,
+                flags: MessageFlags.Ephemeral
+            }).catch(
+                buildCommandInteractionLog(submission, "Failed to confirm action timeout update", { phase: "lobby" })
+            )
+            lobbySession.scheduleRefresh()
         })
 
     } catch (error) {

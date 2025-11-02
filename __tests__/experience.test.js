@@ -44,7 +44,8 @@ describe("experience helpers", () => {
             biggest_bet: "90071992547409920",
             withholding_upgrade: "3",
             reward_amount_upgrade: "2",
-            reward_time_upgrade: "1"
+            reward_time_upgrade: "1",
+            win_probability_upgrade: "5"
         })
 
         expect(normalized.level).toBe(4)
@@ -59,5 +60,6 @@ describe("experience helpers", () => {
         expect(normalized.withholding_upgrade).toBe(3)
         expect(normalized.reward_amount_upgrade).toBe(2)
         expect(normalized.reward_time_upgrade).toBe(1)
+        expect(normalized.win_probability_upgrade).toBe(1)
     })
 })

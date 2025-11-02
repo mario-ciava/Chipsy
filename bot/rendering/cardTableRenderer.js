@@ -22,6 +22,21 @@ const {
 } = require("./core/cardRenderBase");
 const { drawBadge } = require("./shared/drawBadge");
 
+const layoutConfig = CONFIG.layout || {};
+
+const derivePlayerRowHeight = () => {
+    const titleBlock = CONFIG.sectionTitleSize + (layoutConfig.sectionTitleSpacing || 0);
+    const cardsBlock = CONFIG.cardHeight + (layoutConfig.cardsSpacing || 0);
+    const valueBlock = CONFIG.valueSize + (layoutConfig.valueSpacing || 0);
+    const infoBlock = CONFIG.infoSize + (layoutConfig.sectionBottomPadding || 0);
+    const configured = layoutConfig.rowHeightIncrement || 0;
+    return Math.max(150, configured, titleBlock + cardsBlock + valueBlock + infoBlock);
+};
+
+const PLAYER_ROW_HEIGHT = derivePlayerRowHeight();
+const PLAYER_ROW_GAP = Math.max(0, layoutConfig.playerRowGap || 0);
+const BASE_PLAYER_ROWS = Math.max(1, layoutConfig.basePlayerRows || 1);
+
 async function drawHand(ctx, hand, options) {
     const {
         title,
@@ -30,7 +45,7 @@ async function drawHand(ctx, hand, options) {
         maskSecondCard = false,
         showResultBadge = true,
         hasMultipleHands = false,
-        isCurrent = false,
+        isActing = false,
         insured = false,
         subtitle = null,
         slotWidth = CONFIG.canvasWidth
@@ -67,8 +82,8 @@ async function drawHand(ctx, hand, options) {
     }
 
     const hasBadges = badges.length > 0;
-    const showCurrentTag = Boolean(baseTitle) && isCurrent && !reachedTwentyOne && !hasBadges;
-    const finalTitle = showCurrentTag ? `${baseTitle} (current)` : baseTitle;
+    const showActingTag = Boolean(baseTitle) && isActing && !reachedTwentyOne && !hasBadges;
+    const finalTitle = showActingTag ? `${baseTitle} (acting)` : baseTitle;
 
     const hasTitle = Boolean(finalTitle);
     let labelWidth = 0;
@@ -317,7 +332,7 @@ function createBlackjackTableState(gameState = {}, options = {}) {
 
             const { value, busted, blackjack } = calculateHandValue(hand.cards);
             const insuredFlag = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
-            const isCurrent = hand.isCurrent;
+            const isActing = Boolean(hand?.isActing ?? hand?.isCurrent);
             
             playerHands.push({
                 cards: Array.isArray(hand.cards) ? hand.cards : [],
@@ -331,7 +346,7 @@ function createBlackjackTableState(gameState = {}, options = {}) {
                 label: hands.length > 1 ? `${label} (Hand ${handIndex + 1})` : label,
                 playerId: player?.id,
                 insured: insuredFlag,
-                isCurrent,
+                isActing,
                 handsForPlayer: hands.length
             });
         });
@@ -422,11 +437,12 @@ async function renderCardTable(params) {
     const totalRowsParticipants = Math.ceil(uniqueParticipantCount / maxSlotsPerRow);
     const totalRowsHands = Math.ceil(totalPlayers / maxSlotsPerRow);
     const totalRows = Math.max(1, totalRowsParticipants, totalRowsHands);
-    const basePlayerRows = Math.max(1, CONFIG.layout.basePlayerRows || 1);
-    const rowHeightIncrement = Math.max(150, CONFIG.layout.rowHeightIncrement || 320);
-    const additionalRows = Math.max(0, totalRows - basePlayerRows);
+    const additionalRows = Math.max(0, totalRows - BASE_PLAYER_ROWS);
+    const additionalHeight = additionalRows > 0
+        ? (additionalRows * PLAYER_ROW_HEIGHT) + (additionalRows * PLAYER_ROW_GAP)
+        : 0;
     const canvasWidth = CONFIG.canvasWidth;
-    const canvasHeight = CONFIG.canvasHeight + additionalRows * rowHeightIncrement;
+    const canvasHeight = CONFIG.canvasHeight + additionalHeight;
 
     const canvas = createCanvas(
         wantsSVG ? canvasWidth : Math.round(canvasWidth * scale),
@@ -542,7 +558,7 @@ async function renderCardTable(params) {
                 ?? (totalPlayers > 1 ? `Player ${playerIndex + 1}` : "Player");
             const subtitle = null;
 
-            const isCurrent = hand.isCurrent;
+            const isActing = Boolean(hand?.isActing);
             const insured = Boolean(hand.insured ?? hand.insurance ?? hand.hasInsurance ?? hand.isInsured);
             const hasMultipleHands = (hand.handsForPlayer ?? totalPlayers) > 1;
 
@@ -552,7 +568,7 @@ async function renderCardTable(params) {
                 topY: rowTop,
                 showResultBadge: true,
                 hasMultipleHands,
-                isCurrent,
+                isActing,
                 insured,
                 subtitle,
                 slotWidth

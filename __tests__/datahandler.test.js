@@ -47,6 +47,7 @@ const createMockConnection = (initialRows = [], initialAccessRows = []) => {
                 withholding_upgrade: 0,
                 reward_amount_upgrade: 0,
                 reward_time_upgrade: 0,
+                win_probability_upgrade: 0,
                 next_reward: null,
                 last_played: null
             }
@@ -208,6 +209,7 @@ describe("data handler experience persistence", () => {
             withholding_upgrade: 0,
             reward_amount_upgrade: 0,
             reward_time_upgrade: 0,
+            win_probability_upgrade: 0,
             next_reward: null,
             last_played: null
         }
@@ -239,6 +241,7 @@ describe("data handler experience persistence", () => {
                 withholding_upgrade: "1",
                 reward_amount_upgrade: "2",
                 reward_time_upgrade: "3",
+                win_probability_upgrade: "1",
                 next_reward: null,
                 last_played: null
             }
@@ -309,7 +312,8 @@ describe("createSetData error handling", () => {
             biggest_bet: "500",
             withholding_upgrade: "1",
             reward_amount_upgrade: "0",
-            reward_time_upgrade: "0"
+            reward_time_upgrade: "0",
+            win_probability_upgrade: "0"
         }
 
         const duplicateError = Object.assign(new Error("Duplicate entry"), { code: "ER_DUP_ENTRY" })
@@ -432,6 +436,7 @@ describe("leaderboard queries", () => {
             withholding_upgrade: 0,
             reward_amount_upgrade: 0,
             reward_time_upgrade: 0,
+            win_probability_upgrade: 0,
             bankroll_private: 0,
             next_reward: null,
             last_played: null,

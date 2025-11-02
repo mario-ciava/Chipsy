@@ -3,6 +3,7 @@ const { Events } = require("discord.js")
 
 const handlers = {
     ready: require("../events/ready"),
+    guildCreate: require("../events/guildCreate"),
     interactionCreate: require("../events/interaction"),
     uncaughtException: require("../events/uncaughtException"),
     unhandledRejection: require("../events/unhandledRejection")
@@ -23,6 +24,7 @@ const executeSafely = async(eventName, handler, args) => {
 module.exports = (client) => {
     client
         .once(Events.ClientReady, () => executeSafely("ClientReady", handlers.ready, [client]))
+        .on(Events.GuildCreate, (guild) => executeSafely("GuildCreate", handlers.guildCreate, [guild]))
         .on(Events.InteractionCreate, (interaction) =>
             executeSafely("InteractionCreate", handlers.interactionCreate, [interaction])
         )

@@ -141,6 +141,9 @@ const userSchemas = {
 const guildSchemas = {
     getGuild: z.object({
         id: discordSnowflake
+    }),
+    quarantineActionParams: z.object({
+        guildId: discordSnowflake
     })
 }
 

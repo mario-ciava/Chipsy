@@ -6,6 +6,7 @@
             :error="tablesError"
             :can-control="canControlTables"
             :busy-table-id="pendingTableAction"
+            :fetched-at="tablesFetchedAt"
             @action="handleTableAction"
             @refresh="refreshTables"
         />
@@ -28,7 +29,8 @@ export default {
             tablesLoading: false,
             tablesError: "",
             tablesInterval: null,
-            pendingTableAction: null
+            pendingTableAction: null,
+            tablesFetchedAt: ""
         }
     },
     computed: {
@@ -66,6 +68,7 @@ export default {
             try {
                 const response = await api.getActiveTables()
                 this.tables = response?.tables || []
+                this.tablesFetchedAt = response?.fetchedAt || new Date().toISOString()
             } catch (error) {
                 this.tablesError = error?.response?.data?.message || error.message || "Unable to load tables."
             } finally {

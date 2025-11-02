@@ -26,6 +26,13 @@
         --chip-role-moderator-start: theme("colors.roleBadge.moderatorStart");
         --chip-role-moderator-end: theme("colors.roleBadge.moderatorEnd");
         --chip-role-moderator-text: theme("colors.roleBadge.moderatorText");
+        --leaderboard-showcase-width: 80%;
+        --leaderboard-top-row-spacing: 1.1;
+        --leaderboard-status-badge-scale: 0.8;
+        --leaderboard-podium-meta-min-width: 140px;
+        --leaderboard-podium-left-shade: linear-gradient(90deg, rgba(255, 0, 0, 0.05), rgba(4, 7, 18, 0));
+        --leaderboard-score-gap: clamp(0.35rem, 0.45vw, 0.55rem);
+        --leaderboard-score-gap-list: clamp(0.25rem, 0.4vw, 0.45rem);
     }
 
     * {
@@ -63,6 +70,20 @@
 
     a {
         @apply font-medium text-chip-secondary transition-colors duration-150 hover:text-white;
+    }
+
+    button,
+    [type="button"],
+    [type="submit"],
+    [type="reset"] {
+        @apply cursor-pointer;
+    }
+
+    button:disabled,
+    [type="button"]:disabled,
+    [type="submit"]:disabled,
+    [type="reset"]:disabled {
+        cursor: not-allowed;
     }
 }
 
@@ -193,39 +214,41 @@
     }
 
     .chip-leaderboard {
-        @apply border-violet-500/20 bg-gradient-to-br from-slate-900/80 via-slate-900/60 to-violet-900/40 shadow-chip-card;
+        @apply border-violet-500/20 bg-gradient-to-br from-slate-900/85 via-slate-900/70 to-violet-900/45 shadow-chip-card;
     }
 
     .leaderboard-top__header {
-        @apply flex flex-col gap-6 md:flex-row md:items-start md:justify-between;
+        @apply flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)] lg:items-start lg:gap-8;
     }
 
-    .leaderboard-top__title {
-        @apply text-3xl font-semibold tracking-tight text-white;
+    .leaderboard-top__heading {
+        @apply flex flex-col gap-3;
     }
 
-    .leaderboard-top__subtitle {
-        @apply text-base text-slate-300;
+    .leaderboard-top__metric-column {
+        @apply flex w-full justify-end rounded-3xl border border-white/10 bg-slate-900/60 p-1 shadow-chip-soft lg:max-w-[420px] lg:justify-self-end lg:self-start;
     }
 
-    .leaderboard-top__actions {
-        @apply flex flex-col gap-4 md:items-end;
+    .leaderboard-top__metric-segments {
+        @apply grid w-full grid-cols-3 overflow-hidden rounded-[22px] bg-white/5;
     }
 
-    .leaderboard-top__metric-switch {
-        @apply flex flex-wrap gap-2;
+    .leaderboard-top__metric-option {
+        @apply inline-flex w-full items-center justify-center px-4 py-2 text-sm font-semibold text-slate-200 transition duration-150 ease-out;
+        background-color: transparent;
     }
 
-    .leaderboard-top__metric {
-        @apply chip-pill-ghost flex items-center gap-2 text-sm font-semibold;
+    .leaderboard-top__metric-option + .leaderboard-top__metric-option {
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .leaderboard-top__metric--active {
-        @apply border-white/40 bg-white/10 text-white;
+    .leaderboard-top__metric-option:focus-visible {
+        @apply outline-none ring-2 ring-violet-500/70 ring-offset-0;
     }
 
-    .leaderboard-top__metric-icon {
-        @apply text-lg;
+    .leaderboard-top__metric-option--active {
+        @apply text-white shadow-chip-soft;
+        background-image: linear-gradient(120deg, rgba(99, 102, 241, 0.4), rgba(59, 130, 246, 0.35));
     }
 
     .leaderboard-top__empty {
@@ -241,91 +264,252 @@
     }
 
     .leaderboard-top__body {
-        @apply flex flex-col gap-6;
+        @apply flex flex-col gap-5;
     }
 
     .leaderboard-top__podium {
-        @apply grid gap-4 md:grid-cols-3;
+        @apply flex flex-col items-center gap-5;
     }
 
     .leaderboard-top__podium-card {
-        @apply relative flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur;
+        --leaderboard-podium-card-width-scale: 1;
+        --leaderboard-podium-card-height-scale: 1;
+        --leaderboard-podium-scale: 1;
+        @apply relative mx-auto grid gap-0 overflow-hidden rounded-[16px] bg-white/5 backdrop-blur;
+        background-image:
+            var(--podium-card-gradient, linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.85))),
+            radial-gradient(circle at 18% 20%, var(--podium-accent-overlay, rgba(99, 102, 241, 0.22)), transparent 58%);
+        box-shadow: 0 20px 35px rgba(15, 23, 42, 0.55);
+        grid-template-columns: minmax(48px, 0.2fr) minmax(0, 1.9fr);
+        width: min(100%, calc(var(--leaderboard-showcase-width, 80%) * var(--leaderboard-podium-card-width-scale, 1)));
+    }
+
+    @screen md {
+        .leaderboard-top__podium-card {
+            grid-template-columns: minmax(60px, 0.2fr) minmax(0, 1.85fr);
+        }
     }
 
     .leaderboard-top__podium-card--viewer {
-        @apply border-emerald-400/50 shadow-chip-soft;
+        @apply shadow-chip-soft;
+    }
+
+    .leaderboard-top__podium-card--first {
+        --leaderboard-podium-card-width-scale: 1.2;
+        --leaderboard-podium-card-height-scale: 1.35;
+        --leaderboard-podium-scale: 1.35;
+    }
+
+    .leaderboard-top__podium-card--second {
+        --leaderboard-podium-card-width-scale: 1.05;
+        --leaderboard-podium-card-height-scale: 1.2;
+        --leaderboard-podium-scale: 1.15;
+    }
+
+    .leaderboard-top__podium-card--third {
+        --leaderboard-podium-card-width-scale: 0.9;
+        --leaderboard-podium-card-height-scale: 1.05;
+        --leaderboard-podium-scale: 0.95;
+    }
+
+    .leaderboard-top__podium-rank-panel {
+        @apply flex h-full w-full items-center justify-center px-2 py-2 text-center shadow-chip-soft;
+        background-image: var(--podium-rank-gradient, none);
+        background-color: var(--podium-rank-fill, rgba(255, 255, 255, 0.35));
+        padding-block: calc(0.5rem * var(--leaderboard-podium-card-height-scale, 1));
+    }
+
+    .leaderboard-top__podium-track {
+        @apply relative grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(70px, 0.5fr);
+        background-image:
+            var(--leaderboard-podium-left-shade),
+            var(--podium-score-texture, repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.05) 1px, transparent 1px, transparent 3px)),
+            var(--podium-score-gradient, linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(148, 163, 184, 0.08)));
+        background-size: 100% 100%, 180% 180%, cover;
+        background-repeat: no-repeat;
+        background-blend-mode: normal, soft-light, normal;
+    }
+
+    @screen md {
+        .leaderboard-top__podium-track {
+            grid-template-columns: minmax(0, 1.35fr) minmax(90px, 0.5fr);
+        }
+    }
+
+    .leaderboard-top__podium-body {
+        @apply flex h-full w-full flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center sm:gap-2.5;
+        padding-block: calc(0.5rem * var(--leaderboard-podium-card-height-scale, 1));
+    }
+
+    .leaderboard-top__podium-profile {
+        @apply flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4;
     }
 
     .leaderboard-top__podium-rank {
-        @apply text-sm font-semibold uppercase tracking-[0.3em] text-slate-300;
+        @apply text-lg font-bold tracking-tight text-white sm:text-2xl;
+        font-size: calc(1.5rem * var(--leaderboard-podium-scale, 1));
     }
 
     .leaderboard-top__podium-avatar {
-        @apply h-20 w-20 rounded-full border-4 border-white/20 object-cover shadow-chip-soft;
+        @apply h-9 w-9 shrink-0 rounded-full object-cover shadow-chip-soft ring-[2px] ring-slate-900/70 md:h-[2.85rem] md:w-[2.85rem];
+        width: calc(2.25rem * var(--leaderboard-podium-scale, 1));
+        height: calc(2.25rem * var(--leaderboard-podium-scale, 1));
+    }
+
+    @screen md {
+        .leaderboard-top__podium-avatar {
+            width: calc(2.85rem * var(--leaderboard-podium-scale, 1));
+            height: calc(2.85rem * var(--leaderboard-podium-scale, 1));
+        }
     }
 
     .leaderboard-top__podium-meta {
-        @apply flex flex-col gap-1;
+        @apply flex flex-1 flex-col gap-0.5 text-sm text-slate-300;
+        min-width: max(
+            var(--leaderboard-podium-meta-min-width),
+            calc(var(--leaderboard-podium-meta-min-width) * var(--leaderboard-podium-scale, 1))
+        );
+        font-size: calc(0.8rem * var(--leaderboard-podium-scale, 1));
+    }
+
+    .leaderboard-top__podium-ident {
+        @apply flex flex-wrap items-center gap-1;
+    }
+
+    .leaderboard-top__podium-momentum {
+        @apply text-[0.45rem] font-semibold uppercase tracking-[0.28em] text-white;
+        font-size: calc(0.5rem * var(--leaderboard-podium-scale, 1));
+        text-shadow: 0 1px 3.5px rgba(0, 0, 0, 0.8);
     }
 
     .leaderboard-top__podium-name {
-        @apply text-lg font-semibold text-white;
+        @apply font-semibold text-slate-900/70;
+        font-size: calc(1.1rem * var(--leaderboard-podium-scale, 1));
+        text-shadow: 0 1px 0.4px rgba(0, 0, 0, 0.2);
+    }
+
+    .leaderboard-top__podium-score {
+        @apply flex h-full flex-col items-center justify-center self-stretch py-2 text-center;
+        position: relative;
+        padding-block: calc(0.5rem * var(--leaderboard-podium-card-height-scale, 1));
+        padding-inline: max(2rem, 12%);
+        justify-self: end;
+        row-gap: var(--leaderboard-score-gap);
     }
 
     .leaderboard-top__podium-value {
-        @apply text-base font-medium text-emerald-200;
+        @apply text-base font-bold;
+        font-size: calc(1.25rem * var(--leaderboard-podium-scale, 1));
+        color: theme("colors.emerald.400");
+        text-shadow: 0 1px 1.5px rgba(0, 0, 0, 1);
+        line-height: 1;
     }
 
     .leaderboard-top__podium-detail {
-        @apply text-xs uppercase tracking-[0.35em] text-slate-400;
+        @apply text-base font-bold text-white;
+        font-size: calc(0.85rem * var(--leaderboard-podium-scale, 1));
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+        line-height: 1;
     }
 
     .leaderboard-top__status {
-        @apply mt-auto w-max text-xs font-semibold uppercase tracking-[0.3em];
+        @apply inline-flex items-center gap-1 text-[0.65rem];
+        font-size: calc(0.65rem * var(--leaderboard-podium-scale, 1) * var(--leaderboard-status-badge-scale));
+        margin-inline-start: 2%;
+    }
+
+    .leaderboard-top__status.chip-role-online,
+    .leaderboard-top__status.chip-role-dormant,
+    .leaderboard-top__status.chip-role-badge {
+        padding-inline: calc(0.55rem * var(--leaderboard-podium-scale, 1) * var(--leaderboard-status-badge-scale));
+        padding-block: calc(0.25rem * var(--leaderboard-podium-scale, 1) * var(--leaderboard-status-badge-scale));
+        line-height: 1;
     }
 
     .leaderboard-top__list {
-        @apply flex flex-col divide-y divide-white/10;
+        @apply flex flex-col;
+        --leaderboard-list-scale: calc(0.95 * 0.925);
+        gap: calc(1rem * var(--leaderboard-top-row-spacing, 1.1) * var(--leaderboard-list-scale, 1));
     }
 
     .leaderboard-top__list-row {
-        @apply flex items-center gap-4 py-3 text-sm text-slate-200;
+        @apply relative mx-auto grid items-center gap-4 rounded-2xl bg-white/5 px-4 py-4 text-sm text-slate-200 transition duration-150 hover:bg-white/10;
+        width: calc(var(--leaderboard-showcase-width, 80%) * var(--leaderboard-list-scale, 1));
+        padding-block: calc(0.9rem * var(--leaderboard-top-row-spacing, 1.1) * var(--leaderboard-list-scale, 1));
+        grid-template-columns: minmax(52px, 0.25fr) minmax(0, 1.4fr) minmax(160px, 0.85fr);
     }
 
     .leaderboard-top__list-row--viewer {
-        @apply bg-white/5;
+        @apply bg-white/10;
     }
 
-    .leaderboard-top__list-rank {
-        @apply w-8 text-base font-semibold text-white;
+    .leaderboard-top__list-row--divider {
+        @apply mt-4;
+    }
+
+    .leaderboard-top__list-rank-panel {
+        @apply flex h-full items-center justify-center rounded-2xl bg-white/5 text-center;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        min-height: 52px;
+    }
+
+    .leaderboard-top__list-rank-pill {
+        @apply text-base font-semibold text-white;
+        font-size: calc(1rem * var(--leaderboard-list-scale, 1));
     }
 
     .leaderboard-top__list-avatar {
-        @apply h-10 w-10 rounded-full object-cover;
+        @apply rounded-full border border-white/10 object-cover shadow-chip-soft;
+        width: calc(2.6rem * var(--leaderboard-list-scale, 1));
+        height: calc(2.6rem * var(--leaderboard-list-scale, 1));
+    }
+
+    .leaderboard-top__list-profile {
+        @apply flex items-center gap-3;
     }
 
     .leaderboard-top__list-player {
-        @apply flex flex-col;
+        @apply flex flex-1 flex-col;
     }
 
     .leaderboard-top__list-name {
         @apply font-semibold text-white;
+        font-size: calc(1.2rem * var(--leaderboard-list-scale, 1));
     }
 
     .leaderboard-top__list-meta {
-        @apply text-xs uppercase tracking-[0.3em] text-slate-400;
+        @apply text-xs font-semibold uppercase tracking-[0.3em] text-white;
+        font-size: calc(0.7rem * var(--leaderboard-list-scale, 1));
+    }
+
+    .leaderboard-top__list-score {
+        @apply flex flex-col items-end text-right;
+        row-gap: var(--leaderboard-score-gap-list);
+    }
+
+    .leaderboard-top__list-metric-label {
+        @apply text-xs font-semibold uppercase tracking-[0.25em] text-white/80;
+        font-size: calc(0.65rem * var(--leaderboard-list-scale, 1));
+        line-height: 1;
     }
 
     .leaderboard-top__list-value {
-        @apply ml-auto text-base font-semibold text-emerald-200;
+        @apply text-base font-bold text-right;
+        min-width: clamp(90px, calc(120px * var(--leaderboard-list-scale, 1)), 160px);
+        font-size: calc(1rem * var(--leaderboard-list-scale, 1));
+        color: theme("colors.emerald.400");
+        text-shadow: 0 1px 4px rgba(5, 10, 25, 0.35);
+        line-height: 1;
     }
 
     .leaderboard-top__list-trend {
-        @apply w-8 text-right text-base;
+        @apply text-sm text-white/70;
+        font-size: calc(0.9rem * var(--leaderboard-list-scale, 1));
     }
 
     .leaderboard-page {
-        @apply gap-8;
+        @apply gap-8 lg:gap-10;
     }
 
     .leaderboard-page__panel {
@@ -333,7 +517,15 @@
     }
 
     .leaderboard-page__header {
-        @apply flex flex-col gap-6 md:flex-row md:items-start md:justify-between;
+        @apply flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.8fr)] lg:items-center lg:gap-10;
+    }
+
+    .leaderboard-page__intro {
+        @apply max-w-2xl;
+    }
+
+    .leaderboard-page__intro-actions {
+        @apply flex flex-wrap gap-3;
     }
 
     .leaderboard-page__title {
@@ -344,84 +536,196 @@
         @apply text-base text-slate-300;
     }
 
-    .leaderboard-page__metric-switch {
-        @apply flex flex-wrap gap-2;
+    .leaderboard-page__stats {
+        @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-1;
     }
 
-    .leaderboard-page__toolbar {
-        @apply flex flex-wrap items-end gap-4 border-t border-white/5 pt-6;
+    .leaderboard-page__stat-hint {
+        @apply text-[0.55rem] font-semibold uppercase tracking-[0.35em] text-slate-400;
+    }
+
+    .leaderboard-page__stat-pill {
+        @apply mt-3 inline-flex items-center gap-1 text-xs;
+    }
+
+    .leaderboard-page__stat-viewer .chip-stat__value {
+        @apply text-emerald-200;
+    }
+
+    .leaderboard-page__controls {
+        @apply mt-6 flex flex-col gap-4 rounded-[28px] border border-white/5 bg-white/5 p-4 lg:flex-row lg:items-end lg:justify-between;
     }
 
     .leaderboard-page__search {
-        @apply flex-1 min-w-[200px];
+        @apply flex-1 min-w-[220px];
+    }
+
+    .leaderboard-page__metric-column {
+        @apply flex w-full max-w-xs flex-col items-stretch gap-3 self-stretch lg:max-w-sm lg:self-center;
+    }
+
+    .leaderboard-page__metric-switch {
+        @apply flex flex-col gap-2;
+    }
+
+    .leaderboard-page__metric {
+        @apply chip-pill border border-white/10 bg-white/5 text-sm text-slate-200 transition;
+    }
+
+    .leaderboard-page__metric-pill {
+        @apply w-full min-w-[204px] max-w-[228px] self-end items-center justify-start gap-3 py-2.5 text-left;
+    }
+
+    .leaderboard-page__metric-icon {
+        @apply text-2xl;
+    }
+
+    .leaderboard-page__metric-copy {
+        @apply flex flex-col text-left leading-tight;
+    }
+
+    .leaderboard-page__metric-label {
+        @apply text-sm font-semibold tracking-tight text-white;
+    }
+
+    .leaderboard-page__metric-hint {
+        @apply text-xs text-slate-400;
+    }
+
+    .leaderboard-page__metric--active {
+        @apply border-sky-400/70 bg-sky-500/25 text-white shadow-[0_0_10px_rgba(56,189,248,0.2),0_0_19px_rgba(14,165,233,0.18),0_0_27px_rgba(14,165,233,0.08)];
     }
 
     .leaderboard-page__notice {
-        @apply text-sm text-amber-200;
+        @apply mt-3 text-sm text-amber-200;
     }
 
-    .leaderboard-page__viewer {
-        @apply mt-4 flex flex-col gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-100;
+    .leaderboard-page__alert {
+        @apply mt-4;
     }
 
     .leaderboard-page__table {
-        @apply mt-6 rounded-3xl border border-white/10 bg-slate-900/60;
+        @apply mt-6 overflow-hidden rounded-3xl bg-slate-900/60 shadow-chip-soft;
     }
 
     .leaderboard-page__table-head {
-        @apply grid grid-cols-[80px_2fr_1fr_1fr_1.5fr] gap-4 border-b border-white/10 px-6 py-4 text-xs font-semibold uppercase tracking-[0.3em] text-slate-400;
+        @apply grid grid-cols-[minmax(70px,0.8fr)_minmax(0,2fr)_minmax(140px,1fr)_minmax(150px,1fr)_minmax(0,1.6fr)_minmax(110px,auto)] gap-4 px-6 py-4 text-[0.6rem] font-semibold uppercase tracking-[0.35em] text-slate-400;
     }
 
     .leaderboard-page__table-body {
-        @apply divide-y divide-white/5;
+        @apply flex flex-col;
+    }
+
+    .leaderboard-page__state {
+        @apply flex flex-col items-center gap-2 px-6 py-12 text-center text-sm text-slate-300;
+    }
+
+    .leaderboard-page__state-title {
+        @apply text-xl font-semibold text-white;
+    }
+
+    .leaderboard-page__state-copy {
+        @apply text-sm text-slate-400;
     }
 
     .leaderboard-page__footer {
-        @apply mt-6 flex items-center justify-between text-sm text-slate-300;
+        @apply mt-8 w-full;
     }
 
     .leaderboard-row {
-        @apply grid grid-cols-[80px_2fr_1fr_1fr_1.5fr] items-center gap-4 px-6 py-4 text-sm text-slate-200;
+        --leaderboard-row-fill: transparent;
+        --leaderboard-row-border: transparent;
+        --leaderboard-row-container-border: rgba(255, 255, 255, 0.12);
+        @apply relative grid gap-6 px-6 py-5 text-sm text-slate-200 transition duration-150;
+        background-color: var(--leaderboard-row-fill);
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    @screen lg {
+        .leaderboard-row {
+            grid-template-columns: minmax(70px, 0.8fr) minmax(0, 2.4fr) minmax(140px, 1fr) minmax(120px, 0.5fr) minmax(0, 1.6fr) minmax(110px, auto);
+        }
     }
 
     .leaderboard-row--viewer {
         @apply bg-white/5;
     }
 
-    .leaderboard-row__rank {
-        @apply text-base font-semibold text-white;
+    .leaderboard-row--podium {
+        @apply rounded-2xl;
+        box-shadow: 0 25px 45px -35px rgba(8, 12, 24, 0.65);
     }
 
-    .leaderboard-row__avatar {
-        @apply h-10 w-10 rounded-full object-cover;
+    .leaderboard-row__rank {
+        @apply flex flex-col gap-2;
+    }
+
+    .leaderboard-row__rank-pill {
+        @apply w-14 rounded-full bg-white/10 py-1 text-center text-base font-semibold text-white;
+    }
+
+    .leaderboard-row__label {
+        @apply text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-slate-500;
     }
 
     .leaderboard-row__player {
         @apply flex items-center gap-4;
     }
 
+    .leaderboard-row__avatar {
+        @apply h-12 w-12 rounded-full object-cover;
+    }
+
+    .leaderboard-row__identity {
+        @apply flex flex-col gap-1;
+    }
+
+    .leaderboard-row__identity-line {
+        @apply flex flex-wrap items-center gap-2;
+    }
+
     .leaderboard-row__name {
-        @apply font-semibold text-white;
+        @apply text-base font-semibold text-white;
+    }
+
+    .leaderboard-row__stack {
+        @apply rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-emerald-200;
     }
 
     .leaderboard-row__meta {
-        @apply text-xs uppercase tracking-[0.3em] text-slate-400;
+        @apply text-xs text-slate-400;
+    }
+
+    .leaderboard-row__metric-block {
+        @apply flex flex-col gap-1;
     }
 
     .leaderboard-row__metric {
-        @apply text-base font-semibold text-emerald-200;
+        @apply text-base font-semibold text-white;
     }
 
-    .leaderboard-row__trend {
-        @apply text-lg;
+    .leaderboard-row__momentum {
+        @apply flex flex-col gap-2;
+    }
+
+    .leaderboard-row__trend-chip {
+        @apply inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-white;
     }
 
     .leaderboard-row__stats {
-        @apply flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-slate-400;
+        @apply flex flex-col gap-2;
+    }
+
+    .leaderboard-row__stats-list {
+        @apply m-0 flex list-none flex-wrap gap-2 p-0 text-xs text-slate-200;
+    }
+
+    .leaderboard-row__stats-list li {
+        @apply rounded-full bg-white/5 px-3 py-1;
     }
 
     .leaderboard-row__status {
-        @apply justify-self-end text-xs font-semibold uppercase tracking-[0.3em];
+        @apply justify-self-start lg:justify-self-end;
     }
 
     .chip-filter-form {
@@ -494,7 +798,7 @@
     }
 
     .chip-grid--split {
-        @apply grid-cols-1 lg:grid-cols-[1.8fr_1fr];
+        @apply grid-cols-1 lg:grid-cols-2;
     }
 
     .chip-grid--auto {
@@ -506,7 +810,7 @@
     }
 
     .chip-btn {
-        @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold tracking-tight text-white transition duration-200 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60;
+        @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold tracking-tight text-white transition duration-200 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-60;
     }
 
     .chip-btn-primary {
@@ -627,11 +931,11 @@
     }
 
     .chip-identity__cta {
-        @apply inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/10 text-base text-white transition hover:bg-white/20 disabled:opacity-50;
+        @apply inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-white/10 text-base text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50;
     }
 
     .chip-icon-btn {
-        @apply inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-base font-semibold text-white transition hover:bg-white/20 disabled:opacity-50;
+        @apply inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-white/10 text-base font-semibold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50;
     }
 
     .chip-icon-btn--active {
@@ -725,8 +1029,39 @@
         text-shadow: 0 1px 1px rgba(15, 23, 42, 0.2);
     }
 
+    .chip-role-online {
+        @apply chip-role-badge;
+        background-image: none;
+        background-color: var(--chip-status-live);
+        color: theme("colors.emerald.900");
+        text-shadow: 0 1px 1px rgba(255, 255, 255, 0.35);
+    }
+
+    .chip-role-dormant {
+        @apply chip-role-badge;
+        background-image: linear-gradient(
+            120deg,
+            theme("colors.amber.100"),
+            theme("colors.amber.500")
+        );
+        color: theme("colors.orange.900");
+        text-shadow: 0 1px 1px rgba(255, 255, 255, 0.25);
+    }
+
     .chip-role-user {
         @apply chip-pill border border-white/20 bg-white/10 text-slate-100;
+    }
+
+    .chip-role-badge--warning {
+        @apply border-amber-400/30 bg-amber-500/20 text-amber-100;
+    }
+
+    .chip-role-badge--success {
+        @apply border-emerald-400/30 bg-emerald-500/20 text-emerald-100;
+    }
+
+    .chip-role-badge--danger {
+        @apply border-rose-400/30 bg-rose-500/20 text-rose-50;
     }
 
     .chip-input {
@@ -791,6 +1126,18 @@
 
     .chip-toolbar__actions {
         @apply flex items-center gap-2;
+    }
+
+    .chip-toolbar.leaderboard-page__toolbar {
+        @apply flex w-full flex-col items-stretch gap-4 md:flex-row md:items-end;
+    }
+
+    .chip-toolbar__group.leaderboard-page__search-group {
+        @apply flex flex-1 flex-col items-stretch gap-2;
+    }
+
+    .chip-toolbar__actions.leaderboard-page__toolbar-actions {
+        @apply flex flex-col items-stretch gap-3 sm:flex-row sm:items-center;
     }
 
     .chip-table {
@@ -886,11 +1233,19 @@
     }
 
     .chip-modal-overlay {
-        @apply fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 backdrop-blur;
+        @apply fixed inset-0 z-40 flex min-h-screen w-full items-center justify-center bg-slate-950/65 backdrop-blur;
+    }
+
+    .chip-modal-shell {
+        @apply flex w-full max-w-2xl justify-center px-4 py-6 sm:px-6 sm:py-10;
     }
 
     .chip-modal {
-        @apply chip-card w-full max-w-lg p-6;
+        @apply chip-card w-full p-6;
+    }
+
+    .chip-modal__close {
+        @apply absolute right-5 top-5 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white/80 backdrop-blur-sm shadow-chip-soft transition hover:bg-white/20 hover:text-white;
     }
 
     .chip-badge {
@@ -1265,6 +1620,29 @@
 .fade-enter-from,
 .fade-leave-to {
     @apply translate-y-2 opacity-0;
+}
+
+.chip-overlay-enter-active,
+.chip-overlay-leave-active {
+    @apply transition-opacity duration-300 ease-out;
+}
+
+.chip-overlay-enter-from,
+.chip-overlay-leave-to {
+    @apply opacity-0;
+}
+
+.chip-overlay-enter-active .chip-modal,
+.chip-overlay-leave-active .chip-modal {
+    transition:
+        opacity 320ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chip-overlay-enter-from .chip-modal,
+.chip-overlay-leave-to .chip-modal {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.96);
 }
 
 .toast-fade-enter-active,

@@ -4,6 +4,15 @@ const config = require("../../config")
 
 const STARTING_REQUIRED_EXP = calculateRequiredExp(DEFAULT_PLAYER_LEVEL)
 const MASTER_USER_ID = config?.discord?.ownerId || null
+const DEFAULT_GUILD_STATUSES = ["pending", "approved", "discarded"]
+const configuredGuildStatuses = config?.accessControl?.guilds?.statuses
+const GUILD_STATUSES = configuredGuildStatuses
+    ? Object.values(configuredGuildStatuses)
+    : DEFAULT_GUILD_STATUSES
+const GUILD_STATUS_ENUM = (GUILD_STATUSES.length ? GUILD_STATUSES : DEFAULT_GUILD_STATUSES)
+    .map((status) => status.replace(/'/g, ""))
+    .map((status) => `'${status}'`)
+    .join(", ")
 
 const logInfo = (message, meta = {}) => {
     logger.info(message, { scope: "mysql", ...meta })
@@ -29,6 +38,7 @@ const ensureUsersTable = async(connection) => {
                 \`withholding_upgrade\` INT UNSIGNED NOT NULL DEFAULT '0',
                 \`reward_amount_upgrade\` INT UNSIGNED NOT NULL DEFAULT '0',
                 \`reward_time_upgrade\` INT UNSIGNED NOT NULL DEFAULT '0',
+                \`win_probability_upgrade\` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0',
                 \`bankroll_private\` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0',
                 \`next_reward\` TIMESTAMP DEFAULT NULL,
                 \`last_played\` TIMESTAMP DEFAULT NULL,
@@ -53,8 +63,12 @@ const ensureUsersTable = async(connection) => {
         "`net_winnings` BIGINT UNSIGNED NOT NULL DEFAULT '0' AFTER `biggest_bet`"
     )
     await ensureColumn(
+        "win_probability_upgrade",
+        "`win_probability_upgrade` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0' AFTER `reward_time_upgrade`"
+    )
+    await ensureColumn(
         "bankroll_private",
-        "`bankroll_private` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0' AFTER `reward_time_upgrade`"
+        "`bankroll_private` TINYINT(1) UNSIGNED NOT NULL DEFAULT '0' AFTER `win_probability_upgrade`"
     )
     await ensureColumn(
         "last_played",
@@ -175,6 +189,7 @@ const ensureAccessPoliciesTable = async(connection) => {
                 \`id\` TINYINT UNSIGNED NOT NULL DEFAULT 1,
                 \`enforce_whitelist\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
                 \`enforce_blacklist\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+                \`enforce_quarantine\` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
                 \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (\`id\`)
             )`
@@ -188,14 +203,81 @@ const ensureAccessPoliciesTable = async(connection) => {
             )
             logInfo("Added enforce_blacklist column to access_policies table")
         }
+        const [quarantineColumn] = await connection.query("SHOW COLUMNS FROM `access_policies` LIKE 'enforce_quarantine'")
+        if (!quarantineColumn || quarantineColumn.length === 0) {
+            await connection.query(
+                "ALTER TABLE `access_policies` ADD COLUMN `enforce_quarantine` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0 AFTER `enforce_blacklist`"
+            )
+            logInfo("Added enforce_quarantine column to access_policies table")
+        }
     }
 
     await connection.query(
-        `INSERT INTO \`access_policies\` (\`id\`, \`enforce_whitelist\`, \`enforce_blacklist\`)
-        VALUES (1, 0, 1)
-        ON DUPLICATE KEY UPDATE \`enforce_whitelist\` = VALUES(\`enforce_whitelist\`), \`enforce_blacklist\` = VALUES(\`enforce_blacklist\`)`
+        `INSERT INTO \`access_policies\` (\`id\`, \`enforce_whitelist\`, \`enforce_blacklist\`, \`enforce_quarantine\`)
+        VALUES (1, 0, 1, 0)
+        ON DUPLICATE KEY UPDATE
+            \`enforce_whitelist\` = VALUES(\`enforce_whitelist\`),
+            \`enforce_blacklist\` = VALUES(\`enforce_blacklist\`),
+            \`enforce_quarantine\` = VALUES(\`enforce_quarantine\`)`
     )
     logInfo("Ensured default access policy row exists")
+}
+
+const ensureGuildQuarantineTable = async(connection) => {
+    const [tables] = await connection.query("SHOW TABLES LIKE ?", ["guild_quarantine"])
+
+    if (!tables || tables.length === 0) {
+        await connection.query(
+            `CREATE TABLE \`guild_quarantine\` (
+                \`guild_id\` VARCHAR(25) NOT NULL,
+                \`name\` VARCHAR(200) DEFAULT NULL,
+                \`owner_id\` VARCHAR(25) DEFAULT NULL,
+                \`member_count\` INT UNSIGNED DEFAULT NULL,
+                \`status\` ENUM(${GUILD_STATUS_ENUM}) NOT NULL DEFAULT 'pending',
+                \`approved_by\` VARCHAR(25) DEFAULT NULL,
+                \`approved_at\` TIMESTAMP NULL DEFAULT NULL,
+                \`discarded_by\` VARCHAR(25) DEFAULT NULL,
+                \`discarded_at\` TIMESTAMP NULL DEFAULT NULL,
+                \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (\`guild_id\`),
+                KEY \`idx_status_updated_at\` (\`status\`, \`updated_at\`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        )
+        logInfo("guild_quarantine table created")
+        return
+    }
+
+    const ensureColumn = async(column, definition) => {
+        const [columns] = await connection.query("SHOW COLUMNS FROM `guild_quarantine` LIKE ?", [column])
+        if (!columns || columns.length === 0) {
+            await connection.query(`ALTER TABLE \`guild_quarantine\` ADD COLUMN ${definition}`)
+            logInfo(`Added ${column} column to guild_quarantine table`)
+        }
+    }
+
+    await ensureColumn("owner_id", "`owner_id` VARCHAR(25) DEFAULT NULL AFTER `name`")
+    await ensureColumn("member_count", "`member_count` INT UNSIGNED DEFAULT NULL AFTER `owner_id`")
+    await ensureColumn("approved_by", "`approved_by` VARCHAR(25) DEFAULT NULL AFTER `status`")
+    await ensureColumn("approved_at", "`approved_at` TIMESTAMP NULL DEFAULT NULL AFTER `approved_by`")
+    await ensureColumn("discarded_by", "`discarded_by` VARCHAR(25) DEFAULT NULL AFTER `approved_at`")
+    await ensureColumn("discarded_at", "`discarded_at` TIMESTAMP NULL DEFAULT NULL AFTER `discarded_by`")
+
+    const ensureIndex = async(name, statement) => {
+        try {
+            await connection.query(statement)
+            logInfo(`Ensured index ${name} on guild_quarantine`)
+        } catch (error) {
+            if (!error.message.includes("Duplicate key name")) {
+                logInfo(`Failed to create index ${name} on guild_quarantine`, { error: error.message })
+            }
+        }
+    }
+
+    await ensureIndex(
+        "idx_status_updated_at",
+        "CREATE INDEX idx_status_updated_at ON `guild_quarantine`(`status`, `updated_at` DESC)"
+    )
 }
 
 const ensureLeaderboardCacheTable = async(connection) => {
@@ -280,6 +362,7 @@ const ensureSchema = async(pool) => {
         await ensureLogsTable(connection)
         await ensureUserAccessTable(connection)
         await ensureAccessPoliciesTable(connection)
+        await ensureGuildQuarantineTable(connection)
         await ensureLeaderboardCacheTable(connection)
     } finally {
         connection.release()

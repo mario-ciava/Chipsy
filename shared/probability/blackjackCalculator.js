@@ -228,22 +228,30 @@ const createBlackjackCalculator = ({ config, logger }) => {
         const iterations = resolveIterations(options?.iterations)
         for (let i = 0; i < iterations; i++) {
             const iterationDeck = remainingDeck.slice()
-            const dealerResult = playDealer(dealerState, iterationDeck, dealerRules)
+            const pendingOutcomes = []
 
             for (const player of players) {
                 const stats = statsMap.get(player.id)
                 if (!stats) continue
                 player.hands.forEach((handState, index) => {
                     const result = playHand(handState, iterationDeck, playerRules)
-                    const outcome = resolveOutcome(result, dealerResult)
-                    if (!outcome) return
-                    const handStats = stats.hands[index]
-                    if (handStats) {
-                        handStats[outcome] = (handStats[outcome] || 0) + 1
-                    }
-                    const weight = stats.weights[index] || 1
-                    stats[outcome] += weight
+                    pendingOutcomes.push({ stats, handIndex: index, result })
                 })
+            }
+
+            const dealerResult = playDealer(dealerState, iterationDeck, dealerRules)
+
+            for (const pending of pendingOutcomes) {
+                const { stats, handIndex, result } = pending
+                if (!stats || !result) continue
+                const outcome = resolveOutcome(result, dealerResult)
+                if (!outcome) continue
+                const handStats = stats.hands[handIndex]
+                if (handStats) {
+                    handStats[outcome] = (handStats[outcome] || 0) + 1
+                }
+                const weight = stats.weights[handIndex] || 1
+                stats[outcome] += weight
             }
 
             if (chunkSize && i > 0 && i % chunkSize === 0) {

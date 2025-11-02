@@ -185,14 +185,23 @@ export default {
                 commit("SET_POLICY_LOADING", false)
             }
         },
-        async updatePolicy({ commit }, { csrfToken, enforceWhitelist, enforceBlacklist }) {
-            if (typeof enforceWhitelist !== "boolean" && typeof enforceBlacklist !== "boolean") {
+        async updatePolicy({ commit }, { csrfToken, enforceWhitelist, enforceBlacklist, enforceQuarantine }) {
+            if (
+                typeof enforceWhitelist !== "boolean"
+                && typeof enforceBlacklist !== "boolean"
+                && typeof enforceQuarantine !== "boolean"
+            ) {
                 throw new Error("Missing policy update flags")
             }
             commit("SET_POLICY_LOADING", true)
             commit("SET_POLICY_ERROR", null)
             try {
-                const policy = await api.updateAccessPolicy({ csrfToken, enforceWhitelist, enforceBlacklist })
+                const policy = await api.updateAccessPolicy({
+                    csrfToken,
+                    enforceWhitelist,
+                    enforceBlacklist,
+                    enforceQuarantine
+                })
                 commit("SET_POLICY", policy)
                 return policy
             } catch (error) {

@@ -7,8 +7,10 @@ const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const { recordNetWin } = require("../utils/netProfitTracker")
 const { buildProbabilityField } = require("../utils/probabilityFormatter")
+const { hasWinProbabilityInsight } = require("../utils/playerUpgrades")
 const logger = require("../utils/logger")
 const { logAndSuppress } = logger
+const { withAccessGuard } = require("../utils/interactionAccess")
 const config = require("../../config")
 const {
     renderCardTable,
@@ -48,6 +50,35 @@ const ACTION_BUTTONS = {
     insurance: { label: "Insurance", style: ButtonStyle.Danger, emoji: "🛡️" }
 }
 
+const DEFAULT_TIMELINE_MAX = 30
+const DEFAULT_TIMELINE_PREVIEW = 15
+
+function resolveTimelineStorageLimit() {
+    const limit = config?.blackjack?.timelineMaxEntries?.default
+    if (Number.isFinite(limit) && limit > 0) {
+        return limit
+    }
+    return DEFAULT_TIMELINE_MAX
+}
+
+function resolveTimelinePreviewLimit() {
+    const limit = config?.blackjack?.timelinePreview?.default
+    if (Number.isFinite(limit) && limit > 0) {
+        return limit
+    }
+    return DEFAULT_TIMELINE_PREVIEW
+}
+
+function formatTimelineStamp(date) {
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime())
+        ? date
+        : new Date()
+    const hh = safeDate.getHours().toString().padStart(2, "0")
+    const mm = safeDate.getMinutes().toString().padStart(2, "0")
+    const ss = safeDate.getSeconds().toString().padStart(2, "0")
+    return `${hh}:${mm}:${ss}`
+}
+
 function formatCardLabel(cardCode) {
     if (!cardCode || typeof cardCode !== "string") return cardCode ?? "";
     const value = CARD_VALUE_MAP[cardCode[0]] ?? cardCode[0];
@@ -55,10 +86,13 @@ function formatCardLabel(cardCode) {
     return `${value}${suit}`;
 }
 
+function resolvePlayerLabel(player) {
+    if (!player) return "Player";
+    return player.tag || player.username || player.name || player.user?.username || "Player";
+}
+
 function formatPlayerName(player) {
-    if (!player) return "**Player**";
-    const tag = player.tag || player.username || player.name || player.user?.username || "Player";
-    return `**${tag}**`;
+    return `**${resolvePlayerLabel(player)}**`;
 }
 
 const buildInteractionLog = (interaction, message, extraMeta = {}) =>
@@ -119,6 +153,24 @@ function buildActionButtons(playerId, options) {
     return row.components.length > 0 ? row : null
 }
 
+function formatHandSummary(hand, options = {}) {
+    const {
+        isCurrent = false,
+        showPointer = true,
+        includeHandLabel = false,
+        handIndex = null
+    } = options
+    const statusParts = [Number.isFinite(hand?.value) ? `${hand.value}` : "??"]
+    if (hand?.busted) statusParts.push("Busted")
+    if (hand?.BJ) statusParts.push("Blackjack")
+    if (hand?.push) statusParts.push("Push")
+    const pointer = isCurrent && showPointer ? "▶ " : ""
+    const handLabel = includeHandLabel
+        ? `Hand #${Number.isInteger(handIndex) ? handIndex + 1 : "?"} • `
+        : ""
+    return `${pointer}${handLabel}${statusParts.join(" • ")}`
+}
+
 function resolvePlayerStackDisplay(player) {
     if (!player) return 0
     if (Number.isFinite(player.stack) && player.stack > 0) return player.stack
@@ -164,6 +216,7 @@ module.exports = class BlackJack extends Game {
         this.awaitingPlayerId = null
         this.pendingJoins = new Map()
         this.pendingProbabilityTask = null
+        this.actionTimeoutMs = config.blackjack.actionTimeout.default
     }
 
     appendDealerTimeline(entry) {
@@ -175,7 +228,7 @@ module.exports = class BlackJack extends Game {
             at: new Date(),
             message: entry
         })
-        const maxEntries = config.blackjack.timelineMaxEntries.default
+        const maxEntries = resolveTimelineStorageLimit()
         if (this.dealerTimeline.length > maxEntries) {
             this.dealerTimeline.shift()
         }
@@ -214,6 +267,43 @@ module.exports = class BlackJack extends Game {
         await Promise.allSettled(snapshot)
     }
 
+    getMinimumPlayers() {
+        const configured = Number(config?.blackjack?.minPlayers?.default)
+        if (Number.isFinite(configured) && configured >= 1) {
+            return Math.floor(configured)
+        }
+        return 1
+    }
+
+    getActionTimeoutLimits() {
+        const fallbackMin = 15 * 1000
+        const fallbackMax = 120 * 1000
+        const allowed = config?.blackjack?.actionTimeout?.allowedRange || {}
+        return {
+            min: Number.isFinite(allowed.min) ? allowed.min : fallbackMin,
+            max: Number.isFinite(allowed.max) ? allowed.max : fallbackMax
+        }
+    }
+
+    updateActionTimeout(durationMs) {
+        const { min, max } = this.getActionTimeoutLimits()
+        const numeric = Number(durationMs)
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return { ok: false, reason: "invalid-duration" }
+        }
+        const clamped = Math.max(min, Math.min(max, Math.floor(numeric)))
+        this.actionTimeoutMs = clamped
+        if (typeof this.setRemoteMeta === "function") {
+            this.setRemoteMeta({ turnTimeoutMs: clamped })
+        }
+        return { ok: true, value: clamped, clamped: clamped !== numeric }
+    }
+
+    updateActionTimeoutFromSeconds(seconds) {
+        const millis = Number(seconds) * 1000
+        return this.updateActionTimeout(millis)
+    }
+
     trackBettingDeparture(player) {
         if (!this.isBettingPhaseOpen) return
         if (!player) return
@@ -249,17 +339,67 @@ module.exports = class BlackJack extends Game {
         this.dealerTimeline = []
     }
 
+    getNormalizedTimelineEntries(limit) {
+        const entries = Array.isArray(this.dealerTimeline) ? this.dealerTimeline : []
+        if (!entries.length) {
+            return []
+        }
+        const normalized = entries
+            .map((entry) => {
+                if (!entry) return null
+                const payload = typeof entry === "string" ? { message: entry } : entry
+                const rawMessage = typeof payload?.message === "string"
+                    ? payload.message
+                    : (typeof entry === "string" ? entry : "")
+                const message = rawMessage?.trim?.() || ""
+                if (!message) {
+                    return null
+                }
+                const rawDate = payload?.at instanceof Date
+                    ? payload.at
+                    : (payload?.at ? new Date(payload.at) : null)
+                const date = rawDate && !Number.isNaN(rawDate.getTime())
+                    ? rawDate
+                    : new Date()
+                return {
+                    at: new Date(date.getTime()),
+                    iso: date.toISOString(),
+                    message
+                }
+            })
+            .filter(Boolean)
+        if (!normalized.length) {
+            return []
+        }
+        if (Number.isFinite(limit) && limit > 0) {
+            return normalized.slice(-limit)
+        }
+        return normalized
+    }
+
+    getTimelineSnapshot(options = {}) {
+        const limit = Number.isFinite(options?.limit)
+            ? options.limit
+            : resolveTimelinePreviewLimit()
+        const entries = this.getNormalizedTimelineEntries(limit)
+        if (!entries.length) {
+            return null
+        }
+        return {
+            label: "Dealer timeline",
+            entries: entries.map((entry) => ({
+                at: entry.iso,
+                message: entry.message
+            }))
+        }
+    }
+
     buildDealerTimelineFields() {
-        const entries = this.dealerTimeline?.slice?.() ?? []
+        const entries = this.getNormalizedTimelineEntries(resolveTimelineStorageLimit())
         if (!entries.length) {
             return [{ name: "Timeline", value: "No activity yet.", inline: false }]
         }
-        const formatted = entries.map((entry) => {
-            const date = entry?.at instanceof Date ? entry.at : new Date()
-            const stamp = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}:${date.getSeconds().toString().padStart(2, "0")}`
-            const message = typeof entry === "string" ? entry : entry?.message ?? ""
-            return `${stamp} ${message}`.trim()
-        })
+        const formatted = entries.map((entry) => `${formatTimelineStamp(entry.at)} ${entry.message}`.trim())
         const columns = Math.min(3, Math.max(1, Math.ceil(formatted.length / 5)))
         const perColumn = Math.ceil(formatted.length / columns)
         const fields = []
@@ -276,18 +416,12 @@ module.exports = class BlackJack extends Game {
     }
 
     buildDealerTimelineDescription() {
-        const entries = this.dealerTimeline?.slice?.() ?? []
+        const entries = this.getNormalizedTimelineEntries(resolveTimelinePreviewLimit())
         if (!entries.length) {
             return null
         }
-        const formatted = entries.map((entry) => {
-            const date = entry?.at instanceof Date ? entry.at : new Date()
-            const stamp = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}:${date.getSeconds().toString().padStart(2, "0")}`
-            const message = typeof entry === "string" ? entry : entry?.message ?? ""
-            return `\`${stamp}\` ${message}`.trim()
-        })
-        const recent = formatted.slice(-15)
-        return recent.join("\n")
+        const formatted = entries.map((entry) => `\`${formatTimelineStamp(entry.at)}\` ${entry.message}`.trim())
+        return formatted.join("\n")
     }
 
     async refreshDealerTimeline() {
@@ -536,14 +670,13 @@ module.exports = class BlackJack extends Game {
                 await this.updateDealerProgressEmbed()
             break }
             case "displayInfo": {
-                const handSummary = player.hands.map((hand, idx) => {
-                    const isCurrent = idx === player.status.currentHand;
-                    const statusParts = [Number.isFinite(hand.value) ? `${hand.value}` : "??"];
-                    if (hand.busted) statusParts.push("Busted");
-                    if (hand.BJ) statusParts.push("Blackjack");
-                    if (hand.push) statusParts.push("Push");
-                    return `${isCurrent && !info ? "▶ " : ""}Hand #${idx + 1} • ${statusParts.join(" • ")}`;
-                }).join("\n") || "No cards drawn yet.";
+                const pointerEnabled = !info;
+                const handSummary = player.hands.map((hand, idx) =>
+                    formatHandSummary(hand, {
+                        isCurrent: idx === player.status.currentHand,
+                        showPointer: pointerEnabled
+                    })
+                ).join("\n") || "No cards drawn yet.";
 
                 const embed = new EmbedBuilder()
                     .setColor(Colors.Gold)
@@ -553,7 +686,7 @@ module.exports = class BlackJack extends Game {
                         info ? "*Standing automatically*" : null
                     ].filter(Boolean).join("\n\n"))
                     .setFooter({
-                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | ${Math.round(config.blackjack.actionTimeout.default / 1000)}s left`,
+                        text: `Total bet: ${setSeparator(player.bets.total)}$ | Insurance: ${player.bets.insurance > 0 ? setSeparator(player.bets.insurance) + "$" : "no"} | ${Math.round(this.actionTimeoutMs / 1000)}s left`,
                         iconURL: clientAvatar
                     })
 
@@ -736,7 +869,7 @@ module.exports = class BlackJack extends Game {
             const validHands = baseHands.map((hand, index) => ({
                 ...hand,
                 xp: Number.isFinite(hand.xp) ? hand.xp : (distributedXp > 0 ? distributedXp : null),
-                isCurrent: player.status?.current === true && player.status?.currentHand === index
+                isActing: player.status?.current === true && player.status?.currentHand === index
             }))
             if (validHands.length === 0) continue
             preparedPlayers.push({
@@ -859,7 +992,7 @@ module.exports = class BlackJack extends Game {
             }
         }
 
-        if (removedForNoMoney.length > 0 && this.players.length < config.blackjack.minPlayers.default) {
+        if (removedForNoMoney.length > 0 && this.players.length < this.getMinimumPlayers()) {
             await this.Stop({ notify: false, reason: "allPlayersRanOutOfMoney" })
             return
         }
@@ -1009,13 +1142,15 @@ module.exports = class BlackJack extends Game {
         // If all bets placed via autobet, use short timeout to allow disable
         const betTimeout = allBetsPlaced ? config.blackjack.autobetShortTimeout.default : config.blackjack.betsTimeout.default
 
+        const betsFilter = withAccessGuard((interaction) => {
+            if (!interaction || interaction.user?.bot) return false
+            if (!interaction.customId || !interaction.customId.startsWith("bj_bet:")) return false
+            const player = this.GetPlayer(interaction.user.id)
+            return player !== null
+        }, { scope: "blackjack:bets" })
+
         this.betsCollector = this.betsMessage.createMessageComponentCollector({
-            filter: (interaction) => {
-                if (!interaction || interaction.user?.bot) return false
-                if (!interaction.customId || !interaction.customId.startsWith("bj_bet:")) return false
-                const player = this.GetPlayer(interaction.user.id)
-                return player !== null
-            },
+            filter: betsFilter,
             time: betTimeout
         })
 
@@ -1120,10 +1255,13 @@ module.exports = class BlackJack extends Game {
                 }
 
                 // Wait for select menu interaction
-                const selectFilter = (i) => i.customId.startsWith("bj_autobet_rounds:") && i.user.id === interaction.user.id
+                const selectFilter = withAccessGuard(
+                    (i) => i.customId.startsWith("bj_autobet_rounds:") && i.user.id === interaction.user.id,
+                    { scope: "blackjack:autobetSelect" }
+                )
                 const selectCollector = interaction.channel.createMessageComponentCollector({
                     filter: selectFilter,
-                    time: config.blackjack.actionTimeout.default,
+                    time: this.actionTimeoutMs,
                     max: 1
                 })
 
@@ -1171,8 +1309,11 @@ module.exports = class BlackJack extends Game {
                     let submission
                     try {
                         submission = await selectInteraction.awaitModalSubmit({
-                    time: config.blackjack.modalTimeout.default,
-                            filter: (i) => i.customId === modalCustomId && i.user.id === selectInteraction.user.id
+                            time: config.blackjack.modalTimeout.default,
+                            filter: withAccessGuard(
+                                (i) => i.customId === modalCustomId && i.user.id === selectInteraction.user.id,
+                                { scope: "blackjack:autobetModal" }
+                            )
                         })
                     } catch (error) {
                         return
@@ -1315,7 +1456,10 @@ module.exports = class BlackJack extends Game {
                 try {
                     submission = await interaction.awaitModalSubmit({
                         time: config.blackjack.modalTimeout.default,
-                        filter: (i) => i.customId === modalCustomId && i.user.id === interaction.user.id
+                        filter: withAccessGuard(
+                            (i) => i.customId === modalCustomId && i.user.id === interaction.user.id,
+                            { scope: "blackjack:betModal" }
+                        )
                     })
                 } catch (error) {
                     return
@@ -1448,7 +1592,6 @@ module.exports = class BlackJack extends Game {
         await this.UpdateInGame()
         let currentPlayer = player ? player : this.inGamePlayers[0]
         currentPlayer.status.current = true
-        currentPlayer.status.actionLog = [] // Initialize action log for this turn
         // Initialize currentHand to 0 if not set (first time this player plays)
         if (!Number.isFinite(currentPlayer.status.currentHand)) {
             currentPlayer.status.currentHand = 0
@@ -1464,7 +1607,7 @@ module.exports = class BlackJack extends Game {
         }
         this.timer = setTimeout(() => {
             this.Action("stand", currentPlayer, currentPlayer.status.currentHand)
-        }, config.blackjack.actionTimeout.default)
+        }, this.actionTimeoutMs)
 
         const currentHand = currentPlayer.hands[currentPlayer.status.currentHand]
         // Auto-stand on 21 or blackjack
@@ -1524,14 +1667,14 @@ module.exports = class BlackJack extends Game {
         }
     }
 
-    applyProbabilitySnapshot(result, meta = {}) {
+    async applyProbabilitySnapshot(result, meta = {}) {
         if (!result?.payload?.players) return null
         const playerStats = result.payload.players
         for (const player of this.players) {
             if (!player) continue
             if (!player.status) player.status = {}
             const stats = playerStats[player.id]
-            if (stats) {
+            if (stats && hasWinProbabilityInsight(player)) {
                 player.status.winProbability = stats.win ?? 0
                 player.status.pushProbability = stats.push ?? 0
                 player.status.lossProbability = stats.lose ?? 0
@@ -1559,16 +1702,67 @@ module.exports = class BlackJack extends Game {
                 }
             }
         }
-        return this.setProbabilitySnapshot("blackjack", {
+        const snapshot = this.setProbabilitySnapshot("blackjack", {
             ...result.payload,
             updatedAt: result.updatedAt,
             durationMs: result.durationMs,
             reason: meta?.reason || result.reason || null
         })
+        await this.refreshProbabilityDisplays(meta)
+        return snapshot
+    }
+
+    async refreshProbabilityDisplays(meta = {}) {
+        if (!this.playing) return
+        if (!this.roundProgressMessage) return
+        if (!this.hasProbabilitySubscribers()) return
+        const activePlayer = (Array.isArray(this.inGamePlayers)
+            ? this.inGamePlayers.find((player) => player?.status?.current)
+            : null) || (Array.isArray(this.players)
+            ? this.players.find((player) => player?.status?.current)
+            : null)
+        if (!activePlayer || !hasWinProbabilityInsight(activePlayer)) return
+        try {
+            await this.updateRoundProgressEmbed(activePlayer, false, { probabilityRefresh: true })
+        } catch (error) {
+            logger.debug("Failed to refresh blackjack probability display", {
+                scope: "blackjackGame",
+                playerId: activePlayer?.id,
+                reason: meta?.reason || null,
+                error: error?.message
+            })
+        }
+    }
+
+    resetPlayerProbabilityState() {
+        if (!Array.isArray(this.players)) return
+        for (const player of this.players) {
+            if (!player?.status) continue
+            delete player.status.winProbability
+            delete player.status.pushProbability
+            delete player.status.lossProbability
+            delete player.status.probabilitySamples
+            if (Array.isArray(player.hands)) {
+                for (const hand of player.hands) {
+                    delete hand.winProbability
+                    delete hand.pushProbability
+                    delete hand.loseProbability
+                }
+            }
+        }
+    }
+
+    hasProbabilitySubscribers() {
+        return Array.isArray(this.players) && this.players.some((player) => hasWinProbabilityInsight(player))
     }
 
     queueProbabilityUpdate(reason = "stateChange") {
         if (!this.playing || !Array.isArray(this.players) || this.players.length === 0) {
+            this.clearProbabilitySnapshot()
+            return
+        }
+        if (!this.hasProbabilitySubscribers()) {
+            this.resetPlayerProbabilityState()
             this.clearProbabilitySnapshot()
             return
         }
@@ -1747,15 +1941,15 @@ module.exports = class BlackJack extends Game {
 
     async CreateOptions() {
         // Component collector for button interactions (actions + disable autobet)
+        const actionFilter = withAccessGuard((interaction) => {
+            if (!interaction || interaction.user?.bot) return false
+            if (interaction.customId === "bj_disable_autobet") return true
+            if (!interaction.customId || !interaction.customId.startsWith("bj_action:")) return false
+            return true
+        }, { scope: "blackjack:actions" })
+
         this.collector = this.channel.createMessageComponentCollector({
-            filter: (interaction) => {
-                if (!interaction || interaction.user?.bot) return false
-                // Accept both action buttons and disable autobet button
-                if (interaction.customId === "bj_disable_autobet") return true
-                if (!interaction.customId || !interaction.customId.startsWith("bj_action:")) return false
-                // Allow all players to click (permission check happens in collect handler)
-                return true
-            },
+            filter: actionFilter,
             time: 5 * 60 * 1000 // 5 minutes timeout
         })
         this.collector.on("collect", async(interaction) => {
@@ -1943,9 +2137,6 @@ module.exports = class BlackJack extends Game {
             case `stand`:
                 const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
                 this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} stands.`)
-                if (player.status.actionLog) {
-                    player.status.actionLog.push(`Stand${handLabel}`)
-                }
                 player.hands[hand].locked = true
                 shouldUpdateEmbed = true
                 actionEndsHand = true
@@ -1956,9 +2147,6 @@ module.exports = class BlackJack extends Game {
                 await this.ComputeHandsValue(player)
                 const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
                 this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} hits (${formatCardLabel(newCard[0])}).`)
-                if (player.status.actionLog) {
-                    player.status.actionLog.push(`Hit${handLabel} → ${formatCardLabel(newCard[0])}`)
-                }
                 shouldUpdateEmbed = true
                 if (!player.hands[hand].busted) {
                     player.status.actionInProgress = false
@@ -1986,9 +2174,6 @@ module.exports = class BlackJack extends Game {
                 player.hands[hand].doubleDown = true
                 const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
                 this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} doubles bet (${formatCardLabel(newCard[0])}).`)
-                if (player.status.actionLog) {
-                    player.status.actionLog.push(`Doubled${handLabel} → ${formatCardLabel(newCard[0])}`)
-                }
                 shouldUpdateEmbed = true
                 actionEndsHand = true
                 if (!player.hands[hand].busted) {
@@ -2036,9 +2221,6 @@ module.exports = class BlackJack extends Game {
                 }
                 player.bets.total += splitCost
                 this.appendDealerTimeline(`${formatPlayerName(player)} splits hand.`)
-                if (player.status.actionLog) {
-                    player.status.actionLog.push("Split hand")
-                }
                 shouldUpdateEmbed = true
                 player.status.actionInProgress = false
                 return this.NextPlayer(player)
@@ -2066,9 +2248,6 @@ module.exports = class BlackJack extends Game {
                     settled: false
                 }
                 this.appendDealerTimeline(`${formatPlayerName(player)} buys insurance (${setSeparator(insuranceBet)}$).`)
-                if (player.status.actionLog) {
-                    player.status.actionLog.push(`Bought insurance (${setSeparator(insuranceBet)}$)`)
-                }
                 // Don't call NextPlayer - just recalculate options and continue turn
                 player.availableOptions = await this.GetAvailableOptions(player, player.status.currentHand)
                 player.status.actionInProgress = false
@@ -2122,17 +2301,13 @@ module.exports = class BlackJack extends Game {
     async updateRoundProgressEmbed(player, autoStanding = false, renderOptions = {}) {
         try {
             const paused = Boolean(renderOptions?.paused || (this.isRemotePauseActive && this.isRemotePauseActive()))
-            const handSummary = player.hands.map((hand, idx) => {
-                const isCurrent = idx === player.status.currentHand
-                const statusParts = [Number.isFinite(hand.value) ? `${hand.value}` : "??"]
-                if (hand.busted) statusParts.push("Busted")
-                if (hand.BJ) statusParts.push("Blackjack")
-                if (hand.push) statusParts.push("Push")
-                return `${isCurrent ? "▶ " : ""}Hand #${idx + 1} • ${statusParts.join(" • ")}`
-            }).join("\n") || "—"
-
-            const actionLogEntries = Array.isArray(player.status?.actionLog) ? player.status.actionLog : []
-            const actionLogText = actionLogEntries.length > 0 ? actionLogEntries.join("\n") : "—"
+            const handSummary = player.hands.map((hand, idx) =>
+                formatHandSummary(hand, {
+                    isCurrent: idx === player.status.currentHand,
+                    includeHandLabel: true,
+                    handIndex: idx
+                })
+            ).join("\n") || "—"
             const timelineText = this.buildDealerTimelineDescription() ?? EMPTY_TIMELINE_TEXT
 
             const embed = new EmbedBuilder()
@@ -2142,20 +2317,23 @@ module.exports = class BlackJack extends Game {
                     ? `⏸️ Tavolo in pausa dagli admin.\n\n${timelineText}`
                     : timelineText)
                 .addFields(
-                    { name: "Hands", value: handSummary, inline: false },
-                    { name: "Action log", value: actionLogText, inline: false }
+                    { name: "Hands", value: handSummary, inline: false }
                 )
 
-            const probabilityField = buildProbabilityField({
-                win: player.status?.winProbability,
-                tie: player.status?.pushProbability,
-                lose: player.status?.lossProbability,
-                samples: player.status?.probabilitySamples
-            }, {
-                title: "Outcome probability",
-                tieLabel: "Push"
-            })
-            if (probabilityField) {
+            if (hasWinProbabilityInsight(player)) {
+                const probabilityTitle = `🔮 Outcome probability for ${resolvePlayerLabel(player)}`
+                const probabilityField = buildProbabilityField({
+                    win: player.status?.winProbability,
+                    tie: player.status?.pushProbability,
+                    lose: player.status?.lossProbability
+                }, {
+                    title: probabilityTitle,
+                    tieLabel: "Push"
+                }) || {
+                    name: probabilityTitle,
+                    value: "Calculating...",
+                    inline: false
+                }
                 embed.addFields(probabilityField)
             }
 
@@ -2643,7 +2821,7 @@ module.exports = class BlackJack extends Game {
         if (index !== -1) this.players.splice(index, 1)
         this.UpdateInGame()
 
-        const noPlayersLeft = this.players.length < config.blackjack.minPlayers.default;
+        const noPlayersLeft = this.players.length < this.getMinimumPlayers();
         if (noPlayersLeft && !skipStop) {
             const stopPayload = { ...stopOptions }
             if (!Object.prototype.hasOwnProperty.call(stopPayload, "reason")) {

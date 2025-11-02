@@ -1,6 +1,6 @@
 const express = require("express")
 const { ROLES } = require("../services/accessControlService")
-const { userSchemas, validate } = require("../validation/schemas")
+const { userSchemas, guildSchemas, validate } = require("../validation/schemas")
 const { constants } = require("../../config")
 const { buildAccessPayload } = require("../../shared/mappers/accessMapper")
 const {
@@ -226,14 +226,18 @@ const createUsersRouter = (dependencies) => {
 
     router.patch("/policy", requireCsrfToken, async(req, res, next) => {
         if (!ensureListManagement(req, res)) return
-        const { enforceWhitelist, enforceBlacklist } = req.body || {}
-        if (typeof enforceWhitelist !== "boolean" && typeof enforceBlacklist !== "boolean") {
+        const { enforceWhitelist, enforceBlacklist, enforceQuarantine } = req.body || {}
+        const hasWhitelist = typeof enforceWhitelist === "boolean"
+        const hasBlacklist = typeof enforceBlacklist === "boolean"
+        const hasQuarantine = typeof enforceQuarantine === "boolean"
+        if (!hasWhitelist && !hasBlacklist && !hasQuarantine) {
             return res.status(400).json({ message: "400: Bad request" })
         }
         try {
             const policy = await accessControl.setAccessPolicy({
                 enforceWhitelist,
-                enforceBlacklist
+                enforceBlacklist,
+                enforceQuarantine
             })
             res.status(200).json(policy)
         } catch (error) {
@@ -390,6 +394,53 @@ const createUsersRouter = (dependencies) => {
             next(error)
         }
     })
+
+    router.get("/guilds/quarantine", async(req, res, next) => {
+        if (!ensureListManagement(req, res)) return
+        const status = req.query?.status
+        try {
+            const entries = await accessControl.listGuildEntries({ status })
+            res.status(200).json({ items: entries })
+        } catch (error) {
+            next(error)
+        }
+    })
+
+    router.post(
+        "/guilds/quarantine/:guildId/approve",
+        validate(guildSchemas.quarantineActionParams, "params"),
+        requireCsrfToken,
+        async(req, res, next) => {
+            if (!ensureListManagement(req, res)) return
+            try {
+                const record = await accessControl.approveGuild({
+                    guildId: req.params.guildId,
+                    actorId: req.user?.id
+                })
+                res.status(200).json(record)
+            } catch (error) {
+                next(error)
+            }
+        }
+    )
+
+    router.post(
+        "/guilds/quarantine/:guildId/discard",
+        validate(guildSchemas.quarantineActionParams, "params"),
+        requireCsrfToken,
+        async(req, res, next) => {
+            if (!ensureListManagement(req, res)) return
+            try {
+                const record = await accessControl.discardGuild({
+                    guildId: req.params.guildId,
+                    actorId: req.user?.id
+                })
+                res.status(200).json(record)
+            } catch (error) {
+                next(error)
+            }
+        }
+    )
 
     return router
 }

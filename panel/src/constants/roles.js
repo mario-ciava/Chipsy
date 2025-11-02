@@ -37,3 +37,17 @@ export const getRoleDescription = (role) => {
     const normalized = typeof role === "string" ? role.toUpperCase() : "USER"
     return PANEL_ROLES[normalized]?.description || PANEL_ROLES.USER.description
 }
+
+const ROLE_BADGE_TONES = Object.freeze({
+    MASTER: "chip-role-master",
+    ADMIN: "chip-role-admin",
+    MODERATOR: "chip-role-moderator",
+    USER: "chip-role-user"
+})
+
+export const getRoleBadgeClass = (role) => {
+    const normalized = typeof role === "string"
+        ? role.trim().toUpperCase()
+        : "USER"
+    return ROLE_BADGE_TONES[normalized] || ROLE_BADGE_TONES.USER
+}

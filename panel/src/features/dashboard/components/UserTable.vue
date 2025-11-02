@@ -303,7 +303,7 @@
 
 <script>
 import { formatCurrency, formatPercentage, formatExpRange, formatFriendlyDateTime } from "../../../utils/formatters"
-import { getRoleLabel } from "../../../constants/roles"
+import { getRoleLabel, getRoleBadgeClass } from "../../../constants/roles"
 import { showToast } from "../../../utils/toast"
 import { copyToClipboard } from "../../../utils/clipboard"
 import { PANEL_DEFAULTS } from "../../../config/panelDefaults"
@@ -393,11 +393,6 @@ export default {
             return `Indexed users: ${this.indexedUsersLabel}`
         },
         formattedUsers() {
-            const roleToneMap = {
-                master: "chip-role-master",
-                admin: "chip-role-admin",
-                moderator: "chip-role-moderator"
-            }
             return this.users.map((user) => {
                 const rawUsername = user.username || "N/A"
                 let tag = user.tag || null
@@ -407,11 +402,7 @@ export default {
                     if (namePart) baseName = namePart
                     if (discriminator) tag = `#${discriminator}`
                 }
-                const normalizedRole = (user.panelRole || user.access?.role || "USER")
-                    .toString()
-                    .trim()
-                    .toLowerCase()
-                const roleClass = roleToneMap[normalizedRole] || "chip-role-user"
+                const roleClass = getRoleBadgeClass(user.panelRole || user.access?.role)
                 return {
                     id: user.id,
                     balance: formatCurrency(user.money),

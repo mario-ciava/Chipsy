@@ -63,8 +63,10 @@
                     :saving="policySaving"
                     @toggle="handlePolicyToggle"
                     @toggle-blacklist="handleBlacklistToggle"
+                    @toggle-quarantine="handleQuarantineToggle"
                     @view-whitelist="openAccessList('whitelist')"
                     @view-blacklist="openAccessList('blacklist')"
+                    @view-quarantine="openAccessList('quarantine')"
                 />
             </div>
             <aside class="chip-stack h-full">
@@ -95,7 +97,12 @@
             :entries="listModal.entries"
             :loading="listModal.loading"
             :error="listModal.error"
+            :actioning-id="listModal.actioningId"
+            :current-user-id="(user && user.id) || null"
             @close="closeAccessList"
+            @approve="approveQuarantineEntry"
+            @discard="discardQuarantineEntry"
+            @remove-entry="removeAccessListEntry"
         />
     </div>
 </template>
@@ -110,6 +117,13 @@ import AccessPolicyCard from "./components/AccessPolicyCard.vue"
 import AccessListModal from "./components/AccessListModal.vue"
 import api from "../../services/api"
 import { fetchRemoteActions } from "../../utils/remoteActions"
+
+const PRIVILEGED_ROLES = Object.freeze(["MASTER", "ADMIN"])
+const PRIVILEGED_ROLE_PRIORITY = PRIVILEGED_ROLES.reduce((acc, role, index) => {
+    acc[role] = index
+    return acc
+}, {})
+const PRIVILEGED_FETCH_LIMIT = 50
 
 export default {
     name: "DashboardPage",
@@ -151,7 +165,8 @@ export default {
                 type: "whitelist",
                 entries: [],
                 loading: false,
-                error: null
+                error: null,
+                actioningId: null
             }
         }
     },
@@ -503,6 +518,33 @@ export default {
                 this.policySaving = false
             }
         },
+        async handleQuarantineToggle(enforceQuarantine) {
+            if (this.policySaving) return
+            if (!this.csrfToken) {
+                this.setFlash("Missing CSRF token. Reload the page and try again.", "warning")
+                return
+            }
+            this.policySaving = true
+            try {
+                await this.$store.dispatch("users/updatePolicy", {
+                    csrfToken: this.csrfToken,
+                    enforceQuarantine
+                })
+                const message = enforceQuarantine
+                    ? "Invite quarantine enabled. New servers must be approved before using Chipsy."
+                    : "Invite quarantine disabled. New servers can use Chipsy immediately."
+                this.setFlash(message, "success")
+                this.pushLog("info", `Invite quarantine ${enforceQuarantine ? "enabled" : "disabled"}.`)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to update invite quarantine policy", error)
+                const message = error?.response?.data?.message || "Unable to update the invite quarantine setting."
+                this.setFlash(message, "warning")
+                this.pushLog("error", "Quarantine toggle failed.")
+            } finally {
+                this.policySaving = false
+            }
+        },
         openAccessList(type) {
             this.listModal = {
                 ...this.listModal,
@@ -510,17 +552,28 @@ export default {
                 type,
                 loading: true,
                 error: null,
-                entries: []
+                entries: [],
+                actioningId: null
             }
             this.fetchAccessList(type)
         },
         async fetchAccessList(type) {
             try {
-                const response = await api.getAccessList({ type })
+                let entries = []
+                if (type === "quarantine") {
+                    const response = await api.getGuildQuarantine({ status: "pending" })
+                    entries = Array.isArray(response?.items) ? response.items : []
+                } else {
+                    const response = await api.getAccessList({ type })
+                    entries = Array.isArray(response?.entries) ? response.entries : []
+                    if (type === "whitelist") {
+                        entries = await this.withPrivilegedWhitelistEntries(entries)
+                    }
+                }
                 this.listModal = {
                     ...this.listModal,
                     loading: false,
-                    entries: Array.isArray(response?.entries) ? response.entries : [],
+                    entries,
                     type
                 }
             } catch (error) {
@@ -533,11 +586,215 @@ export default {
                 }
             }
         },
+        async withPrivilegedWhitelistEntries(entries = []) {
+            const normalized = Array.isArray(entries) ? [...entries] : []
+            let privileged = []
+            try {
+                privileged = await this.fetchPrivilegedAccounts()
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to fetch privileged accounts", error)
+                privileged = []
+            }
+            if (!privileged.length) {
+                return normalized
+            }
+            const registry = new Map()
+            normalized.forEach((entry) => {
+                if (entry?.userId) {
+                    registry.set(entry.userId, entry)
+                }
+            })
+            privileged.forEach((privilegedEntry) => {
+                if (!privilegedEntry?.userId) return
+                const existing = registry.get(privilegedEntry.userId)
+                if (existing) {
+                    if (!existing.role) existing.role = privilegedEntry.role
+                    if (!existing.username) existing.username = privilegedEntry.username
+                    existing.autoIncluded = true
+                } else {
+                    const enriched = { ...privilegedEntry, autoIncluded: true }
+                    normalized.push(enriched)
+                    registry.set(enriched.userId, enriched)
+                }
+            })
+            return this.sortWhitelistEntries(normalized)
+        },
+        async fetchPrivilegedAccounts() {
+            const requests = PRIVILEGED_ROLES.map((role) => this.fetchPrivilegedRole(role))
+            const results = await Promise.all(requests)
+            const combined = []
+            const seen = new Set()
+            results
+                .flat()
+                .filter(Boolean)
+                .forEach((entry) => {
+                    if (!entry.userId || seen.has(entry.userId)) return
+                    seen.add(entry.userId)
+                    combined.push(entry)
+                })
+            return combined
+        },
+        async fetchPrivilegedRole(role) {
+            try {
+                const response = await api.listUsers({
+                    page: 1,
+                    pageSize: PRIVILEGED_FETCH_LIMIT,
+                    role
+                })
+                const items = Array.isArray(response?.items) ? response.items : []
+                return items
+                    .map((user) => this.normalizePrivilegedUser(user, role))
+                    .filter(Boolean)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error(`Failed to fetch ${role} accounts`, error)
+                return []
+            }
+        },
+        normalizePrivilegedUser(user, fallbackRole) {
+            if (!user) return null
+            const resolvedRole = (user.panelRole || user.access?.role || fallbackRole || "USER")
+                .toString()
+                .toUpperCase()
+            const userId = user.id || user.userId || null
+            if (!userId) return null
+            return {
+                userId,
+                username: user.username || user.displayName || user.tag || userId,
+                role: resolvedRole,
+                updatedAt: user.access?.updatedAt || user.updatedAt || user.last_played || user.lastPlayed || null
+            }
+        },
+        sortWhitelistEntries(entries = []) {
+            const pinned = []
+            const regular = []
+            entries.forEach((entry, index) => {
+                const roleKey = (entry.role || "").toString().toUpperCase()
+                const wrapper = { entry, index, roleKey }
+                if (Object.prototype.hasOwnProperty.call(PRIVILEGED_ROLE_PRIORITY, roleKey)) {
+                    pinned.push(wrapper)
+                } else {
+                    regular.push(wrapper)
+                }
+            })
+            pinned.sort((a, b) => {
+                const diff = (PRIVILEGED_ROLE_PRIORITY[a.roleKey] || 0) - (PRIVILEGED_ROLE_PRIORITY[b.roleKey] || 0)
+                if (diff !== 0) return diff
+                const labelA = (a.entry.username || a.entry.userId || "").toString()
+                const labelB = (b.entry.username || b.entry.userId || "").toString()
+                return labelA.localeCompare(labelB, undefined, { sensitivity: "base" })
+            })
+            regular.sort((a, b) => a.index - b.index)
+            return [...pinned, ...regular].map((wrapper) => wrapper.entry)
+        },
         closeAccessList() {
             this.listModal = {
                 ...this.listModal,
                 open: false,
-                error: null
+                error: null,
+                actioningId: null
+            }
+        },
+        async approveQuarantineEntry(entry) {
+            if (this.listModal.type !== "quarantine" || !entry?.guildId) return
+            if (!this.csrfToken) {
+                this.setFlash("Missing CSRF token. Reload the page and try again.", "warning")
+                return
+            }
+            this.listModal = { ...this.listModal, actioningId: entry.guildId }
+            try {
+                await api.approveGuildQuarantine({
+                    csrfToken: this.csrfToken,
+                    guildId: entry.guildId
+                })
+                const label = entry.name || entry.guildId
+                this.setFlash(`Server ${label} approved.`, "success")
+                await this.fetchAccessList("quarantine")
+                this.pushLog("info", `Approved guild ${label}.`)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to approve guild quarantine entry", error)
+                const message = error?.response?.data?.message || "Unable to approve the server."
+                this.setFlash(message, "warning")
+                this.pushLog("error", "Guild approval failed.")
+            } finally {
+                this.listModal = { ...this.listModal, actioningId: null }
+            }
+        },
+        async discardQuarantineEntry(entry) {
+            if (this.listModal.type !== "quarantine" || !entry?.guildId) return
+            if (!this.csrfToken) {
+                this.setFlash("Missing CSRF token. Reload the page and try again.", "warning")
+                return
+            }
+            this.listModal = { ...this.listModal, actioningId: entry.guildId }
+            try {
+                await api.discardGuildQuarantine({
+                    csrfToken: this.csrfToken,
+                    guildId: entry.guildId
+                })
+                const label = entry.name || entry.guildId
+                this.setFlash(`Server ${label} discarded.`, "info")
+                await this.fetchAccessList("quarantine")
+                this.pushLog("info", `Discarded guild ${label}.`)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to discard guild quarantine entry", error)
+                const message = error?.response?.data?.message || "Unable to discard the server."
+                this.setFlash(message, "warning")
+                this.pushLog("error", "Guild discard failed.")
+            } finally {
+                this.listModal = { ...this.listModal, actioningId: null }
+            }
+        },
+        async removeAccessListEntry(entry) {
+            if (!entry?.userId) return
+            if (this.listModal.type === "quarantine") return
+            const currentUserId = this.user?.id
+            if (currentUserId && entry.userId === currentUserId) {
+                this.setFlash("You cannot remove your own access.", "warning")
+                this.pushLog("warning", "Attempted to remove current user from access list.")
+                return
+            }
+            if (this.listModal.type === "whitelist") {
+                const roleKey = (entry.role || "").toString().toUpperCase()
+                if (roleKey === "MASTER" || roleKey === "ADMIN") {
+                    this.setFlash("Master and admin accounts are always allowed in whitelist mode.", "warning")
+                    this.pushLog("warning", "Attempted to remove a privileged account from the whitelist.")
+                    return
+                }
+            }
+            if (!this.csrfToken) {
+                this.setFlash("Missing CSRF token. Reload the page and try again.", "warning")
+                return
+            }
+            const targetList = this.listModal.type === "blacklist" ? "blacklist" : "whitelist"
+            const payload = {
+                csrfToken: this.csrfToken,
+                userId: entry.userId
+            }
+            if (targetList === "blacklist") {
+                payload.isBlacklisted = false
+            } else {
+                payload.isWhitelisted = false
+            }
+            this.listModal = { ...this.listModal, actioningId: entry.userId }
+            try {
+                await api.updateUserLists(payload)
+                const label = entry.username || entry.userId
+                const listLabel = targetList === "blacklist" ? "Blacklist" : "Whitelist"
+                this.setFlash(`${listLabel} entry removed for ${label}.`, "success")
+                await this.fetchAccessList(this.listModal.type)
+                this.pushLog("info", `${listLabel} entry removed for ${label}.`)
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.error("Failed to remove access list entry", error)
+                const message = error?.response?.data?.message || "Unable to update the access list."
+                this.setFlash(message, "warning")
+                this.pushLog("error", `Failed to remove ${targetList} entry.`)
+            } finally {
+                this.listModal = { ...this.listModal, actioningId: null }
             }
         },
         async toggleBot(enabled) {

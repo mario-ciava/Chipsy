@@ -173,6 +173,7 @@ describe("Express API integration", () => {
                         withholding_upgrade: 1,
                         reward_amount_upgrade: 1,
                         reward_time_upgrade: 0,
+                        win_probability_upgrade: 0,
                         next_reward: null,
                         last_played: null
                     }],
@@ -199,12 +200,43 @@ describe("Express API integration", () => {
                             withholding_upgrade: 1,
                             reward_amount_upgrade: 1,
                             reward_time_upgrade: 0,
+                            win_probability_upgrade: 0,
                             next_reward: null,
                             last_played: null,
                             join_date: null
                         })
                     }
                     return Promise.resolve(null)
+                }),
+                getLeaderboard: jest.fn().mockResolvedValue({
+                    metric: "bankroll",
+                    items: [],
+                    meta: {
+                        limit: 10,
+                        privacyFilterApplied: false
+                    }
+                }),
+                getLeaderboardPage: jest.fn().mockResolvedValue({
+                    metric: "bankroll",
+                    items: [],
+                    meta: {
+                        page: 1,
+                        pageSize: 25,
+                        total: 0,
+                        totalPages: 0,
+                        privacyFilterApplied: false
+                    }
+                }),
+                getLeaderboardEntry: jest.fn().mockResolvedValue({
+                    metric: "bankroll",
+                    rank: 1,
+                    entry: {
+                        id: "user-1",
+                        leaderboard_score: 0
+                    },
+                    meta: {
+                        privacyFilterApplied: false
+                    }
                 })
             },
             healthChecks: {
@@ -263,17 +295,18 @@ describe("Express API integration", () => {
         const mockActions = [
             { id: "bot-reload-config", type: "command" },
             { id: "bot-sync-commands", type: "concept" },
-            { id: "bot-diagnostics", type: "command" }
+            { id: "bot-diagnostics", type: "command" },
+            { id: "ops-cache-purge", type: "command" }
         ]
 
         adminService = {
             getStatus: jest.fn().mockResolvedValue({ enabled: true, health: { mysql: { alive: true } } }),
             setBotEnabled: jest.fn().mockImplementation((enabled) => Promise.resolve({ enabled })),
-            getClientConfig: jest.fn().mockReturnValue({ id: "client-id", panel: {} }),
+            getClientConfig: jest.fn().mockResolvedValue({ id: "client-id", panel: {} }),
             getGuild: jest.fn().mockResolvedValue({ id: "1" }),
             leaveGuild: jest.fn().mockResolvedValue({ ok: true }),
             completeInvite: jest.fn().mockResolvedValue({ status: "ok" }),
-            listActions: jest.fn().mockReturnValue({ actions: mockActions }),
+            listActions: jest.fn().mockResolvedValue({ actions: mockActions }),
             executeAction: jest.fn().mockImplementation((actionId) => {
                 const payload = { actionId, status: "ok" }
                 if (actionId === "bot-diagnostics") {
@@ -281,7 +314,7 @@ describe("Express API integration", () => {
                 }
                 return Promise.resolve(payload)
             }),
-            listTables: jest.fn().mockReturnValue([]),
+            listTables: jest.fn().mockResolvedValue([]),
             controlTable: jest.fn().mockResolvedValue({ ok: true }),
             createLog: jest.fn().mockResolvedValue({ ok: true }),
             getLogs: jest.fn().mockResolvedValue({ items: [], cursor: null }),
@@ -320,7 +353,7 @@ describe("Express API integration", () => {
         await agent.close()
     })
 
-    test("GET /api/v1/v1/auth exchanges the authorization code for tokens", async() => {
+    test("GET /api/v1/auth exchanges the authorization code for tokens", async() => {
         discordApi.post.mockResolvedValue({
             data: {
                 access_token: "access-token",
@@ -351,6 +384,53 @@ describe("Express API integration", () => {
             "auth",
             expect.objectContaining({ token: "access-token" })
         )
+    })
+
+    test("GET /api/v1/auth rejects invalid OAuth state values before touching Discord", async() => {
+        const stateResponse = await agent.requestJson("/api/v1/auth/state?redirectUri=https://panel.localhost", {
+            method: "GET"
+        })
+        const { state, redirectUri } = stateResponse.body
+        const tamperedState = `${state}-invalid`
+
+        const { response, body } = await agent.requestJson(`/api/v1/auth?code=auth-code&state=${tamperedState}&redirectUri=${encodeURIComponent(redirectUri)}`)
+
+        expect(response.status).toBe(401)
+        expect(body.message).toBe("401: Invalid OAuth state")
+        expect(discordApi.post).not.toHaveBeenCalled()
+    })
+
+    test("GET /api/v1/auth surfaces Discord OAuth exchange failures", async() => {
+        const stateResponse = await agent.requestJson("/api/v1/auth/state?redirectUri=https://panel.localhost", {
+            method: "GET"
+        })
+        const { state, redirectUri } = stateResponse.body
+
+        const oauthError = Object.assign(new Error("bad request"), {
+            status: 400,
+            response: { data: { error_description: "Invalid authorization code" } }
+        })
+        discordApi.post.mockRejectedValueOnce(oauthError)
+
+        const { response, body } = await agent.requestJson(`/api/v1/auth?code=expired-code&state=${state}&redirectUri=${encodeURIComponent(redirectUri)}`)
+
+        expect(response.status).toBe(400)
+        expect(body.message).toBe("400: Invalid authorization code")
+        expect(discordApi.post).toHaveBeenCalledWith(
+            "/oauth2/token",
+            expect.any(String),
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: expect.stringContaining("Basic ") })
+            })
+        )
+    })
+
+    test("GET /api/v1/user rejects missing or expired tokens up front", async() => {
+        const { response, body } = await agent.requestJson("/api/v1/user", { method: "GET" })
+
+        expect(response.status).toBe(401)
+        expect(body.message).toBe("401: Session expired. Please log in again.")
+        expect(discordApi.get).not.toHaveBeenCalled()
     })
 
     test("GET /api/v1/user validates the token and stores admin state", async() => {
@@ -920,9 +1000,51 @@ describe("Express API integration", () => {
                 expect.objectContaining({
                     id: "bot-diagnostics",
                     type: "command"
+                }),
+                expect.objectContaining({
+                    id: "ops-cache-purge",
+                    type: "command"
                 })
             ])
         )
+    })
+
+    test("GET /api/v1/admin/tables streams live tables snapshot", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/v1/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const snapshot = {
+            tables: [
+                {
+                    id: "table-1",
+                    type: "texas",
+                    status: "running",
+                    channel: { id: "123", name: "poker" }
+                }
+            ],
+            count: 1,
+            fetchedAt: new Date().toISOString()
+        }
+
+        adminService.listTables.mockResolvedValueOnce(snapshot)
+
+        const response = await agent.requestJson("/api/v1/admin/tables", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toEqual(snapshot)
+        expect(adminService.listTables).toHaveBeenCalled()
     })
 
     test("POST /api/v1/admin/actions/bot-reload-config reloads runtime config", async() => {
@@ -993,5 +1115,38 @@ describe("Express API integration", () => {
         })
         expect(response.body.report).toBeDefined()
         expect(response.body.report.services.mysql.ok).toBe(true)
+    })
+
+    test("POST /api/v1/admin/actions/ops-cache-purge flushes caches", async() => {
+        discordApi.get.mockResolvedValue({
+            data: {
+                id: "owner-id",
+                username: "Owner"
+            }
+        })
+
+        await agent.requestJson("/api/v1/user", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const clientResponse = await agent.requestJson("/api/v1/admin/client", {
+            method: "GET",
+            headers: { token: "access-token" }
+        })
+
+        const response = await agent.requestJson("/api/v1/admin/actions/ops-cache-purge", {
+            method: "POST",
+            headers: {
+                token: "access-token",
+                "x-csrf-token": clientResponse.body.csrfToken
+            }
+        })
+
+        expect(response.response.status).toBe(200)
+        expect(response.body).toMatchObject({
+            actionId: "ops-cache-purge",
+            status: "ok"
+        })
     })
 })

@@ -1,6 +1,6 @@
 const path = require("path")
 const fs = require("fs")
-const { config: loadEnv } = require("dotenv")
+const { config: loadEnv, parse: parseEnv } = require("dotenv")
 const { z } = require("zod")
 const uiTheme = require("./uiTheme")
 const marketingContent = require("./marketingContent")
@@ -8,20 +8,44 @@ const userDetailLayout = require("./userDetailLayout")
 const communityConfig = require("./community")
 
 const projectRoot = path.resolve(__dirname, "..")
+const runtimeEnvKeys = new Set(Object.keys(process.env))
 
-const loadEnvFile = (filename, { override = true } = {}) => {
+const parsePortNumber = (value, fallback) => {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed
+    }
+    return fallback
+}
+
+const loadEnvFile = (filename, { overrideExisting = false } = {}) => {
     const filePath = path.join(projectRoot, filename)
     if (!fs.existsSync(filePath)) {
         return null
     }
 
-    const shouldProtectRuntimeEnv = process.env.DOCKER_ENV === "true"
-    const result = loadEnv({ path: filePath, override: shouldProtectRuntimeEnv ? false : override })
-    if (result?.error) {
-        throw result.error
+    let parsed = {}
+    try {
+        const raw = fs.readFileSync(filePath, "utf8")
+        parsed = parseEnv(raw)
+    } catch (error) {
+        console.error(`\n❌ Failed to parse ${filename}: ${error.message}\n`)
+        throw error
     }
 
-    return { path: filePath }
+    const appliedKeys = []
+    for (const [key, value] of Object.entries(parsed)) {
+        if (runtimeEnvKeys.has(key)) {
+            continue
+        }
+        if (!overrideExisting && Object.prototype.hasOwnProperty.call(process.env, key) && process.env[key] !== undefined) {
+            continue
+        }
+        process.env[key] = value
+        appliedKeys.push(key)
+    }
+
+    return { path: filePath, keys: appliedKeys }
 }
 
 const resolveEnvTarget = () => {
@@ -35,9 +59,9 @@ const resolveEnvTarget = () => {
     return "local"
 }
 
-const baseEnv = loadEnvFile(".env", { override: false })
+const baseEnv = loadEnvFile(".env", { overrideExisting: false })
 const activeEnvTarget = resolveEnvTarget()
-const variantEnv = loadEnvFile(`.env.${activeEnvTarget}`)
+const variantEnv = loadEnvFile(`.env.${activeEnvTarget}`, { overrideExisting: true })
 
 if (!baseEnv && !variantEnv) {
     const fallback = loadEnv()
@@ -47,6 +71,8 @@ if (!baseEnv && !variantEnv) {
 }
 
 process.env.CHIPSY_ENV = activeEnvTarget
+
+const resolvedBotApiPort = parsePortNumber(process.env.BOT_API_PORT || process.env.PORT, 8082)
 
 const envSchema = z.object({
     DISCORD_CLIENT_ID: z.string().min(1, "DISCORD_CLIENT_ID is required."),
@@ -115,6 +141,25 @@ const parseCsvList = (value, fallback = []) => {
         .filter(Boolean)
 }
 
+const resolveLogFormat = () => {
+    const input = (process.env.LOG_FORMAT || "").toLowerCase()
+    return input === "json" ? "json" : "pretty"
+}
+
+const resolvedLogFormat = resolveLogFormat()
+
+const loggingConfig = Object.freeze({
+    level: (process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug")).toLowerCase(),
+    format: resolvedLogFormat,
+    jsonEnabled: parseBoolean(process.env.LOG_JSON_ENABLED, resolvedLogFormat === "json"),
+    serviceName: process.env.LOG_SERVICE_NAME || process.env.BOT_DISPLAY_NAME || "chipsy-bot",
+    environment: process.env.CHIPSY_ENV,
+    sensitiveKeys: Object.freeze(parseCsvList(process.env.LOG_SENSITIVE_KEYS, ["token", "secret", "password"])),
+    commandTelemetry: Object.freeze({
+        enabled: parseBoolean(process.env.LOG_COMMAND_TELEMETRY_ENABLED, true)
+    })
+})
+
 const securityConfig = Object.freeze({
     enforceHttps: parseBoolean(process.env.ENFORCE_HTTPS, process.env.NODE_ENV === "production"),
     allowHttpHosts: parseCsvList(process.env.SECURITY_ALLOW_HTTP_HOSTS, ["localhost", "127.0.0.1"]),
@@ -144,6 +189,37 @@ const botRpcConfig = Object.freeze({
     token: process.env.BOT_RPC_TOKEN || internalApiConfig.token,
     timeoutMs: Number(process.env.BOT_RPC_TIMEOUT_MS) || 8000,
     pollIntervalMs: Number(process.env.BOT_RPC_POLL_INTERVAL_MS) || 5000
+})
+
+const interactionAccessConfig = Object.freeze({
+    cacheTtlMs: Number(process.env.INTERACTION_ACCESS_CACHE_TTL_MS) || 8000,
+    denialNoticeCooldownMs: Number(process.env.INTERACTION_ACCESS_DENIAL_COOLDOWN_MS) || 3500
+})
+
+const sessionResilienceConfig = Object.freeze({
+    fallbackEnabled: parseBoolean(process.env.SESSION_FALLBACK_ENABLED, true),
+    recoveryDelayMs: Number(process.env.SESSION_STORE_RECOVERY_DELAY_MS) || 15000,
+    logThrottleMs: Number(process.env.SESSION_STORE_LOG_THROTTLE_MS) || 10000
+})
+
+const accessControlConfig = Object.freeze({
+    guilds: Object.freeze({
+        statuses: Object.freeze({
+            pending: "pending",
+            approved: "approved",
+            discarded: "discarded"
+        }),
+        quarantine: Object.freeze({
+            autoApproveExistingOnBootstrap: parseBoolean(
+                process.env.GUILD_AUTO_APPROVE_EXISTING,
+                true
+            ),
+            staleEntryTtlMs: Number(process.env.GUILD_QUARANTINE_STALE_MS) || 30 * 24 * 60 * 60 * 1000
+        }),
+        metadata: Object.freeze({
+            nameMaxLength: 200
+        })
+    })
 })
 
 const clampChannel = (value) => {
@@ -280,7 +356,7 @@ const leaderboardConfig = Object.freeze({
         Object.freeze({
             id: "net-profit",
             label: "Net Winnings",
-            icon: "💼",
+            icon: "📈",
             description: "Players ranked by their cumulative winnings earned at the tables.",
             type: "currency",
             valueSuffix: "net win",
@@ -289,7 +365,7 @@ const leaderboardConfig = Object.freeze({
         Object.freeze({
             id: "chips",
             label: "Current Chips",
-            icon: "🎲",
+            icon: "🪙",
             description: "Live bankroll without subtracting the starter stack.",
             type: "currency",
             valueKey: "money"
@@ -306,7 +382,7 @@ const leaderboardConfig = Object.freeze({
     ]),
     sparkline: Object.freeze({
         symbols: "▁▂▃▄▅▆▇█",
-        points: 5
+        points: 7
     }),
     trend: Object.freeze({
         activityHalfLifeDays: 10,
@@ -335,13 +411,6 @@ const leaderboardConfig = Object.freeze({
             hover: "rgba(15, 23, 42, 0.65)",
             divider: "rgba(148, 163, 184, 0.12)"
         })
-    }),
-    links: Object.freeze({
-        full: "/leaderboard"
-    }),
-    cta: Object.freeze({
-        label: "View Full Leaderboard",
-        emoji: "🔐"
     }),
     emptyState: Object.freeze({
         title: "Leaderboard warming up",
@@ -382,11 +451,12 @@ const constants = {
             net_winnings: 0,
             withholding_upgrade: 0,
             reward_amount_upgrade: 0,
-            reward_time_upgrade: 0
+            reward_time_upgrade: 0,
+            win_probability_upgrade: 0
         }
     },
     ports: {
-        botApi: 8082,
+        botApi: resolvedBotApiPort,
         vueDev: 8080,
         vueLegacy: 8081,
         mysql: 3306,
@@ -501,6 +571,27 @@ const upgradeDefinitions = {
             min: 1,
             format: (value) => `${value}h`
         }
+    },
+    win_probability: {
+        id: "win_probability",
+        featureKey: "win-probability",
+        dbField: "win_probability_upgrade",
+        name: "Win Probability Insight",
+        emoji: "🔮",
+        description: "Unlocks live win probability projections in Blackjack and Texas Hold'em.",
+        details: "Run Chipsy's Monte Carlo simulations on demand to preview win/tie odds in both Blackjack and Texas. This upgrade is a single purchase with no levels.",
+        costs: {
+            starting: 100,
+            increase: 0
+        },
+        maxLevel: 1,
+        currency: "gold",
+        effect: {
+            strategy: "unlock",
+            base: 0
+        },
+        unlockOnly: true,
+        format: (value) => (value >= 1 ? "Unlocked" : "Locked")
     }
 }
 
@@ -549,7 +640,11 @@ const calculateUpgradeValue = (upgradeId, level) => {
     if (!definition) return null
 
     const safeLevel = clampLevel(level, definition.maxLevel)
-    const effect = definition.effect
+    const effect = definition.effect || {}
+
+    if (effect.strategy === "unlock") {
+        return safeLevel > 0 ? 1 : 0
+    }
 
     if (effect.strategy === "exponential") {
         let result = effect.base
@@ -577,6 +672,9 @@ const getUpgradeByDbField = (dbField) => Object.values(upgradeDefinitions).find(
 
 const buildProgressionUpgrades = () => {
     return Object.values(upgradeDefinitions).reduce((acc, definition) => {
+        if (definition.unlockOnly) {
+            return acc
+        }
         acc[definition.featureKey] = {
             baseValue: definition.effect.base,
             increment: definition.effect.strategy === "linear-subtract" ? definition.effect.perLevel : undefined,
@@ -683,6 +781,10 @@ const config = {
     community: communityConfig,
     marketing: marketingContent,
     security: securityConfig,
+    sessions: sessionResilienceConfig,
+    interactionAccess: interactionAccessConfig,
+    logging: loggingConfig,
+    accessControl: accessControlConfig,
     blackjack: {
         deckCount: {
             default: 6,
@@ -697,8 +799,8 @@ const config = {
             allowedRange: { min: 1, max: 7 }
         },
         minPlayers: {
-            default: 2,
-            allowedRange: { min: 2, max: 7 }
+            default: 1,
+            allowedRange: { min: 1, max: 7 }
         },
         lobbyTimeout: {
             default: 5 * 60 * 1000,
@@ -723,6 +825,10 @@ const config = {
         timelineMaxEntries: {
             default: 30,
             allowedRange: { min: 10, max: 100 }
+        },
+        timelinePreview: {
+            default: 15,
+            allowedRange: { min: 5, max: 30 }
         },
         rebuy: {
             enabled: {
