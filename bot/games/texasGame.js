@@ -11,6 +11,7 @@ const { withAccessGuard } = require("../utils/interactionAccess")
 const { renderTexasTable, createTexasTableState, renderTexasPlayerPanel } = require("../rendering/texasTableRenderer")
 const bankrollManager = require("../utils/bankrollManager")
 const { recordNetWin } = require("../utils/netProfitTracker")
+const { awardGoldForHand } = require("../utils/goldRewardManager")
 const { buildProbabilityField } = require("../utils/probabilityFormatter")
 const { hasWinProbabilityInsight } = require("../utils/playerUpgrades")
 const config = require("../../config")
@@ -24,7 +25,7 @@ const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
         ...extraMeta
     })
 
-const createWonState = () => ({ grossValue: 0, netValue: 0, expEarned: 0 })
+const createWonState = () => ({ grossValue: 0, netValue: 0, expEarned: 0, goldEarned: 0 })
 
 const createPlayerStatus = () => ({
     folded: false,
@@ -313,6 +314,7 @@ module.exports = class TexasGame extends Game {
             bet: player.bets?.current ?? 0,
             totalBet: player.bets?.total ?? 0,
             winnings: player.status?.won?.grossValue ?? 0,
+            gold: player.status?.won?.goldEarned ?? 0,
             folded: Boolean(player.status?.folded),
             allIn: Boolean(player.status?.allIn),
             eliminated: Boolean(player.status?.removed),
@@ -1266,6 +1268,22 @@ module.exports = class TexasGame extends Game {
         this.inGamePlayers = this.players.filter((p) => !p.status.folded && !p.status.removed)
     }
 
+    applyGoldRewards(players = this.players) {
+        if (!Array.isArray(players) || players.length === 0) {
+            return
+        }
+        for (const player of players) {
+            if (!player || !player.status) continue
+            if (!player.status.won) player.status.won = createWonState()
+            const grossValue = Number(player.status.won.grossValue) || 0
+            const goldAwarded = awardGoldForHand(player, { wonHand: grossValue > 0 })
+            if (goldAwarded > 0) {
+                const tracked = Number(player.status.won.goldEarned) || 0
+                player.status.won.goldEarned = tracked + goldAwarded
+            }
+        }
+    }
+
     async AssignRewards(player) {
         if (!player || !player.status) return
         const winnings = player.status.won?.grossValue ?? 0
@@ -1389,6 +1407,7 @@ module.exports = class TexasGame extends Game {
         this.bets.pots = [{ amount: this.bets.total, winners: [{ player: winner, amount: this.bets.total }] }]
         this.bets.total = 0
         this.clearProbabilitySnapshot()
+        this.applyGoldRewards(this.players)
         await this.SendMessage("handEnded")
         const stopped = await this.evaluateHandInactivity()
         if (!stopped) {
@@ -1431,11 +1450,12 @@ module.exports = class TexasGame extends Game {
                 this.bets.pots = []
             }
         } else {
-            this.bets.pots = resolved
+        this.bets.pots = resolved
         }
 
         this.bets.total = 0
         this.clearProbabilitySnapshot()
+        this.applyGoldRewards(this.players)
         await this.SendMessage("handEnded")
         const stopped = await this.evaluateHandInactivity()
         if (!stopped) {

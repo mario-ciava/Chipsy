@@ -1,5 +1,5 @@
 <template>
-    <article class="chip-card chip-stack relative overflow-visible">
+    <article class="chip-card chip-card--profile chip-stack relative overflow-visible">
         <header class="chip-card__header flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-start">
             <div class="chip-stack">
                 <div class="flex items-center gap-2">
@@ -55,36 +55,50 @@
         <div v-if="metricsReady">
             <div
                 ref="metricScroll"
-                class="chip-stack gap-3 max-h-[320px] chip-status-scroll pr-1"
+                class="chip-stack gap-3 max-h-[440px] chip-status-scroll pr-1 pb-8"
                 @scroll="handleScroll"
             >
-                <div
-                    v-for="metric in metrics"
-                    :key="metric.key"
-                    class="chip-status__row border-b border-white/5 pb-3"
-                >
-                    <div class="flex flex-col">
-                    <span
-                        class="chip-status__label"
-                        :class="metric.toneClass"
+                <div class="chip-status__primary-stack">
+                    <div
+                        v-for="metric in metrics"
+                        :key="metric.key"
+                        class="chip-status__row border-b border-white/5 pb-3"
                     >
-                        {{ metric.label }}
-                    </span>
-                        <span v-if="metric.hint" class="chip-field-hint">{{ metric.hint }}</span>
+                        <div class="flex flex-col">
+                        <span
+                            class="chip-status__label"
+                            :class="metric.toneClass"
+                        >
+                            {{ metric.label }}
+                        </span>
+                            <span v-if="metric.hint" class="chip-field-hint">{{ metric.hint }}</span>
+                        </div>
+                        <span class="chip-status__value" :class="metric.toneClass || ''">
+                            {{ metric.display }}
+                        </span>
                     </div>
-                    <span class="chip-status__value" :class="metric.toneClass || ''">
-                        {{ metric.display }}
-                    </span>
-                </div>
-                <div class="chip-status__row border-b border-white/5 pb-3">
-                    <div class="flex flex-col">
-                        <span class="chip-status__label">Next reward</span>
-                        <span class="chip-field-hint">Auto payout cadence</span>
+                    <div class="chip-status__row border-b border-white/5 pb-3">
+                        <div class="flex flex-col">
+                            <span class="chip-status__label">Next reward</span>
+                            <span class="chip-field-hint">Auto payout cadence</span>
+                        </div>
+                        <span class="chip-status__value">{{ nextRewardCopy }}</span>
                     </div>
-                    <span class="chip-status__value">{{ nextRewardCopy }}</span>
+                    <template v-if="timelineMeta">
+                        <div class="chip-status__row pb-3">
+                            <div class="flex flex-col">
+                                <span class="chip-status__label">{{ timelineMeta.label }}</span>
+                                <span v-if="timelineMeta.hint" class="chip-field-hint">{{ timelineMeta.hint }}</span>
+                            </div>
+                            <span class="chip-status__value" :class="timelineMeta.toneClass || ''">
+                                {{ timelineMeta.display }}
+                            </span>
+                        </div>
+                        <div class="chip-divider chip-divider--strong" aria-hidden="true"></div>
+                    </template>
                 </div>
                 <template v-if="hasExtraMetrics">
-                    <div class="chip-stack gap-3">
+                    <div class="chip-stack gap-3 mt-4">
                         <div
                             v-for="(row, rowIndex) in extraMetricRows"
                             :key="`extra-row-${rowIndex}`"
@@ -105,6 +119,38 @@
                                 </span>
                             </div>
                         </div>
+                        <div class="chip-divider chip-divider--strong mt-4" aria-hidden="true"></div>
+                    </div>
+                </template>
+                <template v-if="hasUpgradeMetrics">
+                    <div class="chip-divider chip-divider--strong my-4" aria-hidden="true"></div>
+                    <div class="chip-stack gap-4 chip-status__primary-stack">
+                        <div
+                            v-for="(metric, index) in upgradeMetrics"
+                            :key="metric.key"
+                            class="chip-stack gap-2"
+                            :class="index === upgradeMetrics.length - 1 ? '' : 'border-b border-white/5 pb-4'"
+                        >
+                            <div class="chip-status__row">
+                                <div class="flex flex-col">
+                                    <span class="chip-status__label">{{ metric.label }}</span>
+                                    <span v-if="metric.hint" class="chip-field-hint">{{ metric.hint }}</span>
+                                </div>
+                                <span class="chip-status__value" :class="metric.toneClass || ''">
+                                    {{ metric.display }}
+                                </span>
+                            </div>
+                            <div
+                                v-if="shouldShowUpgradeProgress(metric)"
+                                class="chip-level-progress"
+                                aria-hidden="true"
+                            >
+                                <span
+                                    class="chip-level-progress__fill"
+                                    :style="{ width: formatUpgradeProgress(metric) }"
+                                ></span>
+                            </div>
+                        </div>
                     </div>
                 </template>
             </div>
@@ -121,6 +167,15 @@
 </template>
 
 <script>
+const chunkMetrics = (items = [], size = 2) => {
+    if (!Array.isArray(items) || items.length === 0) return []
+    const rows = []
+    for (let index = 0; index < items.length; index += size) {
+        rows.push(items.slice(index, index + size))
+    }
+    return rows
+}
+
 export default {
     name: "ProfileOverviewCard",
     props: {
@@ -135,6 +190,14 @@ export default {
         extraMetrics: {
             type: Array,
             default: () => []
+        },
+        upgradeMetrics: {
+            type: Array,
+            default: () => []
+        },
+        timelineMetric: {
+            type: Object,
+            default: () => null
         },
         avatarUrl: {
             type: String,
@@ -184,22 +247,40 @@ export default {
             return this.nextReward || "Available"
         },
         showScrollHint() {
-            return this.hasExtraMetrics && !this.scrollAtEnd
+            return (this.hasExtraMetrics || this.hasUpgradeMetrics) && !this.scrollAtEnd
         },
         hasExtraMetrics() {
             return Array.isArray(this.extraMetrics) && this.extraMetrics.length > 0
         },
         extraMetricRows() {
-            if (!this.hasExtraMetrics) return []
-            const rows = []
-            for (let i = 0; i < this.extraMetrics.length; i += 2) {
-                rows.push(this.extraMetrics.slice(i, i + 2))
+            return chunkMetrics(this.extraMetrics)
+        },
+        hasUpgradeMetrics() {
+            return Array.isArray(this.upgradeMetrics) && this.upgradeMetrics.length > 0
+        },
+        timelineMeta() {
+            const metric = this.timelineMetric
+            if (!metric) return null
+            const rawValue = metric.display ?? metric.value
+            if (rawValue === null || rawValue === undefined || rawValue === "") {
+                return null
             }
-            return rows
+            return {
+                label: metric.label || "Player since",
+                hint: metric.hint || "",
+                display: typeof rawValue === "string" ? rawValue : String(rawValue),
+                toneClass: metric.toneClass || ""
+            }
         }
     },
     watch: {
         extraMetrics: {
+            deep: true,
+            handler() {
+                this.resetScrollHint()
+            }
+        },
+        upgradeMetrics: {
             deep: true,
             handler() {
                 this.resetScrollHint()
@@ -229,6 +310,21 @@ export default {
                 if (!target) return
                 this.handleScroll({ target })
             })
+        },
+        shouldShowUpgradeProgress(metric) {
+            if (!metric || metric.showProgress !== true) return false
+            const level = Number(metric.level)
+            const maxLevel = Number(metric.maxLevel)
+            return Number.isFinite(level) && Number.isFinite(maxLevel) && maxLevel > 0
+        },
+        formatUpgradeProgress(metric) {
+            if (!this.shouldShowUpgradeProgress(metric)) {
+                return "0%"
+            }
+            const level = Math.max(0, Number(metric.level) || 0)
+            const maxLevel = Math.max(1, Number(metric.maxLevel) || 1)
+            const ratio = Math.min(level, maxLevel) / maxLevel
+            return `${Math.round(ratio * 100)}%`
         }
     }
 }

@@ -221,8 +221,7 @@ const runBlackjack = async(interaction, client) => {
             const embed = new EmbedBuilder()
                 .setColor(palette.color)
                 .setTitle("🃏 Blackjack — Lobby")
-                .setDescription(`Press **Join** to buy in and take a seat. When everyone is ready, the host can press **Start**.
-Minimum players to start: **${MIN_PLAYERS_TO_START}**.`)
+                .setDescription(`Press **Join** to buy in and take a seat. When everyone is ready, the host can press **Start**. Minimum players to start: **${MIN_PLAYERS_TO_START}**.`)
                 .addFields(
                     {
                         name: playersFieldName,

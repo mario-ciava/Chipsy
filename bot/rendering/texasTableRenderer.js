@@ -22,6 +22,7 @@ const {
     clearImageCache
 } = require("./core/cardRenderBase")
 const { drawBadge } = require("./shared/drawBadge")
+const { drawInfoLine } = require("./shared/drawInfoLine")
 
 const TEXAS_LAYOUT = {
     maxPlayersPerRow: 3,
@@ -78,6 +79,7 @@ function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFo
         const bet = sanitizeChips(player?.bet)
         const totalBet = sanitizeChips(player?.totalBet)
         const winnings = sanitizeChips(player?.winnings)
+        const gold = sanitizeChips(player?.gold)
 
         const folded = Boolean(player?.folded ?? player?.status?.folded)
         const allIn = Boolean(player?.allIn ?? player?.status?.allIn)
@@ -100,6 +102,7 @@ function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFo
             bet,
             totalBet,
             winnings,
+            gold,
             folded,
             allIn,
             allInAmount,
@@ -245,10 +248,14 @@ const drawCommunitySection = (ctx, state, cursorY) => {
     return cursorY + CONFIG.layout.dividerOffset
 }
 
-const buildPlayerInfoLine = (player) => {
-    const infoParts = []
+const buildPlayerInfoSegments = (player) => {
+    const segments = []
+    const addSegment = (text, color = CONFIG.textSecondary) => {
+        if (!text) return
+        segments.push({ text, color })
+    }
     if (player.totalBet != null && player.totalBet > 0) {
-        infoParts.push(`In pot ${setSeparator(player.totalBet)}$`)
+        addSegment(`In pot ${setSeparator(player.totalBet)}$`)
     }
     if (
         player.bet != null &&
@@ -256,12 +263,15 @@ const buildPlayerInfoLine = (player) => {
         player.totalBet != null &&
         player.bet !== player.totalBet
     ) {
-        infoParts.push(`This round ${setSeparator(player.bet)}$`)
+        addSegment(`This round ${setSeparator(player.bet)}$`)
     }
     if (player.winnings != null && player.winnings > 0) {
-        infoParts.push(`Won +${setSeparator(player.winnings)}$`)
+        addSegment(`Won +${setSeparator(player.winnings)}$`, CONFIG.winColor)
     }
-    return infoParts.join(" • ")
+    if (player.gold != null && player.gold > 0) {
+        addSegment(`Gold +${setSeparator(player.gold)}`, CONFIG.pushColor)
+    }
+    return segments
 }
 
 const drawTexasPlayer = (ctx, player, { slotLeft, slotWidth, top }) => {
@@ -350,15 +360,14 @@ const drawTexasPlayer = (ctx, player, { slotLeft, slotWidth, top }) => {
         infoCursorY += stackMetrics.height + 16
     }
 
-    const infoLine = buildPlayerInfoLine(player)
-    if (infoLine) {
-        drawText(ctx, infoLine, {
-            x: nameX,
+    const infoSegments = buildPlayerInfoSegments(player)
+    if (infoSegments.length > 0) {
+        drawInfoLine(ctx, infoSegments, {
+            startX: nameX,
             y: infoCursorY,
-            size: CONFIG.infoSize,
-            color: CONFIG.textSecondary,
+            fontSize: CONFIG.infoSize,
             align: "left",
-            baseline: "top"
+            defaultColor: CONFIG.textSecondary
         })
         infoCursorY += CONFIG.infoSize + 10
     }

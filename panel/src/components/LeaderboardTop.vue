@@ -95,7 +95,7 @@
                 <li
                     v-for="(entry, index) in challengerEntries"
                     :key="entry.rank"
-                    class="leaderboard-top__list-row"
+                    class="leaderboard-top__list-row leaderboard-top__list-row--scaled"
                     :class="{
                         'leaderboard-top__list-row--viewer': entry.isViewer,
                         'leaderboard-top__list-row--divider': index === 0
@@ -116,9 +116,6 @@
                     <div class="leaderboard-top__list-score">
                         <p class="leaderboard-top__list-metric-label">{{ activeMetricLabel }}</p>
                         <p class="leaderboard-top__list-value">{{ formatMetric(entry.metricValue) }}</p>
-                        <span class="leaderboard-top__list-trend" :title="formatTrend(entry)">
-                            {{ getTrendIndicator(entry) }}
-                        </span>
                     </div>
                 </li>
             </ul>

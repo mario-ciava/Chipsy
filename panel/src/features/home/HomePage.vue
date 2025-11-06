@@ -7,6 +7,8 @@
                     :username="userName"
                     :metrics="profileMetrics"
                     :extra-metrics="profileExtraMetrics"
+                    :upgrade-metrics="profileUpgradeMetrics"
+                    :timeline-metric="profileTimelineMetric"
                     :has-profile="hasProfileStats"
                     :next-reward="profileNextReward"
                     :refreshing="profileRefreshing"
@@ -169,6 +171,46 @@ const SHARED_SHORTCUTS = Object.freeze([
     }
 ])
 
+const PROFILE_UPGRADE_METRICS = Object.freeze([
+    {
+        key: "withholding-upgrade",
+        field: "withholdingUpgrade",
+        label: "Withholding upgrade",
+        hint: "Reduces jackpot taxes",
+        maxLevel: 10
+    },
+    {
+        key: "reward-amount-upgrade",
+        field: "rewardAmountUpgrade",
+        label: "Reward amount upgrade",
+        hint: "Boosts daily payout",
+        maxLevel: 10
+    },
+    {
+        key: "reward-time-upgrade",
+        field: "rewardTimeUpgrade",
+        label: "Reward cooldown upgrade",
+        hint: "Shortens cooldown",
+        maxLevel: 5
+    },
+    {
+        key: "win-probability-upgrade",
+        field: "winProbabilityUpgrade",
+        label: "Win probability insight",
+        hint: "Unlocks odds preview",
+        maxLevel: 1,
+        formatValue: (level) => (level >= 1 ? "Unlocked" : "Locked")
+    }
+])
+
+const formatUpgradeLevelDisplay = (level, maxLevel) => {
+    const safeLevel = Number.isFinite(level) && level > 0 ? Math.floor(level) : 0
+    if (typeof maxLevel === "number" && maxLevel > 0) {
+        return `${safeLevel}/${maxLevel}`
+    }
+    return `${safeLevel}`
+}
+
 export default {
     name: "HomePage",
     components: {
@@ -286,7 +328,7 @@ export default {
                     label: "Balance",
                     display: this.formattedBalance,
                     hint: "Spendable chips",
-                    toneClass: "chip-status__value--primary"
+                    toneClass: "chip-status__value--info"
                 },
                 {
                     key: "gold",
@@ -300,7 +342,7 @@ export default {
                     label: "Level",
                     display: `${this.profileStats.level || 1}`,
                     hint: this.formattedExp,
-                    toneClass: "chip-status__value--info"
+                    toneClass: "chip-status__value--primary"
                 },
                 {
                     key: "activity",
@@ -314,20 +356,12 @@ export default {
             if (!this.profileStats) return []
             const handsPlayed = Number(this.profileStats.handsPlayed) || 0
             const handsWon = Number(this.profileStats.handsWon) || 0
-            const handsLost = Math.max(handsPlayed - handsWon, 0)
             const winRate = handsPlayed > 0 ? (handsWon / handsPlayed) * 100 : null
             const biggestBet = Number(this.profileStats.biggestBet) || 0
             const biggestWon = Number(this.profileStats.biggestWon) || 0
             const netWinnings = Number(this.profileStats.netWinnings) || 0
-            let playerSince = "Unknown"
-            if (this.profileStats.joinDate) {
-                const formattedJoin = formatFriendlyDateTime(this.profileStats.joinDate)
-                playerSince = formattedJoin.includes(" at ")
-                    ? formattedJoin.split(" at ")[0]
-                    : formattedJoin
-            }
 
-            return [
+            const baseMetrics = [
                 {
                     key: "hands-played",
                     label: "Hands played",
@@ -339,12 +373,6 @@ export default {
                     label: "Hands won",
                     display: handsWon.toLocaleString(),
                     hint: "Across all games"
-                },
-                {
-                    key: "hands-lost",
-                    label: "Hands lost",
-                    display: handsLost.toLocaleString(),
-                    hint: "Lifetime defeats"
                 },
                 {
                     key: "biggest-bet",
@@ -370,14 +398,48 @@ export default {
                     label: "W/L ratio",
                     display: winRate !== null ? `${winRate.toFixed(1)}%` : "N/A",
                     hint: "Win percentage"
-                },
-                {
-                    key: "player-since",
-                    label: "Player since",
-                    display: playerSince,
-                    hint: "First Chipsy session"
                 }
             ]
+
+            return baseMetrics
+        },
+        profileTimelineMetric() {
+            if (!this.profileStats) return null
+            let playerSince = "Unknown"
+            if (this.profileStats.joinDate) {
+                const formattedJoin = formatFriendlyDateTime(this.profileStats.joinDate)
+                playerSince = formattedJoin.includes(" at ")
+                    ? formattedJoin.split(" at ")[0]
+                    : formattedJoin
+            }
+            return {
+                key: "player-since",
+                label: "Player since",
+                display: playerSince,
+                hint: "First Chipsy session"
+            }
+        },
+        profileUpgradeMetrics() {
+            if (!this.profileStats) return []
+
+            return PROFILE_UPGRADE_METRICS.map((definition) => {
+                const rawLevel = Number(this.profileStats?.[definition.field]) || 0
+                const level = rawLevel > 0 ? Math.floor(rawLevel) : 0
+                const displayValue = typeof definition.formatValue === "function"
+                    ? definition.formatValue(level, definition)
+                    : formatUpgradeLevelDisplay(level, definition.maxLevel)
+                const progressive = Number.isFinite(definition.maxLevel) && definition.maxLevel > 1
+
+                return {
+                    key: definition.key,
+                    label: definition.label.replace(/ upgrade$/iu, "").replace(/^level\s+/iu, ""),
+                    display: displayValue,
+                    hint: definition.hint,
+                    level,
+                    maxLevel: definition.maxLevel,
+                    showProgress: progressive
+                }
+            })
         },
         profileEmptyCopy() {
             return "We could not find Chipsy stats for this account yet. Play a game to create the profile."

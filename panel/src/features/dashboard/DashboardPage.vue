@@ -22,7 +22,7 @@
                 </div>
                 <div v-if="user" class="flex flex-col items-end gap-2 text-right">
                     <span class="chip-label">Access level</span>
-                    <span class="chip-pill chip-pill-info">{{ roleLabel }}</span>
+                    <span class="chip-role-badge" :class="roleBadgeClass">{{ roleLabel }}</span>
                 </div>
             </div>
             <div
@@ -109,7 +109,7 @@
 
 <script>
 import { mapActions, mapGetters, mapState } from "vuex"
-import { getRoleLabel } from "../../constants/roles"
+import { getRoleLabel, getRoleBadgeClass } from "../../constants/roles"
 import BotStatusCard from "./components/BotStatusCard.vue"
 import RemoteActions from "./components/RemoteActions.vue"
 import UserTable from "./components/UserTable.vue"
@@ -190,6 +190,9 @@ export default {
         }),
         roleLabel() {
             return getRoleLabel(this.user?.role)
+        },
+        roleBadgeClass() {
+            return getRoleBadgeClass(this.user?.role)
         },
         flashNoticeClass() {
             if (!this.flashMessage) return ""

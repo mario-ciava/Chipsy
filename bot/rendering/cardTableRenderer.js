@@ -21,6 +21,7 @@ const {
     clearImageCache
 } = require("./core/cardRenderBase");
 const { drawBadge } = require("./shared/drawBadge");
+const { drawInfoLine } = require("./shared/drawInfoLine");
 
 const layoutConfig = CONFIG.layout || {};
 
@@ -230,31 +231,36 @@ async function drawHand(ctx, hand, options) {
         bold: true
     });
 
-    const infoParts = [];
+    const infoSegments = [];
+    const addInfoSegment = (text, color = CONFIG.textSecondary) => {
+        if (!text) return;
+        infoSegments.push({ text, color });
+    };
+
     if (hand.bet !== undefined && hand.bet !== null) {
-        infoParts.push(`Bet $${Number(hand.bet).toLocaleString()}`);
+        addInfoSegment(`Bet $${Number(hand.bet).toLocaleString()}`);
     }
     if (Number.isFinite(hand.payout) && hand.payout > 0) {
-        infoParts.push(`Payout +$${Math.abs(hand.payout).toLocaleString()}`);
+        addInfoSegment(`Payout +$${Math.abs(hand.payout).toLocaleString()}`, CONFIG.winColor);
+    }
+    if (Number.isFinite(hand.gold) && hand.gold > 0) {
+        addInfoSegment(`Gold +${Math.abs(hand.gold).toLocaleString()}`, CONFIG.pushColor);
     }
     if (Number.isFinite(hand.xp) && hand.xp !== 0) {
         const sign = hand.xp >= 0 ? "+" : "-";
-        infoParts.push(`XP ${sign}${Math.abs(hand.xp).toLocaleString()}`);
+        addInfoSegment(`XP ${sign}${Math.abs(hand.xp).toLocaleString()}`);
     }
     if (insured) {
-        infoParts.push("Insured");
+        addInfoSegment("Insured");
     }
 
-    if (infoParts.length > 0) {
+    if (infoSegments.length > 0) {
         const infoY = cursorY;
-        drawText(ctx, infoParts.join(" • "), {
-            x: centerX,
+        drawInfoLine(ctx, infoSegments, {
+            centerX,
             y: infoY,
-            size: CONFIG.infoSize,
-            color: CONFIG.textSecondary,
-            align: "center",
-            baseline: "top",
-            bold: false
+            fontSize: CONFIG.infoSize,
+            defaultColor: CONFIG.textSecondary
         });
         cursorY += CONFIG.infoSize + CONFIG.layout.sectionBottomPadding;
     } else {

@@ -345,7 +345,7 @@ const leaderboardConfig = Object.freeze({
         lastPlayedFreshHours: 12
     }),
     winRate: Object.freeze({
-        minHands: 25,
+        minHands: 5,
         decimals: 2,
         activityHalfLifeDays: 10
     }),
@@ -416,6 +416,13 @@ const leaderboardConfig = Object.freeze({
         title: "Leaderboard warming up",
         description: "Once players start competing, rankings will appear here."
     })
+})
+
+const goldRewardConfig = Object.freeze({
+    perWinningHandChance: 0.03,
+    perHandParticipationChance: 0.01,
+    perWinningHandAmount: 1,
+    perHandParticipationAmount: 1
 })
 
 const constants = {
@@ -785,6 +792,9 @@ const config = {
     interactionAccess: interactionAccessConfig,
     logging: loggingConfig,
     accessControl: accessControlConfig,
+    rewards: {
+        gold: goldRewardConfig
+    },
     blackjack: {
         deckCount: {
             default: 6,

@@ -5,7 +5,7 @@
                 <div class="chip-stack">
                     <div class="flex flex-wrap items-center gap-3 text-slate-300">
                         <span class="chip-eyebrow">User detail</span>
-                        <span :class="roleBadgeClass">{{ roleLabel }}</span>
+                        <span class="chip-role-badge" :class="roleBadgeClass">{{ roleLabel }}</span>
                         <span v-if="isBlacklisted" class="chip-pill chip-pill-danger">
                             Blacklisted
                         </span>
@@ -274,7 +274,7 @@
                                 class="chip-input"
                                 :disabled="statsForm.saving || !canEditStats"
                             >
-                            <p class="chip-field-hint">Legacy gold tokens.</p>
+                            <p class="chip-field-hint">Stored gold balance.</p>
                         </div>
                     </div>
                     <p v-if="!canEditStats" class="chip-field-hint text-slate-400">
@@ -324,7 +324,7 @@
 <script>
 import { mapGetters, mapState } from "vuex"
 import api from "../../services/api"
-import { ROLE_OPTIONS, getRoleLabel, getRoleDescription } from "../../constants/roles"
+import { ROLE_OPTIONS, getRoleLabel, getRoleDescription, getRoleBadgeClass } from "../../constants/roles"
 import ChipToggle from "../dashboard/components/ChipToggle.vue"
 import { USER_DETAIL_OVERVIEW } from "../../config/userDetailLayout"
 import {
@@ -334,13 +334,6 @@ import {
     formatDetailedDateTime,
     formatFriendlyDateTime
 } from "../../utils/formatters"
-
-const ROLE_BADGE_CLASSES = Object.freeze({
-    MASTER: "chip-pill-warning",
-    ADMIN: "chip-pill-info",
-    MODERATOR: "chip-pill-ghost",
-    USER: "chip-pill-ghost"
-})
 
 export default {
     name: "UserDetailPage",
@@ -533,8 +526,9 @@ export default {
             )
         },
         roleBadgeClass() {
-            const roleKey = (this.roleForm.pending || this.roleForm.current || "").toUpperCase()
-            return ROLE_BADGE_CLASSES[roleKey] || "chip-pill"
+            const roleCandidate =
+                this.roleForm.pending || this.roleForm.current || this.user?.panelRole || this.user?.access?.role
+            return getRoleBadgeClass(roleCandidate)
         },
         roleSectionDisabled() {
             return this.isSelfProfile || !this.canManageRoles

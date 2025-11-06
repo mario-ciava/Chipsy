@@ -6,6 +6,7 @@ const cards = require("./cards.js")
 const setSeparator = require("../utils/setSeparator")
 const bankrollManager = require("../utils/bankrollManager")
 const { recordNetWin } = require("../utils/netProfitTracker")
+const { awardGoldForHand } = require("../utils/goldRewardManager")
 const { buildProbabilityField } = require("../utils/probabilityFormatter")
 const { hasWinProbabilityInsight } = require("../utils/playerUpgrades")
 const logger = require("../utils/logger")
@@ -970,7 +971,8 @@ module.exports = class BlackJack extends Game {
                 won: {
                     grossValue: 0,
                     netValue: 0,
-                    expEarned: 0
+                    expEarned: 0,
+                    goldEarned: 0
                 },
                 infoMessage: null
             }
@@ -2607,9 +2609,18 @@ module.exports = class BlackJack extends Game {
                     let handWon = false
                     hand.result = null
                     hand.payout = 0
+                    const applyGoldReward = () => {
+                        const goldAwarded = awardGoldForHand(player, { wonHand: handWon })
+                        if (goldAwarded > 0) {
+                            const tracked = Number(player.status.won.goldEarned) || 0
+                            player.status.won.goldEarned = tracked + goldAwarded
+                            hand.gold = goldAwarded
+                        }
+                    }
                     if (hand.busted) {
                         hand.result = "lose"
                         hand.payout = -hand.bet
+                        applyGoldReward()
                         continue
                     }
 
@@ -2625,6 +2636,7 @@ module.exports = class BlackJack extends Game {
                             // Player loses
                             hand.result = "lose"
                             hand.payout = -hand.bet
+                            applyGoldReward()
                             continue
                         } else if (hand.value == this.dealer.value) {
                             // Push - return bet only (not counted as win)
@@ -2663,6 +2675,8 @@ module.exports = class BlackJack extends Game {
                     if (handWon) {
                         player.data.hands_won++
                     }
+
+                    applyGoldReward()
                 }
                 if (player.status.won.grossValue > 0) {
                     player.status.won.expEarned += parseInt((Math.log(player.status.won.grossValue)) * (1.2 + (Math.sqrt(player.status.won.grossValue) * 0.003)) + 10)

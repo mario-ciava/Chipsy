@@ -9,6 +9,17 @@ const metricDefinitions = Object.values(leaderboardSettings.metrics || []).filte
 const tokens = leaderboardSettings.tokens || {}
 const accessRules = leaderboardSettings.access || {}
 const dayMs = 24 * 60 * 60 * 1000
+const clamp01 = (value) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return 0
+    }
+    if (numeric >= 1) {
+        return 1
+    }
+    return numeric
+}
+const toWinRatePercentage = (value) => clamp01(value) * 100
 
 const resolveMetricValue = (metricId, entry) => {
     if (metricId === "chips") {
@@ -20,7 +31,7 @@ const resolveMetricValue = (metricId, entry) => {
     if (metricId === "win-rate") {
         return {
             type: "percentage",
-            raw: Number(entry.win_rate) || 0
+            raw: toWinRatePercentage(entry.win_rate)
         }
     }
     return {
@@ -92,7 +103,7 @@ const applySecurityMask = (entry, { maskWinRate, maskHands }) => {
         chips: Number(entry.money) || 0
     }
     if (!maskWinRate) {
-        stats.winRate = Number(entry.win_rate) || 0
+        stats.winRate = toWinRatePercentage(entry.win_rate)
     }
     if (!maskHands) {
         stats.handsPlayed = Number(entry.hands_played) || 0

@@ -1,50 +1,51 @@
 <template>
-    <transition name="chip-overlay">
-        <div v-if="visible" class="chip-modal-overlay z-50" @click.self="$emit('close')">
-            <div class="chip-modal-shell">
-                <div class="chip-modal chip-stack w-full">
-                    <button
-                        type="button"
-                        class="chip-icon-btn chip-modal__close"
-                        aria-label="Close dialog"
-                        title="Close"
-                        @click="$emit('close')"
-                    >
-                        <svg
-                            class="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            aria-hidden="true"
+    <div class="chip-modal-layer">
+        <transition name="chip-overlay">
+            <div v-if="visible" class="chip-modal-overlay" @click.self="$emit('close')">
+                <div class="chip-modal-shell">
+                    <div class="chip-modal chip-stack w-full">
+                        <button
+                            type="button"
+                            class="chip-icon-btn chip-modal__close"
+                            aria-label="Close dialog"
+                            title="Close"
+                            @click="$emit('close')"
                         >
-                            <path d="M6 6l12 12" stroke-linecap="round" />
-                            <path d="M18 6L6 18" stroke-linecap="round" />
-                        </svg>
-                    </button>
-                    <header class="chip-card__header pr-12">
-                        <div class="chip-stack">
-                            <span class="chip-eyebrow">Access lists</span>
-                            <h3 class="text-2xl font-semibold text-white">{{ title }}</h3>
-                            <p class="chip-card__subtitle chip-card__subtitle--tight">
-                                {{ description }}
-                            </p>
+                            <svg
+                                class="h-4 w-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                aria-hidden="true"
+                            >
+                                <path d="M6 6l12 12" stroke-linecap="round" />
+                                <path d="M18 6L6 18" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <header class="chip-card__header pr-12">
+                            <div class="chip-stack">
+                                <span class="chip-eyebrow">Access lists</span>
+                                <h3 class="text-2xl font-semibold text-white">{{ title }}</h3>
+                                <p class="chip-card__subtitle chip-card__subtitle--tight">
+                                    {{ description }}
+                                </p>
+                            </div>
+                        </header>
+                        <div class="chip-divider chip-divider--strong"></div>
+                        <div v-if="loading" class="chip-empty">Loading the latest entries…</div>
+                        <div v-else-if="error" class="chip-notice chip-notice-warning">
+                            {{ error }}
                         </div>
-                    </header>
-                    <div class="chip-divider chip-divider--strong"></div>
-                    <div v-if="loading" class="chip-empty">Loading the latest entries…</div>
-                    <div v-else-if="error" class="chip-notice chip-notice-warning">
-                        {{ error }}
-                    </div>
-                    <div v-else class="chip-stack max-h-[60vh] overflow-y-auto">
-                        <p v-if="!entries.length" class="chip-empty text-sm text-slate-400">
-                            {{ emptyLabel }}
-                        </p>
-                        <template v-else>
-                        <ul
-                            v-if="isQuarantineList"
-                            class="chip-stack divide-y divide-white/5"
-                        >
+                        <div v-else class="chip-stack max-h-[60vh] overflow-y-auto">
+                            <p v-if="!entries.length" class="chip-empty text-sm text-slate-400">
+                                {{ emptyLabel }}
+                            </p>
+                            <template v-else>
+                                <ul
+                                    v-if="isQuarantineList"
+                                    class="chip-stack divide-y divide-white/5"
+                                >
                             <li
                                 v-for="entry in entries"
                                 :key="entry.guildId || entry.userId"
@@ -145,7 +146,8 @@
                 </div>
             </div>
         </div>
-    </transition>
+        </transition>
+    </div>
 </template>
 
 <script>
@@ -186,6 +188,21 @@ export default {
             default: null
         }
     },
+    mounted() {
+        this.moveToBody()
+    },
+    beforeDestroy() {
+        this.removeFromBody()
+        this.toggleBodyScroll(false)
+    },
+    watch: {
+        visible: {
+            immediate: true,
+            handler(value) {
+                this.toggleBodyScroll(value)
+            }
+        }
+    },
     computed: {
         title() {
             if (this.isQuarantineList) {
@@ -221,6 +238,28 @@ export default {
         }
     },
     methods: {
+        moveToBody() {
+            if (typeof document === "undefined") return
+            const host = document.body
+            if (!host || !this.$el) return
+            if (this.$el.parentNode !== host) {
+                host.appendChild(this.$el)
+            }
+        },
+        removeFromBody() {
+            if (typeof document === "undefined") return
+            const host = document.body
+            if (!host || !this.$el) return
+            if (this.$el.parentNode === host) {
+                host.removeChild(this.$el)
+            }
+        },
+        toggleBodyScroll(shouldLock) {
+            if (typeof document === "undefined") return
+            const host = document.body
+            if (!host) return
+            host.classList.toggle("chip-modal-lock", Boolean(shouldLock))
+        },
         formatStatus(value) {
             if (!value) return "PENDING"
             return String(value).toUpperCase()
