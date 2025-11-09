@@ -1,5 +1,4 @@
-import Vue from "vue"
-import Router from "vue-router"
+import { createRouter, createWebHistory } from "vue-router"
 
 import store from "../store"
 
@@ -12,10 +11,8 @@ import LogsPage from "../features/logs/LogsPage.vue"
 import TablesPage from "../features/tables/TablesPage.vue"
 import LeaderboardPage from "../pages/Leaderboard.vue"
 
-Vue.use(Router)
-
-const router = new Router({
-    mode: "history",
+const router = createRouter({
+    history: createWebHistory(),
     routes: [
         {
             path: "/",

@@ -1,17 +1,16 @@
-import Vue from "vue"
+import { createApp } from "vue"
 import App from "./App.vue"
 import router from "./router"
 import store from "./store"
 
 import "./assets/styles/tailwind.css"
 
-Vue.config.productionTip = false
-
-const mountApp = () => new Vue({
-    router,
-    store,
-    render: (h) => h(App)
-}).$mount("#app")
+const mountApp = () => {
+    const app = createApp(App)
+    app.use(router)
+    app.use(store)
+    app.mount("#app")
+}
 
 store.dispatch("session/bootstrap")
     .finally(async() => {

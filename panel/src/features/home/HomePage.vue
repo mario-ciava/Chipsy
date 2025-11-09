@@ -514,7 +514,7 @@ export default {
         }
         document.addEventListener("visibilitychange", this.handleVisibilityChange)
     },
-    beforeDestroy() {
+    beforeUnmount() {
         this.stopProfileAutoRefresh()
         document.removeEventListener("visibilitychange", this.handleVisibilityChange)
     },

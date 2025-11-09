@@ -46,7 +46,7 @@ export default {
         }
         await this.bootstrapTables()
     },
-    beforeDestroy() {
+    beforeUnmount() {
         this.stopTablesPolling()
     },
     methods: {

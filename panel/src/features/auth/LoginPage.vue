@@ -138,7 +138,7 @@ export default {
             rememberPostLoginRoute(this.$route.query.redirect)
         }
     },
-    beforeDestroy() {
+    beforeUnmount() {
         if (this.autoLaunchTimer) {
             clearTimeout(this.autoLaunchTimer)
             this.autoLaunchTimer = null

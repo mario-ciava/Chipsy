@@ -303,7 +303,7 @@ export default {
         await this.initialize()
         await this.handleInviteRedirect()
     },
-    beforeDestroy() {
+    beforeUnmount() {
         if (this.statusInterval) {
             clearInterval(this.statusInterval)
             this.statusInterval = null

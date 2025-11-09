@@ -191,7 +191,7 @@ export default {
     mounted() {
         this.moveToBody()
     },
-    beforeDestroy() {
+    beforeUnmount() {
         this.removeFromBody()
         this.toggleBodyScroll(false)
     },

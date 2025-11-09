@@ -109,7 +109,7 @@ export default {
         window.addEventListener("session-expired", this.handleSessionExpired)
         window.addEventListener("chipsy-toast", this.handleToastEvent)
     },
-    beforeDestroy() {
+    beforeUnmount() {
         window.removeEventListener("session-expired", this.handleSessionExpired)
         window.removeEventListener("chipsy-toast", this.handleToastEvent)
         if (this.toast.timeoutId) {
