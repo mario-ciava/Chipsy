@@ -25,7 +25,7 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-local-data:/var/lib/mysql
-      - ./infrastructure/mysql/init:/docker-entrypoint-initdb.d
+      - ./mysql/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-local-root}"]
       interval: 10s

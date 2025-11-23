@@ -431,7 +431,7 @@ async function main() {
 
   for (let i = 0; i < maxHealthcheckAttempts; i++) {
     try {
-      const status = execSync("docker inspect -f '{{.State.Health.Status}}' chipsy-mysql")
+      const status = execSync("docker inspect -f '{{.State.Health.Status}}' chipsy-local-mysql")
         .toString()
         .trim();
       if (status === "healthy") {
@@ -462,7 +462,7 @@ async function main() {
   logSys("• Panel: http://localhost:8080", { stage: "summary", target: "panel" });
   logSys("• Control API: http://localhost:8082/api", { stage: "summary", target: "api" });
   logSys("• Discord bot RPC: http://localhost:7310/internal (secured)", { stage: "summary", target: "bot" });
-  logSys("• MySQL CLI: docker exec -it chipsy-mysql mysql -u root -p", { stage: "summary", target: "mysql" });
+  logSys("• MySQL CLI: docker exec -it chipsy-local-mysql mysql -u root -p", { stage: "summary", target: "mysql" });
 
   // 5️⃣ Keep the runner alive so Ctrl+C still works
   rl.on("SIGINT", handleExit);

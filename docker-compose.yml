@@ -15,7 +15,7 @@ services:
       CHIPSY_ENV: ${CHIPSY_ENV:-vps}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN in .env}
       BOT_INTERNAL_PORT: ${BOT_INTERNAL_PORT:-7310}
-      MYSQL_HOST: ${MYSQL_HOST:-chipsy-infra-mysql}
+      MYSQL_HOST: ${MYSQL_HOST:-infra-mysql}
     networks:
       db:
         aliases:
@@ -37,7 +37,7 @@ services:
       NODE_ENV: production
       CHIPSY_ENV: ${CHIPSY_ENV:-vps}
       PORT: ${PORT:-8082}
-      MYSQL_HOST: ${MYSQL_HOST:-chipsy-infra-mysql}
+      MYSQL_HOST: ${MYSQL_HOST:-infra-mysql}
       BOT_RPC_BASE_URL: ${BOT_RPC_BASE_URL:-http://bot:7310/internal}
       BOT_RPC_TOKEN: ${BOT_RPC_TOKEN:-${INTERNAL_API_TOKEN}}
       SESSION_STORE: mysql
@@ -56,6 +56,11 @@ services:
     build:
       context: .
       dockerfile: panel/Dockerfile
+      args:
+        DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?Set DISCORD_CLIENT_ID in .env}
+        DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?Set DISCORD_CLIENT_SECRET in .env}
+        DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?Set DISCORD_BOT_TOKEN in .env}
+        DISCORD_OWNER_ID: ${DISCORD_OWNER_ID:?Set DISCORD_OWNER_ID in .env}
     container_name: chipsy-panel
     restart: unless-stopped
     env_file:
@@ -74,7 +79,7 @@ services:
 networks:
   db:
     external: true
-    name: chipsy-db
+    name: shared-db
   edge:
     external: true
-    name: chipsy-edge
+    name: shared-edge
