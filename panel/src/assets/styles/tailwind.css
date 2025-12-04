@@ -272,6 +272,10 @@
         @apply flex flex-col gap-5;
     }
 
+    .leaderboard-top__divider {
+        @apply my-1.5;
+    }
+
     .leaderboard-top__podium {
         @apply flex flex-col items-center gap-5;
     }
@@ -280,7 +284,8 @@
         --leaderboard-podium-card-width-scale: 1;
         --leaderboard-podium-card-height-scale: 1;
         --leaderboard-podium-scale: 1;
-        @apply relative mx-auto grid gap-0 overflow-hidden rounded-[16px] bg-white/5 backdrop-blur;
+        @apply relative mx-auto grid overflow-hidden rounded-[18px] bg-white/5 backdrop-blur;
+        gap: clamp(0.4rem, 0.63vw, 0.72rem);
         background-image:
             var(--leaderboard-podium-left-shade),
             var(--podium-score-gradient, linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(148, 163, 184, 0.08))),
@@ -290,13 +295,15 @@
         background-size: 130% 100%, 220% 220%, cover, 180% 180%;
         background-blend-mode: normal, soft-light, normal, soft-light;
         box-shadow: 0 20px 35px rgba(15, 23, 42, 0.55);
-        grid-template-columns: minmax(48px, 0.2fr) minmax(0, 1.9fr);
+        grid-template-columns: minmax(52px, 0.2fr) minmax(0, 1.8fr);
+        grid-template-areas: "rank track";
+        align-items: stretch;
         width: min(100%, calc(var(--leaderboard-showcase-width, 80%) * var(--leaderboard-podium-card-width-scale, 1)));
     }
 
     @screen md {
         .leaderboard-top__podium-card {
-            grid-template-columns: minmax(60px, 0.2fr) minmax(0, 1.85fr);
+            grid-template-columns: minmax(60px, 0.2fr) minmax(0, 1.8fr);
         }
     }
 
@@ -323,35 +330,30 @@
     }
 
     .leaderboard-top__podium-rank-panel {
-        @apply relative flex h-full min-h-full w-full items-center justify-center self-stretch overflow-hidden rounded-[16px] border border-white/15 px-4 py-3 text-center shadow-chip-soft;
-        padding-block: calc(0.45rem * var(--leaderboard-podium-card-height-scale, 1));
+        @apply relative flex min-h-full w-full items-center justify-center self-stretch overflow-hidden rounded-[18px] border border-white/15 px-4 py-3 text-center shadow-chip-soft;
+        grid-area: rank;
+        padding-block: calc(0.34rem * var(--leaderboard-podium-card-height-scale, 1));
         background-image:
             var(--podium-score-texture, repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.05) 1px, transparent 1px, transparent 3px)),
             var(--podium-rank-gradient, linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(99, 102, 241, 0.4)));
         background-size: 220% 220%, cover;
         background-repeat: no-repeat;
         background-blend-mode: soft-light, normal;
+        justify-self: stretch;
     }
 
     .leaderboard-top__podium-track {
-        @apply relative grid;
-        grid-template-columns: minmax(0, 1.4fr) minmax(70px, 0.5fr);
-        background-image:
-            var(--podium-score-texture, repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.05) 1px, transparent 1px, transparent 3px));
-        background-size: 180% 180%;
-        background-repeat: no-repeat;
-        background-blend-mode: soft-light;
-    }
-
-    @screen md {
-        .leaderboard-top__podium-track {
-            grid-template-columns: minmax(0, 1.35fr) minmax(90px, 0.5fr);
-        }
+        @apply relative grid h-full;
+        grid-area: track;
+        grid-template-columns: minmax(0, 1.45fr) minmax(82px, 0.45fr);
+        grid-template-areas: "body score";
+        gap: clamp(0.55rem, 0.9vw, 1.2rem);
     }
 
     .leaderboard-top__podium-body {
         @apply flex h-full w-full flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center sm:gap-2.5;
-        padding-block: calc(0.5rem * var(--leaderboard-podium-card-height-scale, 1));
+        grid-area: body;
+        padding-block: calc(0.38rem * var(--leaderboard-podium-card-height-scale, 1));
     }
 
     .leaderboard-top__podium-profile {
@@ -360,19 +362,19 @@
 
     .leaderboard-top__podium-rank {
         @apply text-lg font-bold tracking-tight text-white sm:text-2xl;
-        font-size: calc(1.5rem * var(--leaderboard-podium-scale, 1));
+        font-size: calc(1.32rem * var(--leaderboard-podium-scale, 1));
     }
 
     .leaderboard-top__podium-avatar {
         @apply h-9 w-9 shrink-0 rounded-full object-cover shadow-chip-soft ring-[2px] ring-slate-900/70 md:h-[2.85rem] md:w-[2.85rem];
-        width: calc(2.25rem * var(--leaderboard-podium-scale, 1));
-        height: calc(2.25rem * var(--leaderboard-podium-scale, 1));
+        width: calc(1.7rem * var(--leaderboard-podium-scale, 1));
+        height: calc(1.7rem * var(--leaderboard-podium-scale, 1));
     }
 
     @screen md {
         .leaderboard-top__podium-avatar {
-            width: calc(2.85rem * var(--leaderboard-podium-scale, 1));
-            height: calc(2.85rem * var(--leaderboard-podium-scale, 1));
+            width: calc(2.15rem * var(--leaderboard-podium-scale, 1));
+            height: calc(2.15rem * var(--leaderboard-podium-scale, 1));
         }
     }
 
@@ -382,7 +384,7 @@
             var(--leaderboard-podium-meta-min-width),
             calc(var(--leaderboard-podium-meta-min-width) * var(--leaderboard-podium-scale, 1))
         );
-        font-size: calc(0.8rem * var(--leaderboard-podium-scale, 1));
+        font-size: calc(0.62rem * var(--leaderboard-podium-scale, 1));
     }
 
     .leaderboard-top__podium-ident {
@@ -391,28 +393,37 @@
 
     .leaderboard-top__podium-momentum {
         @apply text-[0.45rem] font-semibold uppercase tracking-[0.28em] text-white;
-        font-size: calc(0.5rem * var(--leaderboard-podium-scale, 1));
+        font-size: calc(0.39rem * var(--leaderboard-podium-scale, 1));
         text-shadow: 0 1px 3.5px rgba(0, 0, 0, 0.8);
     }
 
     .leaderboard-top__podium-name {
         @apply font-semibold text-slate-900/70;
-        font-size: calc(1.1rem * var(--leaderboard-podium-scale, 1));
+        font-size: calc(0.85rem * var(--leaderboard-podium-scale, 1));
         text-shadow: 0 1px 0.4px rgba(0, 0, 0, 0.2);
     }
 
     .leaderboard-top__podium-score {
-        @apply flex h-full flex-col items-center justify-center self-stretch py-2 text-center;
-        position: relative;
-        padding-block: calc(0.5rem * var(--leaderboard-podium-card-height-scale, 1));
-        padding-inline: max(2rem, 12%);
-        justify-self: end;
+        @apply relative flex h-full min-h-full w-full flex-col items-center justify-center overflow-hidden text-center shadow-chip-soft;
+        grid-area: score;
+        align-self: stretch;
+        justify-self: stretch;
+        padding-block: calc(0.33rem * var(--leaderboard-podium-card-height-scale, 1));
+        padding-inline: max(1.35rem, 7.5%);
         row-gap: var(--leaderboard-score-gap);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 18px;
+        background-image:
+            var(--podium-score-texture, repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.05) 1px, transparent 1px, transparent 3px)),
+            var(--podium-score-gradient, linear-gradient(135deg, rgba(148, 163, 184, 0.18), rgba(37, 99, 235, 0.16)));
+        background-size: 220% 220%, cover;
+        background-repeat: no-repeat;
+        background-blend-mode: soft-light, normal;
     }
 
     .leaderboard-top__podium-value {
         @apply text-base font-bold;
-        font-size: calc(1.25rem * var(--leaderboard-podium-scale, 1));
+        font-size: calc(0.95rem * var(--leaderboard-podium-scale, 1));
         color: theme("colors.emerald.400");
         text-shadow: 0 1px 1.5px rgba(0, 0, 0, 1);
         line-height: 1;
@@ -420,14 +431,14 @@
 
     .leaderboard-top__podium-detail {
         @apply text-base font-bold text-white whitespace-nowrap;
-        font-size: calc(0.85rem * var(--leaderboard-podium-scale, 1));
+        font-size: calc(0.65rem * var(--leaderboard-podium-scale, 1));
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
         line-height: 1;
     }
 
     .leaderboard-top__status {
         @apply inline-flex items-center gap-1 text-[0.65rem];
-        font-size: calc(0.65rem * var(--leaderboard-podium-scale, 1) * var(--leaderboard-status-badge-scale));
+        font-size: calc(0.5rem * var(--leaderboard-podium-scale, 1) * var(--leaderboard-status-badge-scale));
         margin-inline-start: 2%;
     }
 
@@ -441,21 +452,22 @@
 
     .leaderboard-top__list {
         @apply flex flex-col;
-        --leaderboard-list-scale: calc(0.95 * 0.925);
-        gap: calc(1rem * var(--leaderboard-top-row-spacing, 1.1) * var(--leaderboard-list-scale, 1));
+        gap: 0.97rem;
     }
 
     .leaderboard-top__list-row {
-        @apply relative mx-auto grid items-stretch gap-4 rounded-2xl bg-white/5 p-0 text-sm text-slate-200 transition duration-150 hover:bg-white/10;
-        width: calc(var(--leaderboard-showcase-width, 80%) * var(--leaderboard-list-scale, 1));
-        min-height: calc(40px * var(--leaderboard-top-row-spacing, 1.1) * var(--leaderboard-list-scale, 1));
-        grid-template-columns: minmax(64px, 0.28fr) minmax(0, 1.35fr) minmax(150px, 0.8fr);
-        --leaderboard-list-card-width-scale: 1;
-        --leaderboard-list-card-height-scale: 1;
-        --leaderboard-list-card-scale: 1;
-        --leaderboard-list-card-score-scale: 1;
+        @apply relative mx-auto grid items-stretch gap-4 rounded-2xl bg-white/5 p-0 text-slate-200 transition duration-150 hover:bg-white/10;
+        width: 72%;
+        min-height: 22px;
+        grid-template-columns: minmax(48px, 0.2fr) minmax(0, 1.45fr) minmax(82px, 0.45fr);
         --leaderboard-list-rank-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.25), rgba(148, 163, 184, 0.15));
         --leaderboard-list-rank-border: rgba(255, 255, 255, 0.25);
+    }
+
+    @screen md {
+        .leaderboard-top__list-row {
+            grid-template-columns: minmax(60px, 0.2fr) minmax(0, 1.4fr) minmax(82px, 0.45fr);
+        }
     }
 
     .leaderboard-top__list-row--viewer {
@@ -466,15 +478,8 @@
         @apply mt-4;
     }
 
-    .leaderboard-top__list-row--scaled {
-        --leaderboard-list-card-width-scale: 0.82;
-        --leaderboard-list-card-height-scale: 0.95;
-        --leaderboard-list-card-scale: 0.8;
-        --leaderboard-list-card-score-scale: 0.8;
-    }
-
     .leaderboard-top__list-rank-panel {
-        @apply relative flex h-full min-h-full w-full items-center justify-center self-stretch overflow-hidden rounded-[18px] border border-white/10 px-3 py-2 text-center shadow-chip-soft;
+        @apply relative flex h-full min-h-full w-full items-center justify-center self-stretch overflow-hidden rounded-[18px] border border-white/10 px-3 py-1 text-center shadow-chip-soft;
         background-image:
             var(--podium-score-texture, repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.05) 1px, transparent 1px, transparent 3px)),
             var(--leaderboard-list-rank-gradient);
@@ -485,13 +490,13 @@
 
     .leaderboard-top__list-rank-pill {
         @apply flex h-full w-full items-center justify-center font-semibold text-white tracking-[0.28em];
-        font-size: calc(1.2rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-scale, 1));
+        font-size: 0.82rem;
     }
 
     .leaderboard-top__list-avatar {
         @apply rounded-full border border-white/10 object-cover shadow-chip-soft;
-        width: calc(3.5rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-width-scale, 1));
-        height: calc(3.5rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-width-scale, 1));
+        width: 1.92rem;
+        height: 1.92rem;
     }
 
     .leaderboard-top__list-profile {
@@ -504,16 +509,23 @@
 
     .leaderboard-top__list-name {
         @apply font-semibold text-white;
-        font-size: calc(1.5rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-scale, 1));
+        font-size: 0.94rem;
     }
 
     .leaderboard-top__list-meta {
-        @apply text-xs font-semibold uppercase tracking-[0.3em] text-white;
-        font-size: calc(0.7rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-scale, 1));
+        @apply font-semibold uppercase tracking-[0.26em] text-white;
+        font-size: 0.54rem;
+        line-height: 1;
+    }
+
+    .leaderboard-top__list-row--divider .leaderboard-top__list-meta {
+        font-size: 0.54rem;
+        letter-spacing: 0.26em;
+        line-height: 1;
     }
 
     .leaderboard-top__list-score {
-        @apply relative flex h-full w-full min-h-full flex-col items-start justify-center overflow-hidden self-stretch rounded-[18px] border border-white/10 px-4 py-3 text-left shadow-chip-soft sm:px-5 sm:py-4;
+        @apply relative flex h-full w-full min-h-full flex-col items-center justify-center overflow-hidden self-stretch rounded-[18px] border border-white/10 px-3 py-0.5 text-center shadow-chip-soft sm:px-3.5 sm:py-1;
         row-gap: var(--leaderboard-score-gap-list);
         background-image:
             var(--podium-score-texture, repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.05) 1px, transparent 1px, transparent 3px)),
@@ -524,15 +536,15 @@
     }
 
     .leaderboard-top__list-metric-label {
-        @apply text-xs font-semibold uppercase tracking-[0.25em] text-white/80 whitespace-nowrap;
-        font-size: calc(0.65rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-scale, 1));
+        @apply font-semibold uppercase tracking-[0.23em] text-white/80 whitespace-nowrap text-center;
+        font-size: 0.5rem;
         line-height: 1;
     }
 
     .leaderboard-top__list-value {
-        @apply text-base font-bold text-left;
-        min-width: clamp(90px, calc(120px * var(--leaderboard-list-scale, 1)), 160px);
-        font-size: calc(1rem * var(--leaderboard-list-scale, 1) * var(--leaderboard-list-card-score-scale, 1));
+        @apply font-bold text-center;
+        min-width: 90px;
+        font-size: 0.74rem;
         color: theme("colors.emerald.400");
         text-shadow: 0 1px 4px rgba(5, 10, 25, 0.35);
         line-height: 1;

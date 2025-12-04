@@ -53,7 +53,7 @@
                     :style="getPodiumStyle(entry, index)"
                 >
                     <div class="leaderboard-top__podium-rank-panel">
-                        <span class="leaderboard-top__podium-rank">#{{ entry.rank }}</span>
+                        <span class="leaderboard-top__podium-rank">{{ entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : '🥉' }}</span>
                     </div>
                     <div class="leaderboard-top__podium-track">
                         <div class="leaderboard-top__podium-body">
@@ -90,7 +90,7 @@
                     </div>
                 </article>
             </div>
-            <div class="chip-divider chip-divider--strong my-1.5"></div>
+            <div class="chip-divider chip-divider--strong my-1.5 leaderboard-top__divider"></div>
             <ul class="leaderboard-top__list">
                 <li
                     v-for="(entry, index) in challengerEntries"
