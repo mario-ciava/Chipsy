@@ -1,4 +1,4 @@
-const config = require("../../config");
+const config = require("../../../config");
 
 const CLASS_TIERS = Object.freeze(
     (config.progression?.classes || [])

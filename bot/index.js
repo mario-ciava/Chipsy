@@ -23,6 +23,28 @@ client.commandSync = createCommandSync({ client, config })
 let bootstrapPromise = null
 let internalServer = null
 
+const attachClientDiagnostics = () => {
+    client.on("shardError", (error, shardId) => {
+        logger.error("Discord shard error", {
+            scope: "client",
+            shardId,
+            message: error?.message
+        })
+    })
+    client.on("warn", (info) => {
+        logger.warn("Discord client warning", {
+            scope: "client",
+            info: typeof info === "string" ? info : info?.message
+        })
+    })
+    client.on("error", (error) => {
+        logger.error("Discord client error", {
+            scope: "client",
+            message: error?.message
+        })
+    })
+}
+
 const bootstrap = async() => {
     if (bootstrapPromise) return bootstrapPromise
 
@@ -81,7 +103,19 @@ const bootstrap = async() => {
                 }
             }
 
-            await client.login(config.discord.botToken)
+            attachClientDiagnostics()
+
+            const token = config.discord?.botToken || ""
+            const tokenPreview = typeof token === "string" && token.length >= 8
+                ? `${token.slice(0, 4)}…${token.slice(-4)}`
+                : null
+            logger.info("Logging in to Discord", {
+                scope: "bootstrap",
+                tokenPresent: Boolean(token),
+                tokenPreview
+            })
+
+            await client.login(token)
             logger.info("Discord client authenticated", { scope: "bootstrap", icon: "🔐" })
 
             // Ritorna l'oggetto con le funzioni di shutdown per graceful shutdown

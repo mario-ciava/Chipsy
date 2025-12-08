@@ -1,4 +1,4 @@
-const config = require("../../config");
+const config = require("../../../config");
 
 const SUITS = Object.freeze([...config.cards.suits]);
 const RANKS = Object.freeze([...config.cards.ranks]);

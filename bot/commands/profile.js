@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder } = require("discord.js")
-const playerClass = require("../games/classes.js")
+const playerClass = require("../games/shared/classes.js")
 const setSeparator = require("../utils/setSeparator")
 const { normalizeUserExperience } = require("../utils/experience")
 const { formatRelativeTime, formatTimeUntil, progressBar } = require("../utils/helpers")

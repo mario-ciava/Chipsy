@@ -37,6 +37,7 @@ const HMR_SOCKET_PATH = process.env.HMR_SOCKET_PATH || "/__hmr_panel"
 
 module.exports = defineConfig({
   transpileDependencies: true,
+  productionSourceMap: false,
 
   chainWebpack: (config) => {
     if (!config.resolve.extensions.has(".ts")) {

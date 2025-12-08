@@ -105,7 +105,7 @@ jest.mock("../shared/features.js", () => ({
     getLevelReward: jest.fn(() => 0)
 }))
 
-jest.mock("../bot/rendering/cardTableRenderer", () => ({
+jest.mock("../bot/rendering/blackjackTableRenderer", () => ({
     renderCardTable: jest.fn(async() => Buffer.from("image")),
     createBlackjackTableState: jest.fn((state) => state)
 }))
@@ -154,7 +154,7 @@ jest.mock("../config", () => ({
     }
 }))
 
-const BlackJack = require("../bot/games/blackjackGame")
+const BlackJack = require("../bot/games/blackjack/blackjackGame")
 
 const createMockChannel = () => ({
     id: "channel-123",

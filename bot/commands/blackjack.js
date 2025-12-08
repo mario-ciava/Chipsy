@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, ButtonBuilder, ActionRowBuilder, MessageFlags, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js")
-const BlackJack = require("../games/blackjackGame.js")
+const BlackJack = require("../games/blackjack/blackjackGame.js")
 const features = require("../../shared/features")
 const setSeparator = require("../utils/setSeparator")
 const logger = require("../utils/logger")

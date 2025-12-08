@@ -1,22 +1,19 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ActionRowBuilder, ButtonStyle, AttachmentBuilder, MessageFlags, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js")
-const features = require("./features.js")
-const { sleep } = require("../utils/helpers")
-const Game = require("./game.js")
-const cards = require("./cards.js")
-const setSeparator = require("../utils/setSeparator")
-const bankrollManager = require("../utils/bankrollManager")
-const { recordNetWin } = require("../utils/netProfitTracker")
-const { awardGoldForHand } = require("../utils/goldRewardManager")
-const { buildProbabilityField } = require("../utils/probabilityFormatter")
-const { hasWinProbabilityInsight } = require("../utils/playerUpgrades")
-const logger = require("../utils/logger")
+const features = require("../shared/features.js")
+const { sleep } = require("../../utils/helpers")
+const Game = require("../shared/baseGame.js")
+const cards = require("../shared/cards.js")
+const setSeparator = require("../../utils/setSeparator")
+const bankrollManager = require("../../utils/bankrollManager")
+const { recordNetWin } = require("../../utils/netProfitTracker")
+const { awardGoldForHand } = require("../../utils/goldRewardManager")
+const { buildProbabilityField } = require("../../utils/probabilityFormatter")
+const { hasWinProbabilityInsight } = require("../../utils/playerUpgrades")
+const logger = require("../../utils/logger")
 const { logAndSuppress } = logger
-const { withAccessGuard } = require("../utils/interactionAccess")
-const config = require("../../config")
-const {
-    renderCardTable,
-    createBlackjackTableState
-} = require("../rendering/cardTableRenderer")
+const { withAccessGuard } = require("../../utils/interactionAccess")
+const config = require("../../../config")
+const BlackjackRenderer = require("./blackjackRenderer")
 
 const EMPTY_TIMELINE_TEXT = "No actions yet."
 
@@ -218,6 +215,7 @@ module.exports = class BlackJack extends Game {
         this.pendingJoins = new Map()
         this.pendingProbabilityTask = null
         this.actionTimeoutMs = config.blackjack.actionTimeout.default
+        this.renderer = new BlackjackRenderer(this)
     }
 
     appendDealerTimeline(entry) {
@@ -840,106 +838,7 @@ module.exports = class BlackJack extends Game {
     }
 
     async captureTableRender(options = {}) {
-        const {
-            dealer = this.dealer,
-            players = this.inGamePlayers,
-            result = null,
-            filename,
-            description,
-            hideDealerHoleCard = false,
-            maskDealerValue,
-            forceResult
-        } = options
-
-        if (!dealer || !Array.isArray(dealer.cards) || dealer.cards.length < 1) {
-            return null
-        }
-
-        const preparedPlayers = []
-        for (const player of players ?? []) {
-            if (!player || !Array.isArray(player.hands)) continue
-            const baseHands = player.hands
-                .filter((hand) => Array.isArray(hand?.cards) && hand.cards.length > 0)
-                .map((hand) => ({
-                    ...hand,
-                    cards: [...hand.cards]
-                }))
-            const totalHandsForXp = baseHands.length || 1
-            const totalXpEarned = Number.isFinite(player.status?.won?.expEarned) ? player.status.won.expEarned : 0
-            const distributedXp = totalXpEarned > 0 ? Math.round(totalXpEarned / totalHandsForXp) : 0
-            const validHands = baseHands.map((hand, index) => ({
-                ...hand,
-                xp: Number.isFinite(hand.xp) ? hand.xp : (distributedXp > 0 ? distributedXp : null),
-                isActing: player.status?.current === true && player.status?.currentHand === index
-            }))
-            if (validHands.length === 0) continue
-            preparedPlayers.push({
-                id: player.id,
-                tag: player.tag,
-                username: player.username,
-                displayName: player.displayName,
-                name: player.name,
-                user: player.user,
-                hands: validHands
-            })
-        }
-
-        if (preparedPlayers.length === 0) {
-            return null
-        }
-
-        const dealerCardsCopy = Array.isArray(dealer.cards) ? [...dealer.cards] : []
-
-        const concealDealerInfo = typeof maskDealerValue === "boolean" ? maskDealerValue : hideDealerHoleCard
-        const dealerState = {
-            ...dealer,
-            cards: dealerCardsCopy,
-            value: dealer.value ?? dealer.total ?? dealer.score ?? 0,
-            blackjack: concealDealerInfo ? false : Boolean(dealer.blackjack || dealer.hasBlackjack || dealer.BJ),
-            busted: concealDealerInfo ? false : Boolean(dealer.busted || dealer.isBusted)
-        }
-
-        try {
-            const state = createBlackjackTableState({
-                dealer: dealerState,
-                players: preparedPlayers,
-                round: this.hands,
-                id: this.id
-            }, {
-                result,
-                round: this.hands,
-                maskDealerHoleCard: hideDealerHoleCard
-            })
-
-            state.metadata = {
-                ...(state.metadata ?? {}),
-                maskDealerHoleCard: hideDealerHoleCard
-            }
-
-            if (forceResult !== undefined) {
-                state.result = forceResult
-            }
-
-            const buffer = await renderCardTable({ ...state, outputFormat: "png" })
-            const resolvedFilename = filename ?? `blackjack_table_${this.hands}_${Date.now()}.png`
-
-            return {
-                attachment: new AttachmentBuilder(buffer, {
-                    name: resolvedFilename,
-                    description: description ?? `Blackjack table snapshot for round ${this.hands}`
-                }),
-                filename: resolvedFilename
-            }
-        } catch (error) {
-            logger.error("Failed to render blackjack table snapshot", {
-                scope: "blackjackGame",
-                round: this.hands,
-                tableId: this.id,
-                error: error.message,
-                stack: error.stack
-            })
-            return null
-        }
+        return this.renderer.captureTableRender(options)
     }
 
     async NextHand() {

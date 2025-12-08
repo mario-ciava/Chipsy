@@ -93,13 +93,10 @@
             <div class="chip-divider chip-divider--strong my-1.5 leaderboard-top__divider"></div>
             <ul class="leaderboard-top__list">
                 <li
-                    v-for="(entry, index) in challengerEntries"
+                    v-for="entry in challengerEntries"
                     :key="entry.rank"
-                    class="leaderboard-top__list-row leaderboard-top__list-row--scaled"
-                    :class="{
-                        'leaderboard-top__list-row--viewer': entry.isViewer,
-                        'leaderboard-top__list-row--divider': index === 0
-                    }"
+                    class="leaderboard-top__list-row"
+                    :class="{ 'leaderboard-top__list-row--viewer': entry.isViewer }"
                 >
                     <div class="leaderboard-top__list-rank-panel">
                         <span class="leaderboard-top__list-rank-pill">#{{ entry.rank }}</span>

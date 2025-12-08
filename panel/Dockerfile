@@ -16,11 +16,11 @@ ENV DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
 ENV DISCORD_OWNER_ID=${DISCORD_OWNER_ID}
 
 COPY panel/package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --progress=false
 COPY panel/ ./
 COPY config /app/config
 RUN ln -sfn /app/panel/node_modules /app/node_modules
-RUN npm run build
+RUN --mount=type=cache,target=/root/.npm npm run build -- --no-progress
 
 FROM nginx:1.27-alpine AS runtime
 COPY panel/docker/nginx.conf /etc/nginx/conf.d/default.conf

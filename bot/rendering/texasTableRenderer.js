@@ -1,4 +1,3 @@
-const fs = require("fs/promises")
 const logger = require("../utils/logger")
 const setSeparator = require("../utils/setSeparator")
 const {
@@ -24,19 +23,43 @@ const {
 const { drawBadge } = require("./shared/drawBadge")
 const { drawInfoLine } = require("./shared/drawInfoLine")
 
+const BADGE_FONT_SIZE = CONFIG.valueSize
+const BADGE_PADDING_X = 14
+const BADGE_PADDING_Y = 8
+const BADGE_OPACITY = 0.85  // Reduced from 1.0 for better text readability
+
+// Badge color fills (solid colors, fully opaque)
+const BADGE_COLORS = {
+    pot: "rgba(255, 215, 0, 1.0)",      // Gold
+    allIn: "rgba(242, 201, 76, 1.0)",   // Yellow/Gold
+    stack: "rgba(255, 255, 255, 0.15)", // Subtle white background
+    action: {
+        fold: "#D32F2F",                 // Red
+        check: "#9CA3AF",                // Gray
+        call: "#2F80ED",                 // Blue
+        bet: "#2F80ED",                  // Blue
+        raise: "#2F80ED",                // Blue
+        allin: "#D32F2F"                 // Red
+    }
+}
+
+const PLAYER_PANEL_SCALE = 0.7
+
 const TEXAS_LAYOUT = {
-    maxPlayersPerRow: 3,
+    maxPlayersPerRow: 2,
     blockGap: 40,
     rowGap: 60,
     slotPadding: 26,
-    playerBlockHeight: CONFIG.cardHeight + 120
+    panelSlotPadding: 13,
+    playerBlockHeight: CONFIG.cardHeight + 120,
+    panelBlockHeight: CONFIG.cardHeight + 20
 }
 
 const PLAYER_PANEL_CONFIG = {
-    width: 520,
-    height: TEXAS_LAYOUT.playerBlockHeight + 80,
-    topPadding: 30,
-    targetWidth: 260
+    width: 360,
+    height: TEXAS_LAYOUT.panelBlockHeight + 20,
+    topPadding: 10,
+    targetWidth: 240
 }
 
 const sanitizeChips = (value) => {
@@ -59,7 +82,8 @@ const resolveStageLabel = (rawStage, boardCardsLength) => {
     return stageLabels[boardCardsLength] || "Showdown"
 }
 
-function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFocusCards }) {
+function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFocusCards, revealPlayerIds }) {
+    const revealSet = Array.isArray(revealPlayerIds) ? new Set(revealPlayerIds) : null
     return players.map((player, index) => {
         const label =
             player?.label ||
@@ -73,7 +97,8 @@ function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFo
         const showCards = Boolean(
             showdown ||
             player?.showCards ||
-            (revealFocusCards && focusPlayerId && player?.id === focusPlayerId)
+            (revealFocusCards && focusPlayerId && player?.id === focusPlayerId) ||
+            (revealSet && player?.id != null && revealSet.has(player.id))
         )
         const stack = sanitizeChips(player?.stack)
         const bet = sanitizeChips(player?.bet)
@@ -84,6 +109,8 @@ function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFo
         const folded = Boolean(player?.folded ?? player?.status?.folded)
         const allIn = Boolean(player?.allIn ?? player?.status?.allIn)
         const eliminated = Boolean(player?.eliminated ?? player?.status?.removed)
+        const leftDuringPlay = Boolean(player?.leftDuringPlay ?? player?.status?.leftThisHand)
+        const pendingRebuy = Boolean(player?.pendingRebuy ?? player?.status?.pendingRebuy)
         const isActing = Boolean(player?.isActing ?? player?.isCurrent ?? ((focusPlayerId && player?.id === focusPlayerId) && !showdown))
         const allInAmount = allIn ? sanitizeChips(player?.allInAmount ?? totalBet ?? bet) : null
 
@@ -92,6 +119,7 @@ function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFo
             player?.statusLabel ||
             (eliminated ? "Left table" : null) ||
             (folded ? "Folded" : null)
+        const lastAction = player?.lastAction || player?.status?.lastAction || null
 
         return {
             id: player?.id ?? `player-${index}`,
@@ -107,10 +135,13 @@ function normalizeTexasPlayers(players = [], { showdown, focusPlayerId, revealFo
             allIn,
             allInAmount,
             eliminated,
+            leftDuringPlay: leftDuringPlay || pendingRebuy,
+            pendingRebuy,
             isActing,
             statusLabel,
             focus: Boolean(focusPlayerId && player?.id === focusPlayerId),
-            handRank
+            handRank,
+            lastAction
         }
     })
 }
@@ -119,6 +150,7 @@ function createTexasTableState(rawState = {}, options = {}) {
     const showdown = Boolean(options.showdown ?? rawState.showdown)
     const focusPlayerId = options.focusPlayerId ?? rawState.focusPlayerId ?? null
     const revealFocusCards = Boolean(options.revealFocusCards ?? rawState.revealFocusCards)
+    const revealPlayerIds = options.revealPlayerIds ?? rawState.revealPlayerIds ?? null
     const boardCards = Array.isArray(rawState.boardCards) ? rawState.boardCards.filter(Boolean) : []
     const potTotal = sanitizeChips(rawState.potTotal)
     const sidePots = Array.isArray(rawState.sidePots) ? rawState.sidePots.filter(pot => Number.isFinite(pot?.amount)) : []
@@ -128,7 +160,7 @@ function createTexasTableState(rawState = {}, options = {}) {
 
     return {
         boardCards,
-        players: normalizeTexasPlayers(rawState.players || [], { showdown, focusPlayerId, revealFocusCards }),
+        players: normalizeTexasPlayers(rawState.players || [], { showdown, focusPlayerId, revealFocusCards, revealPlayerIds }),
         metadata: {
             title: options.title ?? rawState.title ?? "Texas Hold'em",
             round: Number.isFinite(round) ? Math.max(1, Math.floor(round)) : null,
@@ -151,6 +183,51 @@ const collectCardsToPreload = (state) => {
         player.cards.forEach(card => { if (card) cards.add(card) })
     })
     return Array.from(cards)
+}
+
+const collectWinnerIds = (state = {}) => {
+    const winners = new Set()
+    const sidePots = Array.isArray(state?.metadata?.sidePots)
+        ? state.metadata.sidePots
+        : Array.isArray(state?.sidePots)
+            ? state.sidePots
+            : []
+
+    sidePots.forEach((pot) => {
+        if (!pot || !Array.isArray(pot.winners)) return
+        pot.winners.forEach((winnerId) => {
+            if (winnerId == null) return
+            winners.add(winnerId)
+        })
+    })
+
+    if (Array.isArray(state?.players)) {
+        state.players.forEach((player) => {
+            if (!player || player.id == null) return
+            if (Number.isFinite(player.winnings) && player.winnings > 0) {
+                winners.add(player.id)
+            }
+        })
+    }
+
+    return winners
+}
+
+const resolvePlayerOutcome = (player, { showdown = false, winnerIds } = {}) => {
+    if (!showdown || !player || player.folded || player.eliminated) {
+        return { isWinner: false, isLoser: false }
+    }
+    const hasWinnerIds = winnerIds instanceof Set && winnerIds.size > 0
+    const isWinner = Boolean(
+        (hasWinnerIds && winnerIds.has(player.id)) ||
+        (Number.isFinite(player.winnings) && player.winnings > 0)
+    )
+    const hasOutcome = isWinner || hasWinnerIds
+
+    return {
+        isWinner,
+        isLoser: hasOutcome && !isWinner
+    }
 }
 
 const drawTexasHeader = (ctx, metadata, cursorY) => {
@@ -183,21 +260,29 @@ const drawTexasHeader = (ctx, metadata, cursorY) => {
         cursorY += CONFIG.subtitleSize + 18
     }
 
-    const potText = metadata.potTotal != null
-        ? `Pot: ${setSeparator(metadata.potTotal)}$`
-        : "Pot: 0$"
-    drawText(ctx, potText, {
-        x: CONFIG.canvasWidth / 2,
-        y: cursorY,
-        size: CONFIG.valueSize,
-        color: CONFIG.textPrimary,
-        align: "center",
-        baseline: "top",
-        bold: true
-    })
-    cursorY += CONFIG.valueSize + CONFIG.layout.sectionTitleSpacing
+    // Draw POT badge instead of text
+    const potAmount = metadata.potTotal ?? 0
+    const potBadgeText = `POT ${setSeparator(potAmount)}$`
+    // Measure text width to center the badge
+    ctx.font = `700 ${CONFIG.valueSize}px "${CONFIG.fontFamily}"`
+    const potTextWidth = ctx.measureText(potBadgeText).width
+    const potBadgeWidth = potTextWidth + BADGE_PADDING_X * 2
+    const potBadgeCenterX = CONFIG.canvasWidth / 2 - potBadgeWidth / 2
 
-    if (Array.isArray(metadata.sidePots) && metadata.sidePots.length > 0) {
+    drawBadge(ctx, potBadgeText, {
+        x: potBadgeCenterX,
+        y: cursorY,
+        fill: BADGE_COLORS.pot,
+        textColor: "#FFFFFF",
+        fontSize: BADGE_FONT_SIZE,
+        paddingX: BADGE_PADDING_X,
+        paddingY: BADGE_PADDING_Y,
+        bold: true,
+        opacity: BADGE_OPACITY
+    })
+    cursorY += BADGE_FONT_SIZE + BADGE_PADDING_Y * 2 + CONFIG.layout.sectionTitleSpacing
+
+    if (Array.isArray(metadata.sidePots) && metadata.sidePots.length > 1) {
         const details = metadata.sidePots
             .map((pot, index) => `Pot ${index + 1}: ${setSeparator(Math.floor(pot.amount || 0))}$`)
             .join(" • ")
@@ -248,151 +333,307 @@ const drawCommunitySection = (ctx, state, cursorY) => {
     return cursorY + CONFIG.layout.dividerOffset
 }
 
-const buildPlayerInfoSegments = (player) => {
+const ACTION_BADGE_STYLES = {
+    fold: { fill: CONFIG.loseColor, textColor: "#FFFFFF" },
+    check: { fill: "#9CA3AF", textColor: "#FFFFFF" },
+    call: { fill: "#2F80ED", textColor: "#FFFFFF" },
+    bet: { fill: "#2F80ED", textColor: "#FFFFFF" },
+    raise: { fill: "#2F80ED", textColor: "#FFFFFF" },
+    allin: { fill: CONFIG.loseColor, textColor: "#FFFFFF" }
+}
+
+const buildPlayerInfoSegments = (player, { includePot } = { includePot: true }) => {
     const segments = []
     const addSegment = (text, color = CONFIG.textSecondary) => {
         if (!text) return
         segments.push({ text, color })
     }
-    if (player.totalBet != null && player.totalBet > 0) {
-        addSegment(`In pot ${setSeparator(player.totalBet)}$`)
-    }
-    if (
-        player.bet != null &&
-        player.bet > 0 &&
-        player.totalBet != null &&
-        player.bet !== player.totalBet
-    ) {
-        addSegment(`This round ${setSeparator(player.bet)}$`)
-    }
-    if (player.winnings != null && player.winnings > 0) {
-        addSegment(`Won +${setSeparator(player.winnings)}$`, CONFIG.winColor)
-    }
+
     if (player.gold != null && player.gold > 0) {
         addSegment(`Gold +${setSeparator(player.gold)}`, CONFIG.pushColor)
     }
     return segments
 }
 
-const drawTexasPlayer = (ctx, player, { slotLeft, slotWidth, top }) => {
-    const padding = TEXAS_LAYOUT.slotPadding
+const drawTexasPlayer = (ctx, player, { slotLeft, slotWidth, top, showdown = false, winnerIds, includePot = true, minimal = false }) => {
+    const padding = minimal ? TEXAS_LAYOUT.panelSlotPadding : TEXAS_LAYOUT.slotPadding
     const blockWidth = slotWidth - padding * 2
-    const blockHeight = TEXAS_LAYOUT.playerBlockHeight
+    const blockHeight = minimal ? TEXAS_LAYOUT.panelBlockHeight : TEXAS_LAYOUT.playerBlockHeight
     const blockX = slotLeft + padding
     const blockY = top
 
-    drawRoundedRect(ctx, blockX, blockY, blockWidth, blockHeight, 18)
-    ctx.save()
-    if (player.folded) {
-        ctx.fillStyle = "rgba(0,0,0,0.35)"
-    } else if (player.isActing) {
-        ctx.fillStyle = "rgba(67, 198, 94, 0.35)"
-    } else if (player.allIn) {
-        ctx.fillStyle = "rgba(242, 201, 76, 0.25)"
-    } else {
-        ctx.fillStyle = "rgba(255,255,255,0.08)"
-    }
-    ctx.fill()
-    ctx.restore()
-
-    if (player.focus) {
-        ctx.save()
-        ctx.strokeStyle = "rgba(87, 194, 107, 0.9)"
-        ctx.lineWidth = 4
+    if (!minimal) {
         drawRoundedRect(ctx, blockX, blockY, blockWidth, blockHeight, 18)
-        ctx.stroke()
+        ctx.save()
+        if (player.eliminated || player.leftDuringPlay) {
+            ctx.fillStyle = "rgba(0,0,0,0.45)"
+        } else if (player.folded) {
+            ctx.fillStyle = "rgba(0,0,0,0.35)"
+        } else if (player.isActing) {
+            ctx.fillStyle = "rgba(67, 198, 94, 0.35)"
+        } else if (player.allIn) {
+            ctx.fillStyle = "rgba(242, 201, 76, 0.25)"
+        } else {
+            ctx.fillStyle = "rgba(255,255,255,0.08)"
+        }
+        ctx.fill()
         ctx.restore()
+
+        if (player.focus) {
+            ctx.save()
+            ctx.strokeStyle = "rgba(87, 194, 107, 0.9)"
+            ctx.lineWidth = 4
+            drawRoundedRect(ctx, blockX, blockY, blockWidth, blockHeight, 18)
+            ctx.stroke()
+            ctx.restore()
+        }
     }
 
     const nameX = blockX + 24
     const nameY = blockY + 20
     const nameFont = `700 ${CONFIG.sectionTitleSize}px "${CONFIG.fontFamily}"`
-    const nameWidth = measureTextWidth(ctx, player.label, nameFont)
-    drawText(ctx, player.label, {
-        x: nameX,
-        y: nameY,
-        size: CONFIG.sectionTitleSize,
-        color: CONFIG.textPrimary,
-        align: "left",
-        baseline: "top",
-        bold: true
-    })
+    const nameLabel = player.label
+    const nameWidth = minimal ? 0 : measureTextWidth(ctx, nameLabel, nameFont)
+    if (!minimal) {
+        drawText(ctx, nameLabel, {
+            x: nameX,
+            y: nameY,
+            size: CONFIG.sectionTitleSize,
+            color: CONFIG.textPrimary,
+            align: "left",
+            baseline: "top",
+            bold: true
+        })
+    }
 
     const inlineBadges = []
-    if (player.isActing) inlineBadges.push({ text: "ACTING", fill: CONFIG.winColor, textColor: "#0B2B18" })
-    if (player.allIn) {
-        const amountLabel = player.allInAmount != null ? `ALL-IN ${setSeparator(player.allInAmount)}$` : "ALL-IN"
-        inlineBadges.push({ text: amountLabel, fill: CONFIG.pushColor, textColor: "#2B1E00" })
+    // During showdown, hide bet badge
+    if (!minimal && !showdown && player.bet != null) {
+        const betValue = Math.max(0, player.bet)
+        inlineBadges.push({
+            text: `${setSeparator(betValue)}$`,
+            fill: BADGE_COLORS.allIn,
+            textColor: "#FFFFFF",
+            fontSize: BADGE_FONT_SIZE,
+            paddingX: BADGE_PADDING_X,
+            paddingY: BADGE_PADDING_Y,
+            bold: true
+        })
     }
-    if (player.folded) inlineBadges.push({ text: "FOLDED", fill: CONFIG.loseColor, textColor: "#FFFFFF" })
-    if (player.handRank && !player.folded) inlineBadges.push({ text: player.handRank.toUpperCase(), fill: "#2F80ED", textColor: "#FFFFFF" })
 
-    if (inlineBadges.length > 0) {
-        let badgeX = nameX + nameWidth + 18
-        const badgeY = nameY + Math.max(0, (CONFIG.sectionTitleSize - CONFIG.infoSize) / 2)
-        inlineBadges.forEach((badge, index) => {
-            const metrics = drawBadge(ctx, badge.text, {
-                x: badgeX,
-                y: badgeY,
-                fill: badge.fill,
-                textColor: badge.textColor,
-                fontSize: CONFIG.infoSize,
-                paddingX: 12,
-                paddingY: 4
+    const statusBadges = []
+    const { isWinner, isLoser } = resolvePlayerOutcome(player, { showdown, winnerIds })
+    if (isWinner) statusBadges.push({ text: "WIN", fill: CONFIG.winColor, textColor: "#0B2B18" })
+    else if (isLoser) statusBadges.push({ text: "LOSE", fill: CONFIG.loseColor, textColor: "#FFFFFF" })
+
+    // During showdown: only show WIN/LOSE and hand rank (no action badges)
+    // During normal play: show last action badges
+    if (!showdown) {
+        // Show last action badge (avoid duplicates with allIn, skip blind actions)
+        if (!minimal && player.lastAction && player.lastAction.type && !player.lastAction.isBlind) {
+            const style = ACTION_BADGE_STYLES[player.lastAction.type] || { fill: CONFIG.textSecondary, textColor: "#0B0B0B" }
+            const actionText = player.lastAction.type === "allin" ? "ALL-IN" : String(player.lastAction.type).toUpperCase()
+            statusBadges.push({
+                text: actionText,
+                fill: style.fill,
+                textColor: style.textColor
             })
-            badgeX += metrics.width + (index < inlineBadges.length - 1 ? 12 : 0)
-        })
+        } else if (player.allIn && !player.lastAction) {
+            // Only show all-in badge if no action badge was already added
+            statusBadges.push({ text: "ALL-IN", fill: CONFIG.pushColor, textColor: "#2B1E00" })
+        }
+
+        // Avoid duplicate FOLD badge (may already be added from lastAction)
+        if (player.folded && !statusBadges.some(b => b.text === "FOLD")) {
+            statusBadges.push({ text: "FOLD", fill: CONFIG.loseColor, textColor: "#FFFFFF" })
+        }
     }
 
-    let infoCursorY = nameY + CONFIG.sectionTitleSize + 18
-    if (player.stack != null) {
-        const stackMetrics = drawBadge(ctx, `${setSeparator(player.stack)}$`, {
-            x: nameX,
-            y: infoCursorY,
-            fill: "rgba(242, 201, 76, 0.25)",
-            textColor: "#F2C94C",
-            fontSize: CONFIG.valueSize,
-            paddingX: 18,
-            paddingY: 10,
-            bold: true,
-            opacity: 1
-        })
-        infoCursorY += stackMetrics.height + 16
+    if (player.pendingRebuy && !statusBadges.some(b => b.text === "REBUY")) {
+        statusBadges.push({ text: "REBUY", fill: "#F2C94C", textColor: "#2B1E00" })
     }
 
-    const infoSegments = buildPlayerInfoSegments(player)
-    if (infoSegments.length > 0) {
-        drawInfoLine(ctx, infoSegments, {
-            startX: nameX,
-            y: infoCursorY,
-            fontSize: CONFIG.infoSize,
-            align: "left",
-            defaultColor: CONFIG.textSecondary
-        })
-        infoCursorY += CONFIG.infoSize + 10
+    // Always show LEFT badge (during both normal play and showdown) - avoid duplicates
+    if (player.eliminated || player.leftDuringPlay) {
+        // Only add once even if both flags are set
+        const existingLeftBadge = statusBadges.some(b => b.text === "LEFT")
+        if (!existingLeftBadge) {
+            statusBadges.push({ text: "LEFT", fill: "#828282", textColor: "#FFFFFF" })
+        }
     }
 
-    drawTexasPlayerCards(ctx, player, blockX, blockY, blockWidth)
+    // Always show hand rank (during both normal play and showdown)
+    if (player.handRank && !player.folded) statusBadges.push({ text: player.handRank.toUpperCase(), fill: "#2F80ED", textColor: "#FFFFFF" })
+
+    const normalizeBadge = (badge) => ({
+        fontSize: BADGE_FONT_SIZE,
+        paddingX: BADGE_PADDING_X,
+        paddingY: BADGE_PADDING_Y,
+        bold: true,
+        ...badge
+    })
+
+    if (!minimal && inlineBadges.length > 0) {
+        if (showdown) {
+            // During showdown: stack badges vertically BELOW the name
+            let badgeY = nameY + CONFIG.sectionTitleSize + 12
+            inlineBadges.map(normalizeBadge).forEach((badge) => {
+                drawBadge(ctx, badge.text, {
+                    x: nameX,
+                    y: badgeY,
+                    fill: badge.fill,
+                    textColor: badge.textColor,
+                    fontSize: badge.fontSize,
+                    paddingX: badge.paddingX,
+                    paddingY: badge.paddingY,
+                    bold: Boolean(badge.bold),
+                    opacity: BADGE_OPACITY
+                })
+                badgeY += BADGE_FONT_SIZE + BADGE_PADDING_Y * 2 + 8
+            })
+        } else {
+            // Normal mode: stack badges horizontally
+            let badgeX = nameX + nameWidth + 18
+            inlineBadges.map(normalizeBadge).forEach((badge, index) => {
+                const fontSize = badge.fontSize
+                const paddingX = badge.paddingX
+                const paddingY = badge.paddingY
+                const metrics = drawBadge(ctx, badge.text, {
+                    x: badgeX,
+                    y: nameY,
+                    fill: badge.fill,
+                    textColor: badge.textColor,
+                    fontSize,
+                    paddingX,
+                    paddingY,
+                    bold: Boolean(badge.bold),
+                    opacity: BADGE_OPACITY
+                })
+                badgeX += metrics.width + (index < inlineBadges.length - 1 ? 12 : 0)
+            })
+        }
+    }
+
+    // Calculate where inline badges end (for status badges positioning during showdown)
+    let inlineBadgesHeight = 0
+    if (showdown && inlineBadges.length > 0) {
+        inlineBadgesHeight = (BADGE_FONT_SIZE + BADGE_PADDING_Y * 2 + 8) * inlineBadges.length
+    }
+
+    let infoCursorY = minimal ? nameY : nameY + CONFIG.sectionTitleSize + 12
+    if (!minimal && statusBadges.length > 0) {
+        if (showdown) {
+            // During showdown: stack badges vertically BELOW inline badges
+            let badgeY = nameY + CONFIG.sectionTitleSize + 12 + inlineBadgesHeight
+            statusBadges.map(normalizeBadge).forEach((badge) => {
+                drawBadge(ctx, badge.text, {
+                    x: nameX,
+                    y: badgeY,
+                    fill: badge.fill,
+                    textColor: badge.textColor,
+                    fontSize: badge.fontSize,
+                    paddingX: badge.paddingX,
+                    paddingY: badge.paddingY,
+                    bold: Boolean(badge.bold),
+                    opacity: BADGE_OPACITY
+                })
+                badgeY += BADGE_FONT_SIZE + BADGE_PADDING_Y * 2 + 8
+            })
+        } else {
+            // Normal mode: stack badges horizontally
+            let badgeX = nameX
+            statusBadges.map(normalizeBadge).forEach((badge, index) => {
+                const fontSize = badge.fontSize
+                const paddingX = badge.paddingX
+                const paddingY = badge.paddingY
+                const metrics = drawBadge(ctx, badge.text, {
+                    x: badgeX,
+                    y: infoCursorY,
+                    fill: badge.fill,
+                    textColor: badge.textColor,
+                    fontSize,
+                    paddingX,
+                    paddingY,
+                    bold: Boolean(badge.bold),
+                    opacity: BADGE_OPACITY
+                })
+                badgeX += metrics.width + (index < statusBadges.length - 1 ? 12 : 0)
+            })
+        }
+        infoCursorY += BADGE_FONT_SIZE + BADGE_PADDING_Y * 2 + 10
+    }
+    if (!minimal) {
+        const infoSegments = buildPlayerInfoSegments(player, { includePot })
+        if (infoSegments.length > 0) {
+            drawInfoLine(ctx, infoSegments, {
+                startX: nameX,
+                y: infoCursorY,
+                fontSize: CONFIG.infoSize,
+                align: "left",
+                defaultColor: CONFIG.textSecondary
+            })
+            infoCursorY += CONFIG.infoSize + 10
+        }
+
+        const stackAmount = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0
+        if (stackAmount > 0) {
+            const stackBadgeText = `STACK ${setSeparator(stackAmount)}$`
+            drawBadge(ctx, stackBadgeText, {
+                x: blockX + 16,
+                y: blockY + blockHeight - BADGE_FONT_SIZE - 20,
+                fill: BADGE_COLORS.stack,
+                textColor: CONFIG.textPrimary,
+                fontSize: BADGE_FONT_SIZE,
+                paddingX: BADGE_PADDING_X,
+                paddingY: BADGE_PADDING_Y,
+                bold: true,
+                opacity: BADGE_OPACITY
+            })
+        }
+    }
+
+    drawTexasPlayerCards(ctx, player, blockX, blockY, blockWidth, blockHeight, { minimal })
     return blockY + blockHeight
 }
 
-function drawTexasPlayerCards(ctx, player, blockX, blockY, blockWidth) {
-    const cardsY = blockY + TEXAS_LAYOUT.playerBlockHeight - CONFIG.cardHeight - 24
+function drawTexasPlayerCards(ctx, player, blockX, blockY, blockWidth, blockHeight, { minimal = false } = {}) {
     const cards = Math.max(2, player.cards.length || 2)
-    const totalWidth = cards * CONFIG.cardWidth + (cards - 1) * 12
-    const startX = blockX + blockWidth - totalWidth - 24
+    const showCards = Boolean(player.showCards)
+
+    // Use smaller cards when cards are hidden (not shown)
+    const cardWidth = showCards ? CONFIG.cardWidth : 124
+    const cardHeight = showCards ? CONFIG.cardHeight : 178
+
+    // Stack cards with a slight diagonal overlap
+    const stackOffsetX = 19
+    const stackOffsetY = 27
+
+    const totalWidth = cardWidth + (cards - 1) * stackOffsetX
+    const totalHeight = cardHeight + (cards - 1) * stackOffsetY
+
+    const cardsY = minimal
+        ? blockY + (blockHeight - totalHeight) / 2
+        : blockY + blockHeight - totalHeight - 24
+
+    const startX = minimal
+        ? blockX + (blockWidth - totalWidth) / 2
+        : blockX + blockWidth - totalWidth - 24
 
     for (let i = 0; i < cards; i++) {
-        const x = startX + i * (CONFIG.cardWidth + 12)
+        const x = startX + i * stackOffsetX
+        const y = cardsY + i * stackOffsetY
         const cardName = player.cards[i]
-        if (cardName && player.showCards) {
+
+        if (cardName && showCards) {
             const image = getCachedCardImage(cardName)
             if (image) {
-                drawCardImage(ctx, image, x, cardsY)
+                drawCardImage(ctx, image, x, y)
                 continue
             }
         }
-        drawCardBack(ctx, x, cardsY)
+
+        // Draw hidden cards
+        drawCardBack(ctx, x, y)
     }
 }
 
@@ -408,6 +649,7 @@ async function renderTexasPlayerPanel({ player }) {
 
     const normalizedPlayer = state.players?.[0]
     if (!normalizedPlayer) return null
+    const winnerIds = collectWinnerIds(state)
 
     await ensureCardBackLoaded()
     const cardsToPreload = collectCardsToPreload(state)
@@ -422,16 +664,38 @@ async function renderTexasPlayerPanel({ player }) {
     drawTexasPlayer(ctx, normalizedPlayer, {
         slotLeft: 0,
         slotWidth: PLAYER_PANEL_CONFIG.width,
-        top: PLAYER_PANEL_CONFIG.topPadding
+        top: PLAYER_PANEL_CONFIG.topPadding,
+        showdown: Boolean(state.metadata?.showdown),
+        winnerIds,
+        includePot: false,
+        minimal: true
     })
 
-    const targetWidth = PLAYER_PANEL_CONFIG.targetWidth
-    if (Number.isFinite(targetWidth) && targetWidth > 0 && targetWidth < PLAYER_PANEL_CONFIG.width) {
-        const aspectRatio = PLAYER_PANEL_CONFIG.height / PLAYER_PANEL_CONFIG.width
-        const targetHeight = Math.max(1, Math.round(targetWidth * aspectRatio))
-        return downscaleCanvasToPng(canvas, targetWidth, targetHeight, CONFIG.embedCompressionLevel)
+    const targetWidth = Math.max(1, Math.round(PLAYER_PANEL_CONFIG.width * PLAYER_PANEL_SCALE))
+    const targetHeight = Math.max(1, Math.round(PLAYER_PANEL_CONFIG.height * PLAYER_PANEL_SCALE))
+    let buffer = null
+    try {
+        buffer = await downscaleCanvasToPng(canvas, targetWidth, targetHeight, CONFIG.embedCompressionLevel)
+    } catch (error) {
+        logger.warn("Failed to downscale Texas player panel, falling back to raw render", {
+            scope: "texasTableRenderer",
+            error: error?.message
+        })
     }
-    return renderCanvasToPng(canvas, CONFIG.embedCompressionLevel)
+
+    if (!buffer || buffer.length === 0) {
+        try {
+            buffer = await renderCanvasToPng(canvas, CONFIG.embedCompressionLevel)
+        } catch (error) {
+            logger.warn("Failed to render Texas player panel fallback", {
+                scope: "texasTableRenderer",
+                error: error?.message
+            })
+            return null
+        }
+    }
+
+    return buffer
 }
 
 async function renderTexasTable(params = {}) {
@@ -441,6 +705,8 @@ async function renderTexasTable(params = {}) {
     const normalized = params?.sanitizedParams
         ? params.sanitizedParams
         : createTexasTableState(params, params.options || {})
+    const winnerIds = collectWinnerIds(normalized)
+    const showdown = Boolean(normalized.metadata?.showdown)
 
     const wantsSVG = requestedFormat === "svg"
     const scale = wantsSVG ? 1 : (Number.isFinite(CONFIG.outputScale) && CONFIG.outputScale > 0 ? CONFIG.outputScale : 1)
@@ -476,10 +742,19 @@ async function renderTexasTable(params = {}) {
     let playerIndex = 0
     let rowsRemaining = Math.max(1, totalRows)
     let rowTop = playerRowTop
+
+    // Fixed slot width based on maxPerRow (always 2 columns layout)
+    const fixedSlotWidth = CONFIG.canvasWidth / maxPerRow
+
     while (playerIndex < totalPlayers && rowsRemaining > 0) {
         const playersRemaining = totalPlayers - playerIndex
         const slotsThisRow = Math.min(maxPerRow, Math.max(1, Math.ceil(playersRemaining / rowsRemaining)))
-        const slotWidth = CONFIG.canvasWidth / slotsThisRow
+
+        // Center the row if fewer players than maxPerRow
+        const rowOffset = slotsThisRow < maxPerRow
+            ? (CONFIG.canvasWidth - slotsThisRow * fixedSlotWidth) / 2
+            : 0
+
         let rowBottom = rowTop
         for (let slotIndex = 0; slotIndex < slotsThisRow && playerIndex < totalPlayers; slotIndex++) {
             const player = normalized.players[playerIndex]
@@ -487,11 +762,14 @@ async function renderTexasTable(params = {}) {
                 playerIndex += 1
                 continue
             }
-            const slotLeft = slotWidth * slotIndex
+            const slotLeft = rowOffset + fixedSlotWidth * slotIndex
             const handBottom = drawTexasPlayer(ctx, player, {
                 slotLeft,
-                slotWidth,
-                top: rowTop
+                slotWidth: fixedSlotWidth,
+                top: rowTop,
+                showdown,
+                winnerIds,
+                includePot: true
             })
             rowBottom = Math.max(rowBottom, handBottom)
             playerIndex += 1

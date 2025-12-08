@@ -9,7 +9,7 @@ const {
 const config = require("../../config")
 const createCommand = require("../utils/createCommand")
 const setSeparator = require("../utils/setSeparator")
-const playerClass = require("../games/classes")
+const playerClass = require("../games/shared/classes")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
 const logger = require("../utils/logger")
 const { withAccessGuard } = require("../utils/interactionAccess")

@@ -7,16 +7,15 @@ const formatPercentage = (value, digits = 1) => {
 const buildProbabilityField = (probabilities = {}, options = {}) => {
     const {
         title = "Win probability",
-        winLabel = "Win",
-        tieLabel = "Tie",
-        loseLabel = "Lose",
+        winLabel = "🟢 Win",
+        tieLabel = "🟡 Tie",
+        loseLabel = "🔴 Lose",
         digits = 1
     } = options
 
     const win = Number.isFinite(probabilities.win) ? probabilities.win : null
     const tie = Number.isFinite(probabilities.tie) ? probabilities.tie : null
     const loseProvided = Number.isFinite(probabilities.lose) ? probabilities.lose : null
-    const samples = Number.isFinite(probabilities.samples) ? Math.max(0, Math.floor(probabilities.samples)) : null
     const lose = loseProvided !== null
         ? loseProvided
         : (win !== null || tie !== null)
@@ -33,15 +32,11 @@ const buildProbabilityField = (probabilities = {}, options = {}) => {
     if (tie !== null) pushPart(tieLabel, tie)
     pushPart(loseLabel, lose)
 
-    if (!parts.length && !samples) {
+    if (!parts.length) {
         return null
     }
 
-    const sampleText = samples && samples > 0
-        ? `Samples ${samples.toLocaleString()}`
-        : null
-
-    const value = [parts.join(" • "), sampleText].filter(Boolean).join("\n") || "—"
+    const value = parts.join(" • ") || "—"
     return {
         name: title,
         value,

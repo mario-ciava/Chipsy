@@ -474,10 +474,6 @@
         @apply bg-white/10;
     }
 
-    .leaderboard-top__list-row--divider {
-        @apply mt-4;
-    }
-
     .leaderboard-top__list-rank-panel {
         @apply relative flex h-full min-h-full w-full items-center justify-center self-stretch overflow-hidden rounded-[18px] border border-white/10 px-3 py-1 text-center shadow-chip-soft;
         background-image:
@@ -504,7 +500,7 @@
     }
 
     .leaderboard-top__list-player {
-        @apply flex flex-1 flex-col;
+        @apply flex flex-1 flex-col items-start;
     }
 
     .leaderboard-top__list-name {
@@ -513,14 +509,8 @@
     }
 
     .leaderboard-top__list-meta {
-        @apply font-semibold uppercase tracking-[0.26em] text-white;
+        @apply font-semibold uppercase tracking-[0.26em] text-white whitespace-nowrap text-left;
         font-size: 0.54rem;
-        line-height: 1;
-    }
-
-    .leaderboard-top__list-row--divider .leaderboard-top__list-meta {
-        font-size: 0.54rem;
-        letter-spacing: 0.26em;
         line-height: 1;
     }
 
