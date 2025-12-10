@@ -1,4 +1,4 @@
-const { MessageFlags } = require("discord.js")
+const { MessageFlags, EmbedBuilder, Colors } = require("discord.js")
 const config = require("../../config")
 const logger = require("./logger")
 
@@ -120,7 +120,7 @@ const notifyAccessDenied = async(interaction, reason, meta = {}) => {
     }
 
     const payload = {
-        content: message,
+        embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(message)],
         flags: MessageFlags.Ephemeral
     }
 

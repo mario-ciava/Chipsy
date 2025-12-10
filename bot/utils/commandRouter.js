@@ -1,4 +1,4 @@
-const { Collection, MessageFlags } = require("discord.js")
+const { Collection, MessageFlags, EmbedBuilder, Colors } = require("discord.js")
 const config = require("../../config")
 const logger = require("./logger")
 const { logAndSuppress } = logger
@@ -124,7 +124,7 @@ class CommandRouter {
             const denialMessage = getAccessDeniedMessage(accessResult.reason)
             if (denialMessage) {
                 await this.replyOrFollowUp(interaction, {
-                    content: denialMessage,
+                    embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(denialMessage)],
                     flags: MessageFlags.Ephemeral
                 })
             }
@@ -153,25 +153,27 @@ class CommandRouter {
             })
         }
 
-        const userResult = await this.ensureUserData(interaction)
-        if (!userResult.ok) {
-            if (userResult.error?.type === "bot-user") {
-                this.log("debug", "command.ignoredBotUser", interaction)
+        if (!config.skipUserData) {
+            const userResult = await this.ensureUserData(interaction)
+            if (!userResult.ok) {
+                if (userResult.error?.type === "bot-user") {
+                    this.log("debug", "command.ignoredBotUser", interaction)
+                    return
+                }
+                this.log("warn", "command.userWarmupFailed", interaction, {
+                    errorType: userResult.error?.type,
+                    errorMessage: userResult.error?.message
+                })
+                const content = userResult.error?.type === "database"
+                    ? "❌ Database connection failed. Please try again later."
+                    : "❌ Failed to load your profile. Please contact support."
+
+                await this.replyOrFollowUp(interaction, {
+                    embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(content)],
+                    flags: MessageFlags.Ephemeral
+                })
                 return
             }
-            this.log("warn", "command.userWarmupFailed", interaction, {
-                errorType: userResult.error?.type,
-                errorMessage: userResult.error?.message
-            })
-            const content = userResult.error?.type === "database"
-                ? "❌ Database connection failed. Please try again later."
-                : "❌ Failed to load your profile. Please contact support."
-
-            await this.replyOrFollowUp(interaction, {
-                content,
-                flags: MessageFlags.Ephemeral
-            })
-            return
         }
 
         // Execute command
@@ -202,7 +204,7 @@ class CommandRouter {
                 stack: error.stack
             })
             await this.replyOrFollowUp(interaction, {
-                content: "❌ An unexpected error occurred. Please try again later.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ An unexpected error occurred. Please try again later.")],
                 flags: MessageFlags.Ephemeral
             })
 

@@ -24,7 +24,7 @@ module.exports = createCommand({
 
         if (game !== "blackjack") {
             await interaction.reply({
-                content: "❌ Please specify a supported game. Available: blackjack",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Please specify a supported game. Available: blackjack")],
                 flags: MessageFlags.Ephemeral
             })
             return

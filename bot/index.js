@@ -13,6 +13,8 @@ const createCommandSync = require("./utils/commandSync")
 const { createAccessControlService } = require("../api/services/accessControlService")
 const createCommandUsageLogger = require("./utils/commandUsageLogger")
 const startInternalServer = require("./internal/server")
+const { createSettingsStore, createGameSettingsResolver } = require("../shared/settings")
+const { cleanupExpiredLobbies } = require("./lobbies")
 
 class WebSocketBridge extends EventEmitter {}
 const webSocket = new WebSocketBridge()
@@ -86,6 +88,15 @@ const bootstrap = async() => {
             })
             client.statusService = statusService
 
+            const settingsStore = createSettingsStore({ pool, logger })
+            const { resolveGameSettings, mergeLayers } = createGameSettingsResolver({
+                settingsStore,
+                logger
+            })
+            client.settingsStore = settingsStore
+            client.resolveGameSettings = resolveGameSettings
+            client.mergeGameSettingsLayers = mergeLayers
+
             if (!internalServer) {
                 try {
                     internalServer = startInternalServer({
@@ -117,6 +128,13 @@ const bootstrap = async() => {
 
             await client.login(token)
             logger.info("Discord client authenticated", { scope: "bootstrap", icon: "🔐" })
+
+            // Start periodic cleanup of expired public lobbies
+            setInterval(() => {
+                cleanupExpiredLobbies(pool).catch((err) => {
+                    logger.error("Failed to cleanup expired lobbies", { scope: "system", error: err.message })
+                })
+            }, 10 * 60 * 1000)
 
             // Ritorna l'oggetto con le funzioni di shutdown per graceful shutdown
             return {

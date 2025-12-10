@@ -106,7 +106,7 @@ module.exports = createCommand({
 
         if (!author) {
             await respond({
-                content: "❌ Unable to resolve your Discord account details.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Unable to resolve your Discord account details.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -114,7 +114,7 @@ module.exports = createCommand({
 
         if (targetIsBot) {
             await respond({
-                content: "⚠️ Non è possibile mostrare il profilo di un bot.",
+                embeds: [new EmbedBuilder().setColor(Colors.Orange).setDescription("⚠️ Non è possibile mostrare il profilo di un bot.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -123,7 +123,7 @@ module.exports = createCommand({
         const viewerProfile = await ensureProfileLoaded(author, { allowCreate: true })
         if (viewerProfile.error) {
             await respond({
-                content: "❌ Unable to load your profile data. Please try again later.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Unable to load your profile data. Please try again later.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -137,7 +137,7 @@ module.exports = createCommand({
                     : "❌ Unable to load that player's profile data. Please try again later.")
                 : "❌ Unable to load your profile data. Please try again later."
             await respond({
-                content: message,
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(message)],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -183,7 +183,7 @@ module.exports = createCommand({
                         } catch (error) {
                             logComponentError("Failed to defer toggle upgrades interaction", { error: error?.message })
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(
                                 logComponentError("Failed to notify about unavailable profile")
@@ -204,7 +204,7 @@ module.exports = createCommand({
                                 error: error?.message
                             })
                             await componentInteraction.followUp({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(
                                 logComponentError("Failed to warn about unavailable profile on edit failure")
@@ -247,6 +247,14 @@ module.exports = createCommand({
                         return
                     }
 
+                    // Handle Exit button - close profile
+                    if (customId === `profile_exit:${author.id}`) {
+                        await componentInteraction.deferUpdate()
+                        if (collector && !collector.ended) collector.stop("exit")
+                        await interaction.deleteReply().catch(() => null)
+                        return
+                    }
+
                     // Handle Settings button - show settings menu
                     if (customId === `profile_show_settings:${author.id}`) {
                         try {
@@ -254,7 +262,7 @@ module.exports = createCommand({
                         } catch (error) {
                             logComponentError("Failed to defer show settings interaction", { error: error?.message })
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(
                                 logComponentError("Failed to warn about unavailable profile (settings)")
@@ -271,7 +279,7 @@ module.exports = createCommand({
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async(error) => {
                             logComponentError("Failed to edit profile view when showing settings", { error: error?.message })
                             await componentInteraction.followUp({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(
                                 logComponentError("Failed to warn about unavailable profile after edit failure (settings)")
@@ -288,7 +296,7 @@ module.exports = createCommand({
                         } catch (error) {
                             logComponentError("Failed to defer cancel setting interaction", { error: error?.message })
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(
                                 logComponentError("Failed to warn about unavailable profile (cancel setting)")
@@ -304,7 +312,7 @@ module.exports = createCommand({
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async(error) => {
                             logComponentError("Failed to edit profile view when canceling setting", { error: error?.message })
                             await componentInteraction.followUp({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(
                                 logComponentError("Failed to warn about unavailable profile after edit failure (cancel setting)")
@@ -320,7 +328,7 @@ module.exports = createCommand({
                             await componentInteraction.deferUpdate()
                         } catch {
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -334,7 +342,7 @@ module.exports = createCommand({
                     if (customId === `profile_confirm_setting:${author.id}`) {
                         if (!state.selectedSetting) {
                             await componentInteraction.reply({
-                                content: "❌ Please select a setting from the menu first!",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Please select a setting from the menu first!")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
@@ -344,7 +352,7 @@ module.exports = createCommand({
                             await componentInteraction.deferUpdate()
                         } catch {
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -377,7 +385,7 @@ module.exports = createCommand({
                             const { embed: updatedEmbed, components: updatedComponents } = buildProfileMessage(profileUser, state)
                             const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                                 await componentInteraction.followUp({
-                                    content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}!\n\n⚠️ Profile view expired. Use \`/profile\` to see updated settings.`,
+                                    embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}!\n\n⚠️ Profile view expired. Use \`/profile\` to see updated settings.`)],
                                     flags: MessageFlags.Ephemeral
                                 }).catch(handleProfilePromiseRejection)
                                 if (collector && !collector.ended) collector.stop("message_deleted")
@@ -387,7 +395,7 @@ module.exports = createCommand({
                             // Only send success message if edit succeeded
                             if (editSuccess) {
                                 await componentInteraction.followUp({
-                                    content: `✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}! ${newValue === 1 ? "🔒 Others cannot see your money and gold." : "🔓 Others can see your money and gold."}`,
+                                    embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`✅ Bankroll privacy ${newValue === 1 ? "enabled" : "disabled"}! ${newValue === 1 ? "🔒 Others cannot see your money and gold." : "🔓 Others can see your money and gold."}`)],
                                     flags: MessageFlags.Ephemeral
                                 }).catch(handleProfilePromiseRejection)
                             }
@@ -401,7 +409,7 @@ module.exports = createCommand({
                             await componentInteraction.deferUpdate()
                         } catch {
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -429,7 +437,7 @@ module.exports = createCommand({
                         } catch {
                             // Interaction failed - try to send error message
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -443,7 +451,7 @@ module.exports = createCommand({
                         await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                             // Message no longer exists, notify user
                             await componentInteraction.followUp({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -458,7 +466,7 @@ module.exports = createCommand({
                         } catch {
                             // Interaction failed - try to send error message
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -472,7 +480,7 @@ module.exports = createCommand({
                     if (customId === `profile_confirm_purchase:${author.id}`) {
                         if (!state.selectedUpgrade) {
                             await componentInteraction.reply({
-                                content: "❌ Please select an upgrade from the menu first!",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Please select an upgrade from the menu first!")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
@@ -483,7 +491,7 @@ module.exports = createCommand({
                         } catch {
                             // Interaction failed - try to send error message
                             await componentInteraction.reply({
-                                content: "❌ This profile view is no longer available. Please use `/profile` again.",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ This profile view is no longer available. Please use `/profile` again.")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -501,7 +509,7 @@ module.exports = createCommand({
                         const upgrade = UPGRADES[state.selectedUpgrade]
                         if (!upgrade) {
                             await componentInteraction.followUp({
-                                content: "❌ Invalid upgrade selection!",
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Invalid upgrade selection!")],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
@@ -515,9 +523,9 @@ module.exports = createCommand({
 
                         if (currentLevel >= maxLevel) {
                             await componentInteraction.followUp({
-                                content: unlockUpgrade
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(unlockUpgrade
                                     ? `❌ ${upgrade.emoji} **${upgrade.name}** is already unlocked!`
-                                    : `❌ ${upgrade.emoji} **${upgrade.name}** is already at maximum level!`,
+                                    : `❌ ${upgrade.emoji} **${upgrade.name}** is already at maximum level!`)],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
@@ -527,7 +535,7 @@ module.exports = createCommand({
 
                         if (currentBalance < cost) {
                             await componentInteraction.followUp({
-                                content: `❌ You need ${formatCostIndicator(cost, currencyDescriptor)} to buy this upgrade!\n${currencyDescriptor.emoji} Your ${currencyDescriptor.label}: **${formatCurrencyAmount(currentBalance, currencyDescriptor)}**`,
+                                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(`❌ You need ${formatCostIndicator(cost, currencyDescriptor)} to buy this upgrade!\n${currencyDescriptor.emoji} Your ${currencyDescriptor.label}: **${formatCurrencyAmount(currentBalance, currencyDescriptor)}**`)],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             return
@@ -560,7 +568,7 @@ module.exports = createCommand({
                         const editSuccess = await interaction.editReply({ embeds: [updatedEmbed], components: updatedComponents }).catch(async() => {
                             // Message no longer exists, notify user with upgrade confirmation
                             await componentInteraction.followUp({
-                                content: `${baseSuccessMessage}\n\n⚠️ Profile view expired. Use \`/profile\` to see updated stats.`,
+                                embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(`${baseSuccessMessage}\n\n⚠️ Profile view expired. Use \`/profile\` to see updated stats.`)],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                             if (collector && !collector.ended) collector.stop("message_deleted")
@@ -570,7 +578,7 @@ module.exports = createCommand({
                         // Only send success message if edit succeeded
                         if (editSuccess) {
                             await componentInteraction.followUp({
-                                content: baseSuccessMessage,
+                                embeds: [new EmbedBuilder().setColor(Colors.Green).setDescription(baseSuccessMessage)],
                                 flags: MessageFlags.Ephemeral
                             }).catch(handleProfilePromiseRejection)
                         }
@@ -587,12 +595,12 @@ module.exports = createCommand({
 
                     if (!componentInteraction.replied && !componentInteraction.deferred) {
                         await componentInteraction.reply({
-                            content: "❌ An error occurred. Please try again.",
+                            embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ An error occurred. Please try again.")],
                             flags: MessageFlags.Ephemeral
                         }).catch(handleProfilePromiseRejection)
                     } else {
                         await componentInteraction.followUp({
-                            content: "❌ An error occurred. Please try again.",
+                            embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ An error occurred. Please try again.")],
                             flags: MessageFlags.Ephemeral
                         }).catch(handleProfilePromiseRejection)
                     }
@@ -937,6 +945,14 @@ function buildProfileMessage(author, state = {}) {
                 .setLabel("Info")
                 .setStyle(ButtonStyle.Secondary)
                 .setEmoji("ℹ️")
+        )
+
+        buttonRow.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`profile_exit:${author.id}`)
+                .setLabel("Exit")
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji("🚪")
         )
 
         components.push(buttonRow)

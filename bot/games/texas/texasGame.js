@@ -1,5 +1,5 @@
 const { EmbedBuilder, Colors, ButtonBuilder, ActionRowBuilder, ButtonStyle, TextInputBuilder, TextInputStyle, ModalBuilder, MessageFlags } = require("discord.js")
-const features = require("../shared/features.js")
+const features = require("../../../shared/features")
 const { sleep } = require("../../utils/helpers")
 const Game = require("../shared/baseGame.js")
 const cards = require("../shared/cards.js")
@@ -18,6 +18,7 @@ const TexasRenderer = require("./texasRenderer")
 const HandProgression = require("./handProgression")
 const MessageManagement = require("../shared/messageManagement")
 const { resolveTexasSettings, defaults: texasSettingDefaults } = require("./settings")
+const GameBroadcaster = require("../shared/gameBroadcaster")
 
 const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
     logAndSuppress(message, {
@@ -52,7 +53,6 @@ module.exports = class TexasGame extends Game {
         }
         this.actionTimeoutMs = config.texas.actionTimeout.default
         this.actionCollector = null
-        this.gameMessage = null
         this.awaitingPlayerId = null
         this.actionOrder = []
         this.actionCursor = -1
@@ -62,7 +62,6 @@ module.exports = class TexasGame extends Game {
         this.pendingProbabilityTask = null
         this.actionTimeline = []
         this.lastValidSnapshot = null
-        this.settings = resolveTexasSettings({ overrides: info?.settings })
         this.rebuyOffers = new Map()
         this.waitingForRebuy = false
         this.rebuyResumeTimer = null
@@ -77,6 +76,18 @@ module.exports = class TexasGame extends Game {
         this.renderer = new TexasRenderer(this)
         this.progression = new HandProgression(this)
         this.messages = new MessageManagement(this)
+
+        // Initialize Broadcaster
+        this.broadcaster = new GameBroadcaster(this)
+        if (info.message?.channel) {
+            this.broadcaster.setPrimaryChannel(info.message.channel)
+        }
+
+        this.applySettings(info?.settings)
+    }
+
+    inheritLobbyMirrors(lobbySession) {
+        this.broadcaster.inheritLobbyMirrors(lobbySession)
     }
 
     /**
@@ -89,7 +100,12 @@ module.exports = class TexasGame extends Game {
     }
 
     applySettings(overrides = {}) {
-        this.settings = resolveTexasSettings({ overrides })
+        const resolved = resolveTexasSettings({ overrides })
+        this.settings = resolved
+        if (resolved?.actionTimeoutMs) {
+            this.updateActionTimeout(resolved.actionTimeoutMs)
+        }
+        return resolved
     }
 
     getActionTimeoutLimits() {
@@ -110,7 +126,6 @@ module.exports = class TexasGame extends Game {
     }
 
     async sendRemoteControlNotice(kind, meta = {}) {
-        if (!this.channel || typeof this.channel.send !== "function") return
         const label = this.getRemoteActorLabel(meta)
         let description = null
         let color = Colors.DarkGrey
@@ -122,15 +137,9 @@ module.exports = class TexasGame extends Game {
             color = Colors.Green
         }
         if (!description) return
-        await this.channel.send({
-            embeds: [new EmbedBuilder().setColor(color).setDescription(description)],
-            allowedMentions: { parse: [] }
-        }).catch((error) => {
-            logger.warn("Failed to send remote control notice", {
-                scope: "texasGame",
-                kind,
-                error: error?.message
-            })
+        
+        await this.broadcaster.notify({
+            embeds: [new EmbedBuilder().setColor(color).setDescription(description)]
         })
     }
 
@@ -498,7 +507,6 @@ module.exports = class TexasGame extends Game {
     }
 
     async sendPlayerLeftNotice(player, reason = "left") {
-        if (!player || !this.channel || typeof this.channel.send !== "function") return
         try {
             const playerLabel = player.tag || player.username || player.toString()
             const message = reason === "busted"
@@ -508,16 +516,9 @@ module.exports = class TexasGame extends Game {
             const embed = new EmbedBuilder()
                 .setColor(color)
                 .setDescription(message)
-            await this.channel.send({
-                embeds: [embed],
-                allowedMentions: { parse: [] }
-            }).catch((error) => {
-                logger.warn("Failed to send Texas player left notice", {
-                    scope: "texasGame",
-                    playerId: player?.id,
-                    reason,
-                    error: error?.message
-                })
+            
+            await this.broadcaster.notify({
+                embeds: [embed]
             })
         } catch (error) {
             logger.warn("Error sending Texas player left notice", {
@@ -641,6 +642,8 @@ module.exports = class TexasGame extends Game {
                 .setStyle(ButtonStyle.Primary)
         )
 
+        // Rebuy offers are still sent individually to the channel (or user) to avoid cluttering the main table broadcast
+        // We use the primary channel for this
         let message = null
         try {
             message = await this.channel.send({
@@ -908,7 +911,7 @@ module.exports = class TexasGame extends Game {
 
         // Check minimum players (count only active, not removed)
         const activeCount = this.players.filter(p => !p.status?.removed && !p.status?.pendingRebuy).length
-        const pendingRebuys = this.players.filter(p => p.status?.pendingRebuy).length
+        const pendingRebuys = this.players.filter(p => p.status?.pendingRebuy)
         if (!skipStop && activeCount < this.getMinimumPlayers() && this.playing) {
             if (pendingRebuys > 0) {
                 this.waitingForRebuy = true
@@ -921,18 +924,19 @@ module.exports = class TexasGame extends Game {
                     title: "Game Over",
                     showdown: false
                 })
-                if (finalSnapshot && this.gameMessage) {
+                if (finalSnapshot) {
                     const embed = new EmbedBuilder()
                         .setColor(Colors.DarkGrey)
                         .setTitle(`Texas Hold'em - Round #${this.hands}`)
                         .setDescription("Not enough players to continue.")
                         .addFields(...this.buildInfoAndTimelineFields({ toCall: 0 }))
                         .setImage(`attachment://${finalSnapshot.filename}`)
-                    await this.gameMessage.edit({
+                    
+                    await this.broadcaster.broadcast({
                         embeds: [embed],
                         files: [finalSnapshot.attachment],
                         components: []
-                    }).catch(() => null)
+                    })
                 }
             } catch (error) {
                 logger.debug("Failed to update final render on player leave", {
@@ -1056,35 +1060,19 @@ module.exports = class TexasGame extends Game {
         combinedRow.addComponents(leaveRow.setStyle(ButtonStyle.Danger))
         messagePayload.components.push(combinedRow)
 
-        let message = this.gameMessage
-        if (message) {
-            try {
-                await message.edit(messagePayload)
-            } catch {
-                message = null
-            }
-        }
-        if (!message) {
-            message = await channel.send(messagePayload).catch(() => null)
-            if (message) {
-                this.gameMessage = message
-            }
-        }
-        if (!message) {
-            await sendEmbed(embed)
-            return
-        }
-
+        // Use broadcaster to send to all
+        const message = await this.broadcaster.broadcast(messagePayload)
+        
         if (messagePayload.components.length === 0) return
 
         await new Promise((resolve) => {
             const revealRequests = new Map()
-            const collector = message.createMessageComponentCollector({
+            
+            // Use broadcaster collectors
+            this.broadcaster.createCollectors({
                 time: 10_000,
                 filter: (i) => i.customId === `tx_reveal:${this.hands}:${revealWinnerId}` || i.customId === `tx_action:leave:${revealWinnerId || "any"}`
-            })
-
-            collector.on("collect", async (interaction) => {
+            }, async (interaction) => {
                 if (interaction.customId.startsWith("tx_action:leave")) {
                     const player = this.GetPlayer(interaction.user.id)
                     if (player) {
@@ -1098,9 +1086,8 @@ module.exports = class TexasGame extends Game {
                 }
                 revealRequests.set(interaction.user.id, interaction)
                 await interaction.deferUpdate().catch(() => null)
-            })
-
-            collector.on("end", async () => {
+            }, async () => {
+                // On End
                 const components = messagePayload.components.map((row) => {
                     const updatedRow = ActionRowBuilder.from(row)
                     updatedRow.components = row.components.map((component) => ButtonBuilder.from(component).setDisabled(true))
@@ -1135,13 +1122,9 @@ module.exports = class TexasGame extends Game {
                     } else {
                         updatedEmbed.setImage(null)
                     }
-
-                    for (const [, interaction] of revealRequests.entries()) {
-                        // No follow-up message needed; the main render is already updated
-                    }
                 }
 
-                await message.edit({
+                await this.broadcaster.broadcast({
                     embeds: [updatedEmbed],
                     files: updatedFiles,
                     components
@@ -1150,10 +1133,6 @@ module.exports = class TexasGame extends Game {
             })
         })
 
-        // Auto-clean previous hand summary if enabled
-        if (this.settings?.autoCleanHands && this.lastHandMessage && this.lastHandMessage.id !== message.id) {
-            try { await this.lastHandMessage.delete().catch(() => null) } catch (_) { /* ignore */ }
-        }
         this.lastHandMessage = message
     }
 
@@ -1168,29 +1147,15 @@ module.exports = class TexasGame extends Game {
 
     async updateInactivityEmbed() {
         const notice = "♠️ Table closed for inactivity: no player acted for two consecutive hands."
-        const existingMessage = this.gameMessage
-        const existingEmbed = existingMessage?.embeds?.[0]
-
-        let embed = null
-        try {
-            embed = existingEmbed ? EmbedBuilder.from(existingEmbed) : new EmbedBuilder()
-        } catch (_) {
-            embed = new EmbedBuilder()
-        }
-        embed.setColor(Colors.DarkGrey).setFooter({ text: notice })
-        if (!embed.data?.title) {
-            embed.setTitle("Texas Hold'em - Game closed")
-        }
-        if (!embed.data?.description) {
-            embed.setDescription("Game stopped due to inactivity.")
-        }
+        
+        const embed = new EmbedBuilder()
+            .setColor(Colors.DarkGrey)
+            .setFooter({ text: notice })
+            .setTitle("Texas Hold'em - Game closed")
+            .setDescription("Game stopped due to inactivity.")
 
         const payload = { embeds: [embed], components: [] }
-        if (existingMessage) {
-            await existingMessage.edit(payload).catch(() => null)
-        } else if (this.channel && typeof this.channel.send === "function") {
-            await this.channel.send(payload).catch(() => null)
-        }
+        await this.broadcaster.broadcast(payload)
     }
 
     async updateGameMessage(player, options = {}) {
@@ -1297,16 +1262,7 @@ module.exports = class TexasGame extends Game {
         }
 
         // Edit existing message if available, otherwise send new
-        if (this.gameMessage) {
-            try {
-                await this.gameMessage.edit(payload)
-            } catch {
-                this.gameMessage = null
-            }
-        }
-        if (!this.gameMessage) {
-            this.gameMessage = await this.channel.send(payload).catch(() => null)
-        }
+        await this.broadcaster.broadcast(payload)
 
         // Send hole cards AFTER the table render, and wait for probability calculation
         if (!this.holeCardsSent) {
@@ -1493,12 +1449,12 @@ module.exports = class TexasGame extends Game {
             },
             { scope: "texas:actions" }
         )
-        this.actionCollector = this.channel.createMessageComponentCollector({
+        
+        this.actionCollector = true // Flag to indicate active collection, even if outsourced
+        this.broadcaster.createCollectors({
             filter: actionFilter,
             time: config.texas.collectorTimeout.default
-        })
-
-        this.actionCollector.on("collect", async (interaction) => {
+        }, async (interaction) => {
             const parts = interaction.customId.split(':')
             const [, action, playerIdRaw, rawAmount] = parts
             const resolvedPlayerId = action === "leave" && playerIdRaw === "any" ? interaction.user.id : playerIdRaw
@@ -1622,11 +1578,9 @@ module.exports = class TexasGame extends Game {
                 buildTexasInteractionLog(interaction, "Player action failed", { action, playerId, error: error?.message })
                 await this.respondEphemeral(interaction, { content: "❌ Action failed. Please try again." })
             }
-        })
-
-        this.actionCollector.on("end", (_collected, reason) => {
+        }, (collected, reason) => {
             this.actionCollector = null
-            const shouldRecreate = this.playing && !["channelDelete", "messageDelete", "guildDelete"].includes(reason)
+            const shouldRecreate = this.playing && !["cleanup", "target_lost"].includes(reason)
             if (shouldRecreate) {
                 try {
                     this.CreateOptions()
@@ -2041,22 +1995,14 @@ module.exports = class TexasGame extends Game {
         this.playing = false
         this.inactiveHands = 0
         this.currentHandHasInteraction = false
-        if (this.actionCollector) this.actionCollector.stop("gameStopped")
         if (this.timer) clearTimeout(this.timer)
         this.channel.game = null
         this.awaitingPlayerId = null
         if (this.client.activeGames) this.client.activeGames.delete(this)
 
-        if (this.gameMessage) {
-            try {
-                await this.gameMessage.edit({ components: [] })
-            } catch (error) {
-                logger.debug("Failed to clear Texas game components on stop", {
-                    scope: "texasGame",
-                    channelId: this.channel?.id,
-                    error: error?.message
-                })
-            }
+        // Clean up broadcaster
+        if (this.broadcaster) {
+            this.broadcaster.cleanup()
         }
 
         // Cleanup rebuy collectors

@@ -355,6 +355,116 @@ const ensureLeaderboardCacheTable = async(connection) => {
     )
 }
 
+const ensureGameSettingsOverridesTable = async(connection) => {
+    const tableName = "game_settings_overrides"
+    const [tables] = await connection.query("SHOW TABLES LIKE ?", [tableName])
+
+    if (!tables || tables.length === 0) {
+        await connection.query(
+            `CREATE TABLE \`${tableName}\` (
+                \`id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                \`scope_type\` ENUM('guild','channel','user') NOT NULL,
+                \`scope_id\` VARCHAR(64) NOT NULL,
+                \`game\` VARCHAR(32) NOT NULL,
+                \`key\` VARCHAR(64) NOT NULL,
+                \`value\` JSON NULL,
+                \`updated_by\` VARCHAR(25) DEFAULT NULL,
+                \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (\`id\`),
+                UNIQUE KEY \`uniq_scope_key\` (\`scope_type\`, \`scope_id\`, \`game\`, \`key\`),
+                KEY \`idx_scope_lookup\` (\`scope_type\`, \`scope_id\`),
+                KEY \`idx_game_key\` (\`game\`, \`key\`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        )
+        logInfo(`${tableName} table created`)
+        return
+    }
+
+    const ensureColumn = async(column, definition) => {
+        const [columns] = await connection.query(`SHOW COLUMNS FROM \`${tableName}\` LIKE ?`, [column])
+        if (!columns || columns.length === 0) {
+            await connection.query(`ALTER TABLE \`${tableName}\` ADD COLUMN ${definition}`)
+            logInfo(`Added ${column} column to ${tableName} table`)
+        }
+    }
+
+    await ensureColumn("updated_by", "`updated_by` VARCHAR(25) DEFAULT NULL AFTER `value`")
+    await ensureColumn(
+        "updated_at",
+        "`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `updated_by`"
+    )
+
+    const ensureIndex = async(name, statement) => {
+        try {
+            await connection.query(statement)
+            logInfo(`Ensured index ${name} on ${tableName}`)
+        } catch (error) {
+            if (!error.message.includes("Duplicate key name")) {
+                logInfo(`Failed to create index ${name} on ${tableName}`, { error: error.message })
+            }
+        }
+    }
+
+    await ensureIndex(
+        "uniq_scope_key",
+        `ALTER TABLE \`${tableName}\` ADD UNIQUE INDEX \`uniq_scope_key\` (\`scope_type\`, \`scope_id\`, \`game\`, \`key\`)`
+    )
+    await ensureIndex(
+        "idx_scope_lookup",
+        `ALTER TABLE \`${tableName}\` ADD INDEX \`idx_scope_lookup\` (\`scope_type\`, \`scope_id\`)`
+    )
+    await ensureIndex(
+        "idx_game_key",
+        `ALTER TABLE \`${tableName}\` ADD INDEX \`idx_game_key\` (\`game\`, \`key\`)`
+    )
+}
+
+const ensurePublicLobbiesTable = async(connection) => {
+    const tableName = "public_lobbies"
+    const [tables] = await connection.query("SHOW TABLES LIKE ?", [tableName])
+
+    if (!tables || tables.length === 0) {
+        await connection.query(
+            `CREATE TABLE \`${tableName}\` (
+                \`id\` VARCHAR(64) NOT NULL,
+                \`game\` ENUM('texas','blackjack') NOT NULL,
+                \`guild_id\` VARCHAR(64) NOT NULL,
+                \`channel_id\` VARCHAR(64) NOT NULL,
+                \`message_id\` VARCHAR(64) DEFAULT NULL,
+                \`host_id\` VARCHAR(64) NOT NULL,
+                \`host_name\` VARCHAR(64) DEFAULT NULL,
+                \`min_bet\` BIGINT NOT NULL,
+                \`max_players\` TINYINT NOT NULL,
+                \`current_players\` TINYINT DEFAULT 1,
+                \`status\` ENUM('waiting','in_progress','closed') NOT NULL DEFAULT 'waiting',
+                \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                \`expires_at\` TIMESTAMP NULL DEFAULT NULL,
+                PRIMARY KEY (\`id\`),
+                INDEX \`idx_game_status\` (\`game\`, \`status\`),
+                INDEX \`idx_expires\` (\`expires_at\`),
+                INDEX \`idx_channel_lookup\` (\`channel_id\`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        )
+        logInfo(`${tableName} table created`)
+        return
+    }
+
+    const ensureIndex = async(name, statement) => {
+        try {
+            await connection.query(statement)
+            logInfo(`Ensured index ${name} on ${tableName}`)
+        } catch (error) {
+            if (!error.message.includes("Duplicate key name")) {
+                logInfo(`Failed to create index ${name} on ${tableName}`, { error: error.message })
+            }
+        }
+    }
+
+    await ensureIndex("idx_game_status", "CREATE INDEX idx_game_status ON `public_lobbies`(`game`, `status`)")
+    await ensureIndex("idx_expires", "CREATE INDEX idx_expires ON `public_lobbies`(`expires_at`)")
+    await ensureIndex("idx_channel_lookup", "CREATE INDEX idx_channel_lookup ON `public_lobbies`(`channel_id`)")
+}
+
 const ensureSchema = async(pool) => {
     const connection = await pool.getConnection()
     try {
@@ -364,6 +474,8 @@ const ensureSchema = async(pool) => {
         await ensureAccessPoliciesTable(connection)
         await ensureGuildQuarantineTable(connection)
         await ensureLeaderboardCacheTable(connection)
+        await ensurePublicLobbiesTable(connection)
+        await ensureGameSettingsOverridesTable(connection)
     } finally {
         connection.release()
     }

@@ -27,7 +27,7 @@ module.exports = createCommand({
 
         if (!author) {
             await respond({
-                content: "❌ Unable to resolve your Discord account details.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Unable to resolve your Discord account details.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -36,7 +36,7 @@ module.exports = createCommand({
         const profile = author.data
         if (!profile) {
             await respond({
-                content: "❌ Your profile is still loading. Please try again in a moment.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Your profile is still loading. Please try again in a moment.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -121,7 +121,7 @@ module.exports = createCommand({
             }
 
             await respond({
-                content: "❌ Unable to process your reward right now. Please try again later.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Unable to process your reward right now. Please try again later.")],
                 flags: MessageFlags.Ephemeral
             })
             return

@@ -203,7 +203,7 @@ const formatPodiumEntry = (entry, metricId, viewerId) => {
     const viewerBadge = entry.id === viewerId ? " • **YOU**" : ""
     return `${icon} **${entry.displayName}**${viewerBadge}
 ${valueLabel} • ${classLabel}
-Momentum \`${momentum.signature}\` ${momentum.trendEmoji} • ${chipsLabel}`
+ \`${momentum.signature}\` ${momentum.trendEmoji} • ${chipsLabel}`
 }
 
 const formatChallengerEntry = (entry, metricId, viewerId) => {
@@ -326,20 +326,6 @@ const buildLeaderboardEmbed = ({ metricId, entries, viewerId }) => {
 const slashCommand = new SlashCommandBuilder()
     .setName("leaderboard")
     .setDescription("Show the Chipsy global leaderboard.")
-    .addStringOption(option => {
-        option
-            .setName("metric")
-            .setDescription("Choose how to rank players.")
-            .setRequired(false)
-
-        metricDefinitions.forEach((metric) => {
-            option.addChoices({
-                name: `${metric.icon ? `${metric.icon} ` : ""}${metric.label}`.trim(),
-                value: metric.id
-            })
-        })
-        return option
-    })
 
 module.exports = createCommand({
     name: "leaderboard",
@@ -352,7 +338,7 @@ module.exports = createCommand({
         const dataHandler = client?.dataHandler ?? interaction.client?.dataHandler
         if (!dataHandler || typeof dataHandler.getLeaderboard !== "function") {
             await sendInteractionResponse(interaction, {
-                content: "❌ Leaderboard service unavailable. Please try again later.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Leaderboard service unavailable. Please try again later.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -360,8 +346,7 @@ module.exports = createCommand({
 
         const runtimeClient = client ?? interaction.client
         const respond = (payload = {}) => sendInteractionResponse(interaction, payload)
-        const requestedMetric = interaction.options.getString("metric")
-        const metricId = metricMap[requestedMetric] ? requestedMetric : defaultMetricId
+        const metricId = defaultMetricId
         const viewerId = interaction.user?.id
         const limit = leaderboardSettings.entries || 10
         const selectCustomId = `${selectIdPrefix}:${interaction.id}`
@@ -402,7 +387,7 @@ module.exports = createCommand({
                 error: error?.message
             })
             await sendInteractionResponse(interaction, {
-                content: "❌ Unable to load the leaderboard. Please try again shortly.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Unable to load the leaderboard. Please try again shortly.")],
                 flags: MessageFlags.Ephemeral
             })
             return
@@ -429,7 +414,7 @@ module.exports = createCommand({
         collector.on("collect", async(componentInteraction) => {
             if (componentInteraction.user?.id !== viewerId) {
                 await componentInteraction.reply({
-                    content: "Only the challenger who opened this leaderboard can switch metrics.",
+                    embeds: [new EmbedBuilder().setColor(Colors.Orange).setDescription("Only the challenger who opened this leaderboard can switch metrics.")],
                     flags: MessageFlags.Ephemeral
                 }).catch(() => {})
                 return
@@ -466,7 +451,7 @@ module.exports = createCommand({
                     error: error?.message
                 })
                 await interaction.followUp({
-                    content: "❌ Unable to refresh the leaderboard. Please try again.",
+                    embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ Unable to refresh the leaderboard. Please try again.")],
                     flags: MessageFlags.Ephemeral
                 }).catch(() => {})
             }

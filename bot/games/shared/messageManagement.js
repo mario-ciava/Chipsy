@@ -29,9 +29,22 @@ class MessageManagement {
         if (!interaction || typeof interaction.reply !== "function") return null
 
         const { keepPermanent = false } = options
+        
+        let normalizedPayload = { ...payload }
+        if (typeof normalizedPayload.content === 'string' && (!normalizedPayload.embeds || normalizedPayload.embeds.length === 0)) {
+            const content = normalizedPayload.content
+            let color = Colors.Default
+            if (content.includes("⚠️") || content.includes("⏸️")) color = Colors.Orange
+            if (content.includes("❌")) color = Colors.Red
+            if (content.includes("✅")) color = Colors.Green
+            
+            normalizedPayload.embeds = [new EmbedBuilder().setColor(color).setDescription(content)]
+            delete normalizedPayload.content
+        }
+
         const response = {
             flags: MessageFlags.Ephemeral,
-            ...payload
+            ...normalizedPayload
         }
 
         try {

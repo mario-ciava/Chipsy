@@ -30,7 +30,7 @@ const createCommand = ({
         nsfw
     }
 
-    return { config, execute, autocomplete }
+    return { config, execute, autocomplete, data: slashCommand }
 }
 
 module.exports = createCommand

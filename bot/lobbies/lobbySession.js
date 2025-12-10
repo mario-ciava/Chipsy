@@ -35,11 +35,15 @@ class LobbySession extends EventEmitter {
 
         this.state = {
             status: "waiting",
-            closed: false
+            closed: false,
+            visibility: "private",
+            lobbyId: null
         }
 
         this.statusMessage = null
+        this.mirrors = new Map()
         this.collector = null
+        this.mirrorCollectors = new Map()
         this.scheduledRefresh = null
         this.autoTrigger = null
         this.componentHandlers = new Map()
@@ -63,9 +67,27 @@ class LobbySession extends EventEmitter {
     async open(initialState = {}) {
         this.updateState(initialState)
         const payload = this.#buildPayload()
-        this.statusMessage = await this.send(payload)
+        // Request the message back so we can create a collector on it
+        this.statusMessage = await this.send({ ...payload, fetchReply: true })
         this.#createCollector()
         return this.statusMessage
+    }
+
+    async addMirror(channel) {
+        if (this.isClosed) return null
+        if (!channel || typeof channel.send !== "function") return null
+        if (this.mirrors.has(channel.id)) return this.mirrors.get(channel.id)
+
+        try {
+            const payload = this.#buildPayload()
+            const message = await channel.send(payload)
+            this.mirrors.set(channel.id, message)
+            this.#createCollectorForMessage(message, { isMirror: true })
+            return message
+        } catch (error) {
+            this.#logError("Failed to add lobby mirror", error)
+            return null
+        }
     }
 
     registerComponentHandler(customId, handler) {
@@ -94,18 +116,32 @@ class LobbySession extends EventEmitter {
     }
 
     async refresh(overrides = {}) {
-        if (!this.statusMessage) return
-        const bypassClosed = Boolean(overrides.force)
-        if (bypassClosed) {
-            delete overrides.force
-        }
-        if (this.isClosed && !bypassClosed) return
+        if (this.isClosed && !overrides.force) return
+        
         const payload = this.#buildPayload(overrides)
-        try {
-            await this.statusMessage.edit(payload)
-        } catch (error) {
-            this.#logError("Failed to edit lobby message", error)
+        const promises = []
+
+        if (this.statusMessage) {
+            promises.push(
+                this.statusMessage.edit(payload).catch((error) => {
+                    this.#logError("Failed to edit lobby message", error)
+                })
+            )
         }
+
+        for (const [channelId, message] of this.mirrors) {
+            promises.push(
+                message.edit(payload).catch((error) => {
+                    this.#logError(`Failed to edit lobby mirror in ${channelId}`, error)
+                    // If mirror fails (e.g. deleted), remove it
+                    if (error.code === 10008) { // Unknown Message
+                        this.#removeMirror(channelId)
+                    }
+                })
+            )
+        }
+
+        await Promise.all(promises)
     }
 
     async close(options = {}) {
@@ -116,6 +152,7 @@ class LobbySession extends EventEmitter {
         }
         this.#clearScheduledRefresh()
         this.#clearAutoTrigger()
+        
         if (this.collector && !this.collector.ended) {
             try {
                 this.collector.stop(options.reason || "closed")
@@ -123,6 +160,18 @@ class LobbySession extends EventEmitter {
                 this.#logError("Failed to stop lobby collector", error)
             }
         }
+
+        for (const [id, collector] of this.mirrorCollectors) {
+            if (!collector.ended) {
+                try {
+                    collector.stop(options.reason || "closed")
+                } catch (error) {
+                    this.#logError(`Failed to stop mirror collector ${id}`, error)
+                }
+            }
+        }
+        this.mirrorCollectors.clear()
+
         await this.refresh({
             ...options.overrides,
             components: [],
@@ -269,13 +318,21 @@ class LobbySession extends EventEmitter {
 
     #createCollector() {
         if (!this.statusMessage) return
+        const collector = this.#createCollectorForMessage(this.statusMessage)
+        if (collector) {
+            this.collector = collector
+        }
+    }
+
+    #createCollectorForMessage(message, { isMirror = false } = {}) {
+        if (!message) return null
         const baseFilter = (interaction) => {
             if (!interaction) return false
             if (interaction.user?.bot) return false
             if (typeof interaction.isMessageComponent === "function" && !interaction.isMessageComponent()) {
                 return false
             }
-            if (interaction.message?.id !== this.statusMessage.id) {
+            if (interaction.message?.id !== message.id) {
                 return false
             }
             if (typeof this.collectorOptions.filter === "function") {
@@ -284,18 +341,18 @@ class LobbySession extends EventEmitter {
             return true
         }
         const filter = withAccessGuard(baseFilter, { scope: "lobby:collector" })
-        this.collector = this.statusMessage.createMessageComponentCollector({
+        const collector = message.createMessageComponentCollector({
             ...this.collectorOptions,
             filter
         })
 
-        this.collector.on("collect", async(interaction) => {
+        collector.on("collect", async(interaction) => {
             const handler = this.#resolveHandler(interaction.customId)
             if (!handler) {
                 await interaction.deferUpdate().catch(
                     logAndSuppress("Failed to defer lobby component interaction", {
                         scope: "lobbySession",
-                        messageId: this.statusMessage?.id,
+                        messageId: message.id,
                         customId: interaction?.customId
                     })
                 )
@@ -323,14 +380,39 @@ class LobbySession extends EventEmitter {
             }
         })
 
-        this.collector.on("end", (collected, reason) => {
-            this.emit("end", { collected, reason })
+        collector.on("end", (collected, reason) => {
+            if (!isMirror) {
+                this.emit("end", { collected, reason })
+            } else {
+                this.mirrorCollectors.delete(message.channel.id)
+            }
         })
 
-        this.collector.on("error", (error) => {
-            this.emit("error", error)
+        collector.on("error", (error) => {
+            if (!isMirror) {
+                this.emit("error", error)
+            }
             this.#logError("Lobby collector error", error)
         })
+
+        if (isMirror) {
+            this.mirrorCollectors.set(message.channel.id, collector)
+        }
+
+        return collector
+    }
+
+    #removeMirror(channelId) {
+        if (this.mirrorCollectors.has(channelId)) {
+            const collector = this.mirrorCollectors.get(channelId)
+            try {
+                collector.stop("removed")
+            } catch (error) {
+                // ignore
+            }
+            this.mirrorCollectors.delete(channelId)
+        }
+        this.mirrors.delete(channelId)
     }
 
     #resolveHandler(customId = "") {

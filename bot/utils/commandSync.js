@@ -167,22 +167,38 @@ const createCommandSync = ({ client, config, logger: injectedLogger = logger }) 
         })
 
         const testGuildId = config.discord.testGuildId
+        const isProduction = process.env.NODE_ENV === "production"
 
-        if (testGuildId) {
-            log.info("Test guild configured - registering commands there first", {
+        if (isProduction) {
+            // Production: test guild gets local commands, others get global
+            if (testGuildId) {
+                log.info("Registering local commands to test guild", {
+                    scope: "commandSync",
+                    target: testGuildId,
+                    reason,
+                    icon: "🧪"
+                })
+                await registerGuildCommands(testGuildId, slashCommands)
+            }
+
+            log.info("Registering global commands", {
+                scope: "commandSync",
+                reason,
+                icon: "🌍"
+            })
+            await registerGlobalCommands(slashCommands)
+        } else if (testGuildId) {
+            // Development: test guild only (instant updates)
+            log.info("Development mode - registering to test guild only", {
                 scope: "commandSync",
                 target: testGuildId,
                 reason,
                 icon: "🧪"
             })
             await registerGuildCommands(testGuildId, slashCommands)
-            log.debug("Registering global commands as well", {
-                scope: "commandSync",
-                reason
-            })
-            await registerGlobalCommands(slashCommands)
         } else {
-            log.info("No test guild configured - using global registration only", {
+            // Development without test guild: global only
+            log.info("No test guild configured - using global registration", {
                 scope: "commandSync",
                 reason,
                 icon: "🌍"
@@ -190,10 +206,10 @@ const createCommandSync = ({ client, config, logger: injectedLogger = logger }) 
             await registerGlobalCommands(slashCommands)
         }
 
-        const cleanupTargets = testGuildId ? [testGuildId] : []
-        if (slashCommands.length && cleanupTargets.length) {
+        // Cleanup stale commands in test guild
+        if (testGuildId) {
             setImmediate(() => {
-                cleanupLegacyGuildCommands(slashCommands.map(cmd => cmd.name), { guildIds: cleanupTargets })
+                cleanupLegacyGuildCommands(slashCommands.map(cmd => cmd.name), { guildIds: [testGuildId] })
                     .catch(error => {
                         log.error("Legacy guild command cleanup failed", {
                             scope: "commandSync",

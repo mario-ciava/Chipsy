@@ -1,4 +1,4 @@
-const { MessageFlags } = require("discord.js")
+const { MessageFlags, EmbedBuilder, Colors } = require("discord.js")
 const { logAndSuppress } = require("../utils/logger")
 
 module.exports = async(interaction) => {
@@ -28,7 +28,7 @@ module.exports = async(interaction) => {
             )
         } else {
             const response = {
-                content: "The bot is currently disabled by the administrators. Please try again later.",
+                embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("The bot is currently disabled by the administrators. Please try again later.")],
                 flags: MessageFlags.Ephemeral
             }
 

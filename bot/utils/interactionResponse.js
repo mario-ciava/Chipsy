@@ -12,9 +12,8 @@ const normalizeInteractionPayload = (payload = {}) => {
         delete next.ephemeral
     }
 
-    if (next.fetchReply === true && next.withResponse === undefined) {
-        next.withResponse = true
-    }
+    // Keep fetchReply as-is - it returns Message directly
+    // withResponse returns InteractionCallbackResponse which has different structure
 
     return next
 }
