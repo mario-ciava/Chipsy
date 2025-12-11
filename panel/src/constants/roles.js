@@ -7,7 +7,7 @@ export const PANEL_ROLES = {
     ADMIN: {
         value: "ADMIN",
         label: "Admin",
-        description: "Control-panel access with the ability to manage moderators, roles, and lists."
+        description: "Control-panel access with the ability to manage moderators, roles and lists."
     },
     MODERATOR: {
         value: "MODERATOR",

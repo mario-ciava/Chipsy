@@ -223,7 +223,7 @@
                         <span class="chip-eyebrow">Progression</span>
                         <h3 class="text-2xl font-semibold text-white">Profile overrides</h3>
                         <p class="chip-card__subtitle chip-card__subtitle--tight">
-                            Tune level, experience, and bankroll values without leaving the panel. These updates apply instantly to the bot.
+                            Tune level, experience and bankroll values without leaving the panel. These updates apply instantly to the bot.
                         </p>
                     </div>
                     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-4">

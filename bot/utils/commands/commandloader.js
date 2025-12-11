@@ -21,7 +21,7 @@ module.exports = async(client, config) => {
     if (!registry) {
         registry = new CommandRegistry({
             client,
-            commandsPath: path.join(__dirname, "..", "commands"),
+        commandsPath: path.join(__dirname, "..", "..", "commands"),
             options: buildOptions(config)
         })
         client.commandRegistry = registry

@@ -257,7 +257,7 @@ export default {
             return this.isQuarantineActive
         },
         policyInfo() {
-            return "Whitelist restricts usage to curated IDs, blacklist blocks offenders, and invite quarantine mutes new servers until approved."
+            return "Whitelist restricts usage to curated IDs, blacklist blocks offenders and invite quarantine mutes new servers until approved."
         },
         toggleDisabled() {
             return this.loading || this.saving

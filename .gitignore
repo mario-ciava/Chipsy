@@ -4,6 +4,7 @@ panel/node_modules/
 config.json
 *.env*
 !*.env.example
+!.env.production.example
 !*/**/*.env.example
 panel/dist/
 logs/

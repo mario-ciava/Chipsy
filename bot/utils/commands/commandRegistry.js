@@ -1,7 +1,7 @@
 const fs = require("fs/promises")
 const path = require("path")
 const chokidar = require("chokidar")
-const logger = require("../../shared/logger")
+const logger = require("../../../shared/logger")
 
 const COMMAND_FILE_EXTENSION = ".js"
 
@@ -19,7 +19,7 @@ class CommandRegistry {
         }
 
         this.client = client
-        this.commandsPath = commandsPath || path.join(__dirname, "..", "commands")
+        this.commandsPath = commandsPath || path.join(__dirname, "..", "..", "commands")
         this.logger = injectedLogger
         this.options = { ...defaultOptions, ...options }
 

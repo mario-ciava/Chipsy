@@ -43,7 +43,6 @@ const resolveApiBaseUrl = () => {
     return fallback
 }
 
-// Fallback è runtime origin + '/api/v1' per evitare hardcode su localhost
 const API_BASE_URL = resolveApiBaseUrl()
 
 // Timeout loosely mirrors constants.server.sessionMaxAge, because axios needs a number anyway.

@@ -3,17 +3,14 @@
 FROM node:20-bullseye-slim AS build
 WORKDIR /app/panel
 
-ARG DISCORD_CLIENT_ID
+# Only public, frontend-safe values should be passed in.
 ARG VUE_APP_DISCORD_CLIENT_ID
-ARG DISCORD_CLIENT_SECRET
-ARG DISCORD_BOT_TOKEN
-ARG DISCORD_OWNER_ID
-
-ENV DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
 ENV VUE_APP_DISCORD_CLIENT_ID=${VUE_APP_DISCORD_CLIENT_ID}
-ENV DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
-ENV DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-ENV DISCORD_OWNER_ID=${DISCORD_OWNER_ID}
+# Provide non-sensitive placeholders to satisfy config validation during build.
+ENV DISCORD_CLIENT_ID="placeholder-client-id" \
+    DISCORD_CLIENT_SECRET="placeholder-client-secret" \
+    DISCORD_BOT_TOKEN="placeholder-bot-token" \
+    DISCORD_OWNER_ID="000000000000000000"
 
 COPY panel/package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --progress=false

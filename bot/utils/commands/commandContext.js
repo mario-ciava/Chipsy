@@ -2,7 +2,7 @@ const { EmbedBuilder, Colors } = require("discord.js")
 const {
     normalizeInteractionPayload,
     sendInteractionResponse
-} = require("./interactionResponse")
+} = require("../interactionResponse")
 
 class CommandUserError extends Error {
     constructor(message, options = {}) {

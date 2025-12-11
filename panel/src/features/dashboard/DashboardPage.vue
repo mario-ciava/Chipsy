@@ -17,7 +17,7 @@
                         <h1 class="chip-heading">Orchestrate the Chipsy fleet</h1>
                     </div>
                     <p class="chip-card__subtitle chip-card__subtitle--tight">
-                        Stay on top of toggles, authorisations, and remote controls without bouncing between views.
+                        Stay on top of toggles, authorisations and remote controls without bouncing between views.
                     </p>
                 </div>
                 <div v-if="user" class="flex flex-col items-end gap-2 text-right">

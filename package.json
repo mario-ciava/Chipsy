@@ -1,6 +1,6 @@
 {
   "name": "chipsy",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Chipsy Discord bot and control panel",
   "main": "bot/index.js",
   "scripts": {
@@ -15,7 +15,7 @@
     "build:images": "docker compose build bot api panel",
     "sync:commands": "node scripts/syncCommands.js",
     "pm2:local": "npm run panel:build && npx pm2 start ecosystem.config.js --env local",
-    "pm2:vps": "npm run panel:build && npx pm2 start ecosystem.config.js --env vps",
+    "pm2:production": "npm run panel:build && npx pm2 start ecosystem.config.js --env production",
     "pm2:restart": "npx pm2 restart chipsy || true",
     "pm2:stop": "npx pm2 delete chipsy || true",
     "pm2:logs": "npx pm2 logs chipsy",
@@ -24,7 +24,7 @@
     "migrate:bigint-columns": "node scripts/migrateBigIntColumns.js",
     "migrate:log-indexes": "node scripts/migrateLogIndexes.js"
   },
-  "author": "Sir Volpe",
+  "author": "Mario Ciavarella",
   "license": "ISC",
   "engines": {
     "node": ">=18.17.0"

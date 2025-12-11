@@ -15,8 +15,8 @@ module.exports = {
                 CHIPSY_ENV: "local",
                 NODE_ENV: "development"
             },
-            env_vps: {
-                CHIPSY_ENV: "vps",
+            env_production: {
+                CHIPSY_ENV: "production",
                 NODE_ENV: "production",
                 SESSION_STORE: "mysql"
             }

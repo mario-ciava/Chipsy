@@ -1,12 +1,3 @@
-/**
- * blackjackRenderer.js
- *
- * Responsabilità: Rendering del tavolo Blackjack (captureTableRender)
- * Usato da: BlackjackGame
- *
- * Nota: legge game state, non modifica struttura game
- */
-
 const { AttachmentBuilder } = require("discord.js")
 const logger = require("../../../shared/logger")
 const {
@@ -19,9 +10,6 @@ class BlackjackRenderer {
         this.game = gameInstance
     }
 
-    /**
-     * buildPlayerRenderPayload(player): prepara i dati di un player per il rendering
-     */
     buildPlayerRenderPayload(player, distributedXp = 0) {
         if (!player || !Array.isArray(player.hands)) return null
 
@@ -55,9 +43,6 @@ class BlackjackRenderer {
         }
     }
 
-    /**
-     * buildDealerState(dealer, options): prepara lo stato del dealer per il rendering
-     */
     buildDealerState(dealer, options = {}) {
         const { hideDealerHoleCard = false, maskDealerValue } = options
 
@@ -73,12 +58,6 @@ class BlackjackRenderer {
         }
     }
 
-    /**
-     * captureTableRender(options): renderizza lo stato del tavolo come PNG
-     *
-     * Options: { dealer, players, result, filename, description, hideDealerHoleCard, maskDealerValue, forceResult }
-     * Returns: { attachment, filename } | null
-     */
     async captureTableRender(options = {}) {
         const {
             dealer = this.game.dealer,

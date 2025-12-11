@@ -114,7 +114,7 @@ module.exports = createCommand({
 
         if (targetIsBot) {
             await respond({
-                embeds: [new EmbedBuilder().setColor(Colors.Orange).setDescription("⚠️ Non è possibile mostrare il profilo di un bot.")],
+                embeds: [new EmbedBuilder().setColor(Colors.Orange).setDescription("⚠️ Bot profiles are unavailable.")],
                 flags: MessageFlags.Ephemeral
             })
             return

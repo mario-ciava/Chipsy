@@ -15,7 +15,7 @@
                     </div>
                     <h3 class="chip-card__title">Runtime health</h3>
                     <p class="chip-card__subtitle chip-card__subtitle--tight">
-                        Track processes, cooldowns, and response posture in real time.
+                        Track processes, cooldowns and response posture in real time.
                     </p>
                 </div>
             </div>

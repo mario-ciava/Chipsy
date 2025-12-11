@@ -50,11 +50,14 @@ const loadEnvFile = (filename, { overrideExisting = false } = {}) => {
 
 const resolveEnvTarget = () => {
     const explicit = (process.env.CHIPSY_ENV || "").toLowerCase()
-    if (explicit === "local" || explicit === "vps") {
-        return explicit
+    if (explicit === "local") {
+        return "local"
+    }
+    if (explicit === "production" || explicit === "vps") {
+        return "production"
     }
     if (process.env.NODE_ENV === "production" || process.env.DOCKER_ENV === "true") {
-        return "vps"
+        return "production"
     }
     return "local"
 }

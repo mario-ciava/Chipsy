@@ -20,11 +20,6 @@ const router = createRouter({
             component: HomePage
         },
         {
-            path: "/leaderboard",
-            name: "Leaderboard",
-            component: LeaderboardPage
-        },
-        {
             path: "/login",
             name: "Login",
             component: LoginPage,
@@ -76,6 +71,10 @@ const router = createRouter({
                 requiresAuth: true,
                 requiresPanel: true
             }
+        },
+        {
+            path: "/:pathMatch(.*)*",
+            redirect: { name: "Home" }
         }
     ]
 })

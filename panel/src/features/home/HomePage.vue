@@ -160,14 +160,6 @@ const SHARED_SHORTCUTS = Object.freeze([
         ctaLabel: "View",
         handler: "scrollToMarketing",
         roles: ["USER", "MODERATOR", "ADMIN", "MASTER"]
-    },
-    {
-        key: "ops-placeholder",
-        title: "Remote maintenance",
-        description: "Reserve this slot for the upcoming remote controls shortcut.",
-        ctaLabel: "Soon",
-        disabled: true,
-        roles: ["USER", "MODERATOR", "ADMIN", "MASTER"]
     }
 ])
 

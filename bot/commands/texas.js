@@ -206,10 +206,18 @@ const runTexas = async(interaction, client) => {
                            value: l.id
                        })))
 
+                    const browseEmbed = new EmbedBuilder()
+                        .setColor(Colors.Blue)
+                        .setTitle("🔍 Open Texas Hold'em Lobbies")
+                        .setDescription("Select a lobby from the list below to join.")
+                        .setThumbnail("attachment://Lobby.png")
+                    const browseThumbnail = new AttachmentBuilder("./assets/ui/Lobby.png")
+
                     await interaction.editReply({
                         content: null,
-                        embeds: [new EmbedBuilder().setColor(Colors.Blue).setTitle("🔍 Open Texas Hold'em Lobbies")],
-                        components: [new ActionRowBuilder().addComponents(select)]
+                        embeds: [browseEmbed],
+                        components: [new ActionRowBuilder().addComponents(select)],
+                        files: [browseThumbnail]
                     })
                 }
                 else if (selection.customId === "tx:init:select") {

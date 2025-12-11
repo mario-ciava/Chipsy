@@ -14,7 +14,7 @@
                 </div>
                 <h3 class="chip-card__title">Your Chipsy profile</h3>
                 <p class="chip-card__subtitle chip-card__subtitle--tight">
-                    Review bankroll, gold, and cooldown timers without switching contexts.
+                    Review bankroll, gold and cooldown timers without switching contexts.
                 </p>
             </div>
             <div class="ml-auto flex min-w-[14rem] flex-col items-end gap-1">
@@ -241,7 +241,7 @@ export default {
             return this.emptyCopy
         },
         tooltipCopy() {
-            return "Keep tabs on bankroll, progression, and runtime timestamps without leaving the panel."
+            return "Keep tabs on bankroll, progression and runtime timestamps without leaving the panel."
         },
         nextRewardCopy() {
             return this.nextReward || "Available"

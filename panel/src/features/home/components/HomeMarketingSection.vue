@@ -10,7 +10,7 @@
                     </span>
                     <h3 class="chip-card__title">{{ whyChipsyContent.headline || "Why Chipsy" }}</h3>
                     <p class="chip-card__subtitle chip-card__subtitle--tight">
-                        {{ whyChipsyContent.body || "Chipsy keeps Discord-native casinos synchronized across bot, panel, and data." }}
+                        {{ whyChipsyContent.body || "Chipsy keeps Discord-native casinos synchronized across bot, panel and data." }}
                     </p>
                 </div>
                 <div v-if="guildInviteUrl" class="flex items-start justify-center lg:justify-end">

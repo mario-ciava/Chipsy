@@ -1,10 +1,10 @@
 const { Collection, MessageFlags, EmbedBuilder, Colors } = require("discord.js")
-const config = require("../../config")
-const logger = require("../../shared/logger")
+const config = require("../../../config")
+const logger = require("../../../shared/logger")
 const { logAndSuppress } = logger
-const { sendInteractionResponse } = require("./interactionResponse")
-const { getAccessDeniedMessage, buildGuildContext } = require("./interactionAccess")
-const { buildInteractionLogContext } = require("./interactionContext")
+const { sendInteractionResponse } = require("../interactionResponse")
+const { getAccessDeniedMessage, buildGuildContext } = require("../interactionAccess")
+const { buildInteractionLogContext } = require("../interactionContext")
 
 const ROUTER_SCOPE = "commandRouter"
 const COMMAND_TELEMETRY_ENABLED = config?.logging?.commandTelemetry?.enabled !== false

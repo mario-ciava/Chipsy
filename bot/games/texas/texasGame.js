@@ -19,6 +19,8 @@ const HandProgression = require("./handProgression")
 const MessageManagement = require("../shared/messageManagement")
 const { resolveTexasSettings, defaults: texasSettingDefaults } = require("./settings")
 const GameBroadcaster = require("../shared/gameBroadcaster")
+const TexasRebuyManager = require("./rebuyManager")
+const TexasMessageCoordinator = require("./messageCoordinator")
 
 const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
     logAndSuppress(message, {
@@ -31,11 +33,6 @@ const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
 
 const createWonState = () => ({ grossValue: 0, netValue: 0, expEarned: 0, goldEarned: 0 })
 
-/**
- * toSafeInteger(value): normalize an integer chip amount.
- *
- * Delegates to the shared validator to ensure it is finite, positive, and capped at MAX_SAFE_STACK.
- */
 const toSafeInteger = (value) => {
     return validateAmount(value, MAX_SAFE_STACK)
 }
@@ -62,6 +59,7 @@ module.exports = class TexasGame extends Game {
         this.pendingProbabilityTask = null
         this.actionTimeline = []
         this.lastValidSnapshot = null
+        this.roundMessageFresh = true
         this.rebuyOffers = new Map()
         this.waitingForRebuy = false
         this.rebuyResumeTimer = null
@@ -71,13 +69,13 @@ module.exports = class TexasGame extends Game {
         this.currentBigBlindId = null
         this.currentHandOrder = []
 
-        // Initialize dedicated modules to keep responsibilities separated
         this.betting = new BettingEngine(this)
         this.renderer = new TexasRenderer(this)
         this.progression = new HandProgression(this)
         this.messages = new MessageManagement(this)
+        this.rebuyManager = new TexasRebuyManager(this)
+        this.messageCoordinator = new TexasMessageCoordinator(this)
 
-        // Initialize Broadcaster
         this.broadcaster = new GameBroadcaster(this)
         if (info.message?.channel) {
             this.broadcaster.setPrimaryChannel(info.message.channel)
@@ -90,11 +88,6 @@ module.exports = class TexasGame extends Game {
         this.broadcaster.inheritLobbyMirrors(lobbySession)
     }
 
-    /**
-     * createPlayerSession(user, stackAmount): create a new player object.
-     *
-     * Delegates to the shared factory in playerStateSchema.js for consistent validation.
-     */
     createPlayerSession(user, stackAmount) {
         return createPlayerSessionSchema(user, stackAmount)
     }
@@ -248,7 +241,6 @@ module.exports = class TexasGame extends Game {
         const amount = entry.amount ?? entry.total
         const hasAmount = Number.isFinite(amount) && amount > 0
 
-        // Action label in bold
         let actionLabel
         if (type === "fold") actionLabel = "**Fold**"
         else if (type === "check") actionLabel = "**Check**"
@@ -258,7 +250,6 @@ module.exports = class TexasGame extends Game {
         else if (type === "allin") actionLabel = "**All-in**"
         else actionLabel = `**${String(type).charAt(0).toUpperCase() + String(type).slice(1)}**`
 
-        // Amount in parentheses for money actions
         if (hasAmount && ["call", "bet", "raise", "allin"].includes(type)) {
             return `${actionLabel} (${setSeparator(amount)}$)`
         }
@@ -278,13 +269,12 @@ module.exports = class TexasGame extends Game {
     }
 
     buildActionTimeline({ pot, toCall } = {}) {
-        // Timeline contains all actions except blinds (those are in the Info field)
         if (!Array.isArray(this.actionTimeline) || this.actionTimeline.length === 0) {
             return "No actions yet."
         }
 
         const lines = this.actionTimeline
-            .filter((entry) => !entry?.isBlind) // Skip blind entries
+            .filter((entry) => !entry?.isBlind)
             .map((entry) => {
                 const actionLabel = this.formatActionEntry(entry)
                 if (!actionLabel) return null
@@ -313,7 +303,6 @@ module.exports = class TexasGame extends Game {
         let sbPlayer = resolvePlayer(this.currentSmallBlindId)
         let bbPlayer = resolvePlayer(this.currentBigBlindId)
 
-        // Fallback to current hand order (or in-game order) if IDs are missing/invalid
         const orderedIds = Array.isArray(this.currentHandOrder) && this.currentHandOrder.length
             ? this.currentHandOrder
             : (this.inGamePlayers || []).map((p) => p.id)
@@ -429,20 +418,10 @@ module.exports = class TexasGame extends Game {
             })
     }
 
-    /**
-     * buildPlayerRenderPayload(player, options): create the payload for rendering a player.
-     *
-     * Delegates to the renderer.
-     */
     buildPlayerRenderPayload(player, options = {}) {
         return this.renderer.buildPlayerRenderPayload(player, options)
     }
 
-    /**
-     * createPlayerPanelAttachment(player, options): create a PNG panel for a player.
-     *
-     * Delegates to the renderer.
-     */
     async createPlayerPanelAttachment(player, options = {}) {
         return this.renderer.createPlayerPanelAttachment(player, options)
     }
@@ -494,9 +473,7 @@ module.exports = class TexasGame extends Game {
 
         await this.dataHandler.updateUserData(user.id, this.dataHandler.resolveDBUser(user))
 
-        // Final check before push to prevent race condition duplicates
         if (this.GetPlayer(user.id)) {
-            // Player was added by a concurrent call, refund the buy-in
             user.data.money = currentBankroll
             await this.dataHandler.updateUserData(user.id, this.dataHandler.resolveDBUser(user))
             return false
@@ -529,346 +506,49 @@ module.exports = class TexasGame extends Game {
     }
 
     isRebuyEnabled() {
-        return this.settings?.allowRebuyMode !== "off"
+        return this.rebuyManager.isRebuyEnabled()
     }
 
     getRebuyWindowMs() {
-        const fallback = texasSettingDefaults.rebuyWindowMs || 60 * 1000
-        const min = texasSettingDefaults.minWindowMs || 30 * 1000
-        const max = texasSettingDefaults.maxWindowMs || 10 * 60 * 1000
-        const resolved = Number.isFinite(this.settings?.rebuyWindowMs) ? this.settings.rebuyWindowMs : fallback
-        return Math.max(min, Math.min(max, resolved))
+        return this.rebuyManager.getRebuyWindowMs()
     }
 
     canPlayerRebuy(player) {
-        if (!player || !this.isRebuyEnabled()) return false
-        const mode = this.settings?.allowRebuyMode || "on"
-        if (mode === "off") return false
-        if (mode === "once" && Number(player.rebuysUsed) >= 1) return false
-        return true
+        return this.rebuyManager.canPlayerRebuy(player)
     }
 
     buildRebuyPauseFooter(windowMs) {
-        const seconds = Math.max(1, Math.round(windowMs / 1000))
-        return `⏸️ Waiting for rebuy: the table will remain paused for up to ${seconds}s.`
+        return this.rebuyManager.buildRebuyPauseFooter(windowMs)
     }
 
     async applyRebuyPauseFooter(windowMs) {
-        const footerText = this.buildRebuyPauseFooter(windowMs)
-        for (const [playerId, offer] of this.rebuyOffers.entries()) {
-            const message = offer?.message
-            if (!message || !Array.isArray(message.embeds) || message.embeds.length === 0) continue
-            try {
-                const updatedEmbed = EmbedBuilder.from(message.embeds[0]).setFooter({ text: footerText })
-                await message.edit({
-                    embeds: [updatedEmbed],
-                    components: message.components || []
-                })
-            } catch (error) {
-                logger.debug("Failed to update rebuy pause footer", {
-                    scope: "texasGame",
-                    playerId,
-                    error: error?.message
-                })
-            }
-        }
+        return this.rebuyManager.applyRebuyPauseFooter(windowMs)
     }
 
     async handleBustedPlayer(player) {
-        if (!player) return
-        if (!this.canPlayerRebuy(player)) {
-            await this.RemovePlayer(player, { skipStop: true, reason: "busted" })
-            return
-        }
-
-        const windowMs = this.getRebuyWindowMs()
-        player.status = player.status || {}
-        player.status.pendingRebuy = true
-        player.status.rebuyDeadline = Date.now() + windowMs
-        player.status.removed = true
-        player.status.leftThisHand = true
-        player.status.pendingRemoval = false
-        player.status.folded = true
-        player.status.allIn = false
-        player.status.lastAction = { type: "busted", ts: Date.now() }
-        player.bets = { current: 0, total: 0 }
-        player.stack = Math.max(0, player.stack || 0)
-
-        this.UpdateInGame()
-
-        await this.startRebuyOffer(player, windowMs)
+        return this.rebuyManager.handleBustedPlayer(player)
     }
 
     async waitForPendingRebuys() {
-        this.waitingForRebuy = true
-        const windowMs = this.getRebuyWindowMs()
-        try {
-            await this.applyRebuyPauseFooter(windowMs)
-        } catch (error) {
-            logger.debug("Failed to apply rebuy wait footer", {
-                scope: "texasGame",
-                error: error?.message
-            })
-        }
+        return this.rebuyManager.waitForPendingRebuys()
     }
 
     async startRebuyOffer(player, windowMs) {
-        if (!this.channel || typeof this.channel.send !== "function") return
-
-        // Cancel any existing offer for this player
-        const existing = this.rebuyOffers.get(player.id)
-        if (existing?.collector && !existing.collector.ended) {
-            try {
-                existing.collector.stop("replaced")
-            } catch (_) { /* ignore */ }
-        }
-
-        const customId = `tx_rebuy:${player.id}:${Date.now()}`
-        const playerLabel = player.tag || player.username || player
-        const seconds = Math.max(1, Math.round(windowMs / 1000))
-        const embed = new EmbedBuilder()
-            .setColor(Colors.Orange)
-            .setTitle("💸 Rebuy available")
-            .setDescription(`${playerLabel} ran out of chips.\nYou have **${seconds}s** to rebuy and stay in the game.`)
-
-        if (this.waitingForRebuy) {
-            embed.setFooter({ text: this.buildRebuyPauseFooter(windowMs) })
-        }
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(customId)
-                .setLabel("Rebuy")
-                .setStyle(ButtonStyle.Primary)
-        )
-
-        // Rebuy offers are still sent individually to the channel (or user) to avoid cluttering the main table broadcast
-        // We use the primary channel for this
-        let message = null
-        try {
-            message = await this.channel.send({
-                embeds: [embed],
-                components: [row],
-                allowedMentions: { parse: [] }
-            })
-        } catch (error) {
-            logger.warn("Failed to send rebuy offer", {
-                scope: "texasGame",
-                playerId: player?.id,
-                error: error?.message
-            })
-            return
-        }
-
-        const filter = withAccessGuard(
-            (interaction) => interaction.customId === customId,
-            { scope: "texas:rebuy" }
-        )
-
-        const collector = message.createMessageComponentCollector({
-            time: windowMs,
-            filter
-        })
-
-        collector.on("collect", async (interaction) => {
-            if (interaction.user?.id !== player.id) {
-                await this.respondEphemeral(interaction, { content: "❌ Only this player can rebuy." })
-                return
-            }
-
-            const modalId = `tx_rebuy_modal:${interaction.id}`
-            const modal = new ModalBuilder()
-                .setCustomId(modalId)
-                .setTitle("Rebuy amount")
-                .addComponents(
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder()
-                            .setCustomId("amount")
-                            .setLabel("Buy-in amount")
-                            .setStyle(TextInputStyle.Short)
-                            .setRequired(true)
-                            .setValue(String(this.minBuyIn))
-                    )
-                )
-
-            try {
-                await interaction.showModal(modal)
-            } catch (error) {
-                logger.warn("Failed to show rebuy modal", {
-                    scope: "texasGame",
-                    playerId: player?.id,
-                    error: error?.message
-                })
-                return
-            }
-
-            let submission = null
-            try {
-                submission = await interaction.awaitModalSubmit({
-                    time: config.texas.modalTimeout.default,
-                    filter: withAccessGuard(
-                        (i) => i.customId === modalId && i.user.id === interaction.user.id,
-                        { scope: "texas:rebuyModal" }
-                    )
-                })
-            } catch (_) {
-                return
-            }
-
-            if (!submission) return
-
-            const parsed = features.inputConverter(submission.fields.getTextInputValue("amount"))
-            const buyInResult = bankrollManager.normalizeBuyIn({
-                requested: parsed,
-                minBuyIn: this.minBuyIn,
-                maxBuyIn: this.maxBuyIn,
-                bankroll: bankrollManager.getBankroll(submission.user)
-            })
-
-            if (!buyInResult.ok) {
-                await this.respondEphemeral(submission, {
-                    content: `❌ ${buyInResult.reason === "insufficientBankroll" ? "Not enough bankroll for this rebuy." : "Invalid amount."}`
-                })
-                return
-            }
-
-            // Apply rebuy
-            try {
-                submission.user.data.money = bankrollManager.getBankroll(submission.user) - buyInResult.amount
-                player.stack = buyInResult.amount
-                const resumeNow = Boolean(this.waitingForRebuy)
-                player.status.pendingRebuy = false
-                player.status.pendingRemoval = false
-                player.status.pendingRejoin = resumeNow ? false : true
-                player.status.removed = resumeNow ? false : true
-                player.status.leftThisHand = true
-                player.status.folded = true
-                player.status.allIn = false
-                player.status.movedone = true
-                player.bets = { current: 0, total: 0 }
-                player.status.lastAction = { type: "rebuy", amount: buyInResult.amount, ts: Date.now() }
-                player.rebuysUsed = (Number(player.rebuysUsed) || 0) + 1
-
-                await this.dataHandler.updateUserData(submission.user.id, this.dataHandler.resolveDBUser(submission.user))
-
-                await this.respondEphemeral(submission, {
-                    content: `✅ Rebuy successful: **${setSeparator(buyInResult.amount)}$**.`
-                })
-
-                // Update the original rebuy message: disable button and show resume info
-                if (message) {
-                    const disabledRow = new ActionRowBuilder().addComponents(
-                        ButtonBuilder.from(row.components[0]).setDisabled(true)
-                    )
-                    const resumedEmbed = EmbedBuilder.from(message.embeds?.[0] || embed)
-                        .setDescription(`✅ ${playerLabel} rejoined with **${setSeparator(buyInResult.amount)}$**.`)
-                        .setFooter({ text: "▶️ Game resumed" })
-                        .setColor(Colors.Green)
-                    await message.edit({
-                        embeds: [resumedEmbed],
-                        components: [disabledRow]
-                    }).catch(() => null)
-                }
-
-                try {
-                    collector.stop("completed")
-                } catch (_) { /* ignore */ }
-
-                await this.onRebuyCompleted(player)
-            } catch (error) {
-                logger.warn("Failed to process rebuy", {
-                    scope: "texasGame",
-                    playerId: player?.id,
-                    error: error?.message
-                })
-                await this.respondEphemeral(submission, {
-                    content: "❌ Rebuy failed. Please try again."
-                })
-            }
-        })
-
-        collector.on("end", async (_collected, reason) => {
-            try {
-                const disabled = new ActionRowBuilder().addComponents(
-                    ButtonBuilder.from(row.components[0]).setDisabled(true)
-                )
-                await message.edit({ components: [disabled] }).catch(() => null)
-            } catch (_) { /* ignore */ }
-
-            this.rebuyOffers.delete(player.id)
-            if (reason !== "completed" && reason !== "replaced") {
-                await this.onRebuyExpired(player)
-            }
-        })
-
-        this.rebuyOffers.set(player.id, { message, collector, expiresAt: Date.now() + windowMs })
+        return this.rebuyManager.startRebuyOffer(player, windowMs)
     }
 
     async onRebuyExpired(player) {
-        if (!player?.status?.pendingRebuy) return
-        player.status.pendingRebuy = false
-        player.status.removed = true
-        player.status.leftThisHand = true
-        player.status.pendingRemoval = false
-        player.status.rebuyDeadline = null
-
-        this.UpdateInGame()
-        await this.evaluateRebuyState()
+        return this.rebuyManager.onRebuyExpired(player)
     }
 
     async onRebuyCompleted(player) {
-        this.UpdateInGame()
-        await this.evaluateRebuyState()
+        return this.rebuyManager.onRebuyCompleted(player)
     }
 
     async evaluateRebuyState() {
-        const activePlayers = this.players.filter((p) =>
-            (!p.status?.removed || p.status?.pendingRejoin) &&
-            !p.status?.pendingRemoval &&
-            !p.status?.pendingRebuy
-        )
-        const pendingRebuys = this.players.filter((p) => p.status?.pendingRebuy)
-
-        if (activePlayers.length >= this.getMinimumPlayers()) {
-            if (this.waitingForRebuy) {
-                this.waitingForRebuy = false
-                if (!this.awaitingPlayerId && !this.timer) {
-                    try {
-                        await this.StartGame()
-                    } catch (error) {
-                        logger.warn("Failed to restart game after rebuy", {
-                            scope: "texasGame",
-                            error: error?.message
-                        })
-                    }
-                }
-            }
-            return
-        }
-
-        if (pendingRebuys.length > 0) {
-            this.waitingForRebuy = true
-            try {
-                await this.applyRebuyPauseFooter(this.getRebuyWindowMs())
-            } catch (error) {
-                logger.debug("Failed to refresh rebuy footer while waiting", {
-                    scope: "texasGame",
-                    error: error?.message
-                })
-            }
-            return
-        }
-
-        // No pending rebuys and not enough players
-        try {
-            await this.Stop({ reason: "notEnoughPlayers" })
-        } catch (error) {
-            logger.warn("Failed to stop after rebuy expiration", {
-                scope: "texasGame",
-                error: error?.message
-            })
-        }
+        return this.rebuyManager.evaluateRebuyState()
     }
+
 
     async RemovePlayer(player, options = {}) {
         const { skipStop = false, stopOptions = {}, forceRemove = false, reason = "left" } = options;
@@ -904,12 +584,10 @@ module.exports = class TexasGame extends Game {
 
         this.UpdateInGame()
 
-        // Send notice when player leaves during active game
         if (this.playing && !forceRemove) {
             await this.sendPlayerLeftNotice(existing, reason)
         }
 
-        // Check minimum players (count only active, not removed)
         const activeCount = this.players.filter(p => !p.status?.removed && !p.status?.pendingRebuy).length
         const pendingRebuys = this.players.filter(p => p.status?.pendingRebuy)
         if (!skipStop && activeCount < this.getMinimumPlayers() && this.playing) {
@@ -918,7 +596,6 @@ module.exports = class TexasGame extends Game {
                 await this.waitForPendingRebuys()
                 return true
             }
-            // Update render to show LEFT badge before stopping
             try {
                 const finalSnapshot = await this.captureTableRender({
                     title: "Game Over",
@@ -945,7 +622,6 @@ module.exports = class TexasGame extends Game {
                 })
             }
 
-            // Stop the game
             try {
                 await this.Stop({ reason: "notEnoughPlayers", ...stopOptions })
             } catch (error) {
@@ -959,7 +635,6 @@ module.exports = class TexasGame extends Game {
             return true
         }
 
-        // Only advance hand if game is still playing and this was the current player
         if (this.awaitingPlayerId === playerId) {
             this.awaitingPlayerId = null
         }
@@ -979,168 +654,10 @@ module.exports = class TexasGame extends Game {
     }
 
     async SendMessage(type, options = {}) {
-        if (type !== "handEnded") return
-        const channel = this.channel
-        const showdownRender = options.showdown !== undefined ? options.showdown : true
-        const revealWinnerId = options.revealWinnerId || null
-        const revealWinner = revealWinnerId ? this.GetPlayer(revealWinnerId) : null
-        const sendEmbed = async (embed, components = []) => {
-            try {
-                return await channel.send({ embeds: [embed], components })
-            } catch (error) {
-                logger.error(`Failed to send Texas message (type: ${type})`, { error })
-                return null
-            }
-        }
-
-        const eligiblePlayers = (this.players || []).filter((p) => {
-            if (!p) return false
-            const status = p.status || {}
-            if (status.pendingRemoval || status.pendingRebuy) return false
-            if (status.removed && !status.pendingRejoin) return false
-            return true
-        })
-        const footerText = !this.waitingForRebuy && eligiblePlayers.length <= 1
-            ? "🏆 Game over: Only 1 player remaining!"
-            : "Showdown complete"
-        const embed = new EmbedBuilder()
-            .setColor(Colors.Gold)
-            .setTitle(`Hand #${this.hands} Ended`)
-            .setFooter({ text: footerText })
-
-        embed.addFields(...this.buildInfoAndTimelineFields({ toCall: 0 }))
-
-        // Always render showdown, even with 1 player remaining (for all-in scenarios)
-        let snapshot = null
-        // Reset player bets to 0 for showdown render (avoid confusion with pot)
-        this.inGamePlayers.forEach(p => {
-            p.bets.current = 0
-        })
-
-        snapshot = await this.captureTableRender({
-            title: showdownRender ? "Showdown" : "Hand Complete",
-            showdown: showdownRender,
-            focusPlayerId: revealWinnerId,
-            revealFocusCards: showdownRender && Boolean(revealWinnerId)
-        })
-        if (!snapshot) {
-            logger.warn("Texas table snapshot missing for showdown", {
-                scope: "texasGame",
-                hand: this.hands,
-                showdownRender,
-                revealWinnerId
-            })
-        }
-
-        const messagePayload = {
-            embeds: [embed],
-            files: snapshot ? [snapshot.attachment] : [],
-            components: []
-        }
-        if (snapshot) {
-            embed.setImage(`attachment://${snapshot.filename}`)
-        }
-
-        const revealRow = []
-        if (revealWinner && !showdownRender && revealWinner.user && !revealWinner.user.bot) {
-            revealRow.push(
-                new ButtonBuilder()
-                    .setCustomId(`tx_reveal:${this.hands}:${revealWinner.id}`)
-                    .setLabel("Reveal winning hand")
-                    .setStyle(ButtonStyle.Primary)
-            )
-        }
-        const leaveRow = new ButtonBuilder()
-            .setCustomId(`tx_action:leave:${revealWinnerId || "any"}`)
-            .setLabel("Leave")
-            .setStyle(ButtonStyle.Secondary)
-
-        const combinedRow = new ActionRowBuilder()
-        if (revealRow.length) revealRow.forEach(btn => combinedRow.addComponents(btn))
-        combinedRow.addComponents(leaveRow.setStyle(ButtonStyle.Danger))
-        messagePayload.components.push(combinedRow)
-
-        // Use broadcaster to send to all
-        const message = await this.broadcaster.broadcast(messagePayload)
-        
-        if (messagePayload.components.length === 0) return
-
-        await new Promise((resolve) => {
-            const revealRequests = new Map()
-            
-            // Use broadcaster collectors
-            this.broadcaster.createCollectors({
-                time: 10_000,
-                filter: (i) => i.customId === `tx_reveal:${this.hands}:${revealWinnerId}` || i.customId === `tx_action:leave:${revealWinnerId || "any"}`
-            }, async (interaction) => {
-                if (interaction.customId.startsWith("tx_action:leave")) {
-                    const player = this.GetPlayer(interaction.user.id)
-                    if (player) {
-                        await interaction.deferUpdate().catch(() => null)
-                        await this.RemovePlayer(player, { skipStop: false })
-                        await this.respondEphemeral(interaction, { content: "✅ You left the table." })
-                    } else {
-                        await this.respondEphemeral(interaction, { content: "⚠️ You are not seated at this table." })
-                    }
-                    return
-                }
-                revealRequests.set(interaction.user.id, interaction)
-                await interaction.deferUpdate().catch(() => null)
-            }, async () => {
-                // On End
-                const components = messagePayload.components.map((row) => {
-                    const updatedRow = ActionRowBuilder.from(row)
-                    updatedRow.components = row.components.map((component) => ButtonBuilder.from(component).setDisabled(true))
-                    return updatedRow
-                })
-
-                let updatedEmbed = EmbedBuilder.from(embed)
-                let updatedFiles = messagePayload.files
-
-                if (revealRequests.size > 0) {
-                    const revealPlayerIds = Array.from(revealRequests.keys())
-                    let revealedSnapshot = null
-                    try {
-                        revealedSnapshot = await this.captureTableRender({
-                            title: "Showdown",
-                            showdown: false,
-                            focusPlayerId: revealWinnerId,
-                            revealFocusCards: false,
-                            revealPlayerIds
-                        })
-                    } catch (error) {
-                        logger.warn("Failed to capture reveal snapshot", {
-                            scope: "texasGame",
-                            hand: this.hands,
-                            error: error?.message
-                        })
-                    }
-
-                    if (revealedSnapshot) {
-                        updatedEmbed.setImage(`attachment://${revealedSnapshot.filename}`)
-                        updatedFiles = [revealedSnapshot.attachment]
-                    } else {
-                        updatedEmbed.setImage(null)
-                    }
-                }
-
-                await this.broadcaster.broadcast({
-                    embeds: [updatedEmbed],
-                    files: updatedFiles,
-                    components
-                }).catch(() => null)
-                resolve()
-            })
-        })
-
-        this.lastHandMessage = message
+        return this.messageCoordinator.SendMessage(type, options)
     }
 
-    /**
-     * captureTableRender(options): render the table state as a PNG.
-     *
-     * Delegates to the renderer.
-     */
+
     async captureTableRender(options = {}) {
         return this.renderer.captureTableRender(options)
     }
@@ -1159,149 +676,18 @@ module.exports = class TexasGame extends Game {
     }
 
     async updateGameMessage(player, options = {}) {
-        const availableOptions = Array.isArray(options.availableOptions)
-            ? options.availableOptions
-            : await this.GetAvailableOptions(player)
-        const paused = Boolean(options.remotePaused || (this.isRemotePauseActive && this.isRemotePauseActive()))
-        const components = []
-        if (!options.hideActions && !paused) {
-            const row = new ActionRowBuilder()
-            if (availableOptions.includes("fold")) {
-                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:fold:${player.id}`).setLabel("Fold").setStyle(ButtonStyle.Danger))
-            }
-            if (availableOptions.includes("check")) {
-                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:check:${player.id}`).setLabel("Check").setStyle(ButtonStyle.Secondary))
-            }
-            if (availableOptions.includes("call")) {
-                const callAmount = Math.max(0, this.bets.currentMax - player.bets.current)
-                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:call:${player.id}`).setLabel(`Call (${setSeparator(callAmount)})`).setStyle(ButtonStyle.Success))
-            }
-            if (availableOptions.includes("bet")) {
-                const minBet = this.getTableMinBet()
-                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:bet_fixed:${player.id}:${minBet}`).setLabel(`Bet (${setSeparator(minBet)})`).setStyle(ButtonStyle.Primary))
-            }
-            if (availableOptions.includes("raise")) {
-                const minRaiseTotal = this.bets.currentMax + this.bets.minRaise
-                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:raise_fixed:${player.id}:${minRaiseTotal}`).setLabel(`Raise (${setSeparator(minRaiseTotal)})`).setStyle(ButtonStyle.Primary))
-            }
-            if (availableOptions.includes("allin")) {
-                const toCall = Math.max(0, this.bets.currentMax - player.bets.current)
-                const callIsAllIn = availableOptions.includes("call") && toCall >= player.stack
-                if (!callIsAllIn) {
-                    row.addComponents(new ButtonBuilder().setCustomId(`tx_action:allin:${player.id}`).setLabel(`All-in (${setSeparator(player.stack)})`).setStyle(ButtonStyle.Danger))
-                }
-            }
-            if (availableOptions.includes("leave")) {
-                row.addComponents(new ButtonBuilder().setCustomId(`tx_action:leave:${player.id}`).setLabel("Leave").setStyle(ButtonStyle.Danger))
-            }
-            if (row.components.length > 0) components.push(row)
-
-            if (availableOptions.includes("bet") || availableOptions.includes("raise")) {
-                const customRow = new ActionRowBuilder()
-                customRow.addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`tx_action:custom:${player.id}`)
-                        .setLabel("Custom amount")
-                        .setStyle(ButtonStyle.Secondary)
-                )
-                components.push(customRow)
-            }
-        }
-
-        // Freeze render when only 1 player remains in game (keep last valid snapshot)
-        let snapshot = null
-        if (this.inGamePlayers.length >= 2) {
-            snapshot = await this.captureTableRender({ title: `${player.tag}'s turn`, focusPlayerId: player.id })
-            if (snapshot) {
-                this.lastValidSnapshot = snapshot
-            }
-            if (!snapshot) {
-                logger.warn("Texas action snapshot missing", {
-                    scope: "texasGame",
-                    hand: this.hands,
-                    playerId: player?.id
-                })
-            }
-        } else if (this.lastValidSnapshot) {
-            // Reuse last valid snapshot when only 1 player left
-            snapshot = this.lastValidSnapshot
-        }
-        const currentBet = player.bets?.current || 0
-        const toCall = Math.max(0, this.bets.currentMax - currentBet)
-        const embed = new EmbedBuilder()
-            .setColor(Colors.Blue)
-            .setTitle(`Texas Hold'em - Round #${this.hands}`)
-
-        const footerParts = [
-            `Round #${this.hands}`,
-            `${Math.round(this.actionTimeoutMs / 1000)}s per turn`
-        ]
-        if (paused) {
-            footerParts.push("Remote pause active")
-        }
-        if (this.inactiveHands >= 1 && !this.currentHandHasInteraction) {
-            footerParts.push("⚠️ No recent actions: table may close soon")
-        }
-        embed.setFooter({ text: footerParts.join(" | ") })
-        if (paused) {
-            embed.setColor(Colors.DarkGrey)
-        }
-
-        // Add Info field with Small/Big blind
-        embed.addFields(...this.buildInfoAndTimelineFields({ toCall }))
-
-        if (paused) {
-            embed.setDescription("⏸️ Table paused by admins. Please wait.")
-        }
-
-        const payload = { embeds: [embed], components, files: [], attachments: [] }
-
-        if (snapshot) {
-            embed.setImage(`attachment://${snapshot.filename}`)
-            payload.files.push(snapshot.attachment)
-        }
-
-        // Edit existing message if available, otherwise send new
-        await this.broadcaster.broadcast(payload)
-
-        // Send hole cards AFTER the table render, and wait for probability calculation
-        if (!this.holeCardsSent) {
-            // Wait for pending probability calculation to complete (if any)
-            if (this.pendingProbabilityTask) {
-                try {
-                    await this.pendingProbabilityTask
-                } catch {
-                    // Probability calculation failed, continue without it
-                }
-            }
-            await this.remindAllPlayersHoleCards()
-            this.holeCardsSent = true
-        }
+        return this.messageCoordinator.updateGameMessage(player, options)
     }
 
-    /**
-     * respondEphemeral(interaction, payload, options): send an ephemeral message.
-     *
-     * Delegates to MessageManagement.
-     */
+
     async respondEphemeral(interaction, payload = {}, options = {}) {
         return this.messages.respondEphemeral(interaction, payload, options)
     }
     
-    /**
-     * sendHoleCardsReminder(player, options): send a reminder with the player's hole cards.
-     *
-     * Delegates to MessageManagement.
-     */
     async sendHoleCardsReminder(player, options = {}) {
         return this.messages.sendHoleCardsReminder(player, options)
     }
 
-    /**
-     * remindAllPlayersHoleCards(): send hole card reminders to all players.
-     *
-     * Delegates to MessageManagement.
-     */
     async remindAllPlayersHoleCards() {
         return this.messages.remindAllPlayersHoleCards()
     }
@@ -1340,7 +726,6 @@ module.exports = class TexasGame extends Game {
             }
         }
 
-        // Hole cards will be sent after the table render in updateGameMessage
         this.holeCardsSent = false
 
         const tableMinBet = this.getTableMinBet()
@@ -1363,7 +748,8 @@ module.exports = class TexasGame extends Game {
 
         this.hands++
         this.currentHandHasInteraction = false
-        this.gameMessage = null  // Reset for new round - will send new message for each action
+        this.gameMessage = null
+        this.roundMessageFresh = true
         const transitionDelay = Math.max(0, Math.min(config.texas.nextHandDelay.default, 2000))
         if (transitionDelay > 0) {
             await sleep(transitionDelay)
@@ -1377,20 +763,10 @@ module.exports = class TexasGame extends Game {
         }
     }
 
-    /**
-     * NextHand(): prepare the next hand.
-     *
-     * Delegates to HandProgression.
-     */
     async NextHand() {
         return this.progression.NextHand()
     }
 
-    /**
-     * resetBettingRound(): reset bets for a new round.
-     *
-     * Delegates to BettingEngine.
-     */
     resetBettingRound() {
         return this.betting.resetBettingRound()
     }
@@ -1422,20 +798,10 @@ module.exports = class TexasGame extends Game {
         this.actionCursor = this.actionOrder.length - 1
     }
 
-    /**
-     * resolveNextPhase(): determine the next phase based on the table cards.
-     *
-     * Delegates to HandProgression.
-     */
     resolveNextPhase() {
         return this.progression.resolveNextPhase()
     }
 
-    /**
-     * NextPhase(phase): advance to a specific phase (flop, turn, river, showdown).
-     *
-     * Delegates to HandProgression for game flow logic.
-     */
     async NextPhase(phase) {
         return this.progression.NextPhase(phase)
     }
@@ -1450,7 +816,7 @@ module.exports = class TexasGame extends Game {
             { scope: "texas:actions" }
         )
         
-        this.actionCollector = true // Flag to indicate active collection, even if outsourced
+        this.actionCollector = true
         this.broadcaster.createCollectors({
             filter: actionFilter,
             time: config.texas.collectorTimeout.default
@@ -1595,18 +961,12 @@ module.exports = class TexasGame extends Game {
         })
     }
 
-    /**
-     * Action(type, player, params, options): execute a betting action.
-     *
-     * Delegates execution to the BettingEngine and handles only the game flow.
-     */
     async Action(type, player, params, options = {}) {
         const { isBlind = false, skipAdvance = false } = options
 
         if (!player || player.status?.removed) return
 
         try {
-            // Pre-action validation
             if (!isBlind) {
                 if (this.awaitingPlayerId && player.id !== this.awaitingPlayerId) {
                     return
@@ -1619,29 +979,24 @@ module.exports = class TexasGame extends Game {
             if (this.timer) clearTimeout(this.timer)
             this.timer = null
 
-            // Delegated to BettingEngine
             const result = this.betting.executeAction(type, player, params, options)
             if (!result.success) return
 
-            // Log action
             this.appendActionLog(player, type, {
                 amount: result.delta > 0 ? result.delta : null,
                 total: result.total,
                 isBlind
             })
 
-            // Update game state
             this.UpdateInGame()
             this.lockPlayerIfAllOpponentsAllIn(player)
 
-            // If only one player remains
             const activePlayers = this.inGamePlayers.filter((p) => !p.status.folded)
             if (activePlayers.length === 1) {
                 await this.progression.handleFoldWin(activePlayers[0])
                 return
             }
 
-            // Advance to the next player/phase
             if (!skipAdvance) {
                 await this.advanceHand()
             }
@@ -1727,11 +1082,6 @@ module.exports = class TexasGame extends Game {
         })
     }
 
-    /**
-     * commitChips(player, desiredAmount): move chips from the stack to the bets.
-     *
-     * Delegates to BettingEngine.
-     */
     commitChips(player, desiredAmount) {
         return this.betting.commitChips(player, desiredAmount)
     }
@@ -1761,11 +1111,6 @@ module.exports = class TexasGame extends Game {
         }
     }
 
-    /**
-     * movePlayerToTotal(player, targetTotal): move a player to a target total bet.
-     *
-     * Delegates to BettingEngine.
-     */
     movePlayerToTotal(player, targetTotal) {
         return this.betting.movePlayerToTotal(player, targetTotal)
     }
@@ -1917,7 +1262,6 @@ module.exports = class TexasGame extends Game {
         this.players = Array.isArray(this.players)
             ? this.players.filter((p) => !p?.status?.pendingRemoval)
             : []
-        // Clear leftThisHand flag for new hand
         this.players.forEach((p) => {
             if (p?.status) {
                 p.status.leftThisHand = false
@@ -1946,38 +1290,18 @@ module.exports = class TexasGame extends Game {
         return settled + this.bets.total
     }
 
-    /**
-     * buildSidePots(): calculate side pots from current betting.
-     *
-     * Delegates to BettingEngine.
-     */
     buildSidePots() {
         return this.betting.buildSidePots()
     }
 
-    /**
-     * distributePots(pots, contenders): distribute pots to winners.
-     *
-     * Delegates to BettingEngine.
-     */
     distributePots(pots, contenders = []) {
         return this.betting.distributePots(pots, contenders)
     }
 
-    /**
-     * handleFoldWin(winner): handle the case where everyone except one has folded.
-     *
-     * Delegates to HandProgression.
-     */
     async handleFoldWin(winner) {
         return this.progression.handleFoldWin(winner)
     }
 
-    /**
-     * handleShowdown(): evaluate hands and distribute pots.
-     *
-     * Delegates to HandProgression.
-     */
     async handleShowdown() {
         return this.progression.handleShowdown()
     }
@@ -1985,7 +1309,6 @@ module.exports = class TexasGame extends Game {
     async Stop(options = {}) {
         const { reason = "unknown" } = options
 
-        // Refund outstanding bets from the pot
         const refundedFromPot = this.refundOutstandingBets()
 
         if (typeof this.setRemoteMeta === "function") {
@@ -2000,22 +1323,18 @@ module.exports = class TexasGame extends Game {
         this.awaitingPlayerId = null
         if (this.client.activeGames) this.client.activeGames.delete(this)
 
-        // Clean up broadcaster
         if (this.broadcaster) {
             this.broadcaster.cleanup()
         }
 
-        // Cleanup rebuy collectors
         for (const [, offer] of this.rebuyOffers.entries()) {
             if (offer?.collector && !offer.collector.ended) {
-                try { offer.collector.stop("gameStopped") } catch (_) { /* ignore */ }
+                try { offer.collector.stop("gameStopped") } catch (_) {}
             }
         }
         this.rebuyOffers.clear()
         this.waitingForRebuy = false
 
-        // ALWAYS refund players - no exceptions
-        // skipRefund parameter is deprecated and ignored for safety
         try {
             await this.refundPlayers()
         } catch (error) {
@@ -2024,8 +1343,6 @@ module.exports = class TexasGame extends Game {
                 reason,
                 error: error?.message
             })
-            // Even if refund fails, don't throw - game stops anyway
-            // Players won't lose their stack permanently as long as DB eventually syncs
         }
     }
 
@@ -2073,7 +1390,6 @@ module.exports = class TexasGame extends Game {
                         playerId: player.id,
                         error: error?.message
                     })
-                    // Continue refunding other players even if one fails
                 }
             }
         }

@@ -7,7 +7,7 @@
                         <span class="chip-eyebrow">Control panel access</span>
                         <h1 class="chip-card__title">Sign in with Discord</h1>
                         <p class="chip-card__subtitle chip-card__subtitle--tight">
-                            Chipsy relies on Discord OAuth2. We never see your password, and permissions stay exactly as you approve them.
+                            Chipsy relies on Discord OAuth2. We never see your password and permissions stay exactly as you approve them.
                         </p>
                     </div>
                 </header>

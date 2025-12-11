@@ -9,10 +9,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-      - .env.vps
+      - .env.production
     environment:
       NODE_ENV: production
-      CHIPSY_ENV: ${CHIPSY_ENV:-vps}
+      CHIPSY_ENV: ${CHIPSY_ENV:-production}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?Set INTERNAL_API_TOKEN in .env}
       BOT_INTERNAL_PORT: ${BOT_INTERNAL_PORT:-7310}
       MYSQL_HOST: ${MYSQL_HOST:-infra-mysql}
@@ -32,10 +32,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-      - .env.vps
+      - .env.production
     environment:
       NODE_ENV: production
-      CHIPSY_ENV: ${CHIPSY_ENV:-vps}
+      CHIPSY_ENV: ${CHIPSY_ENV:-production}
       PORT: ${PORT:-8082}
       MYSQL_HOST: ${MYSQL_HOST:-infra-mysql}
       BOT_RPC_BASE_URL: ${BOT_RPC_BASE_URL:-http://bot:7310/internal}
@@ -57,16 +57,9 @@ services:
       context: .
       dockerfile: panel/Dockerfile
       args:
-        DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?Set DISCORD_CLIENT_ID in .env}
         VUE_APP_DISCORD_CLIENT_ID: ${VUE_APP_DISCORD_CLIENT_ID:?Set VUE_APP_DISCORD_CLIENT_ID in .env}
-        DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:?Set DISCORD_CLIENT_SECRET in .env}
-        DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:?Set DISCORD_BOT_TOKEN in .env}
-        DISCORD_OWNER_ID: ${DISCORD_OWNER_ID:?Set DISCORD_OWNER_ID in .env}
     container_name: chipsy-panel
     restart: unless-stopped
-    env_file:
-      - .env
-      - .env.vps
     environment:
       NODE_ENV: production
     networks:
