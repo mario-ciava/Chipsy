@@ -1,4 +1,4 @@
-const logger = require("./logger");
+const logger = require("../../shared/logger");
 
 const pickProp = (source, ...candidates) => {
     if (!source) return undefined;

@@ -102,10 +102,21 @@ const syncStackToBankroll = (player) => {
     if (!player || !ensurePlayerData(player)) return false
     const currentStack = readStack(player)
     const currentBankroll = readBankroll(player)
-    // Add stack back to bankroll (returning table stack to wallet)
     player.data.money = clampSafeInteger(currentBankroll + currentStack)
-    player.stack = 0 // Reset stack after returning to bankroll
+    player.stack = 0
     return true
+}
+
+const recordNetWin = (player, amount) => {
+    if (!player || !ensurePlayerData(player)) return 0
+    const increment = clampSafeInteger(amount)
+    if (increment <= 0) {
+        return Number(player.data.net_winnings) || 0
+    }
+    const current = clampSafeInteger(player.data.net_winnings)
+    const next = Math.min(Number.MAX_SAFE_INTEGER, current + increment)
+    player.data.net_winnings = next
+    return next
 }
 
 module.exports = {
@@ -114,5 +125,6 @@ module.exports = {
     withdrawStackOnly,
     depositStackOnly,
     syncStackToBankroll,
-    getBankroll: readBankroll
+    getBankroll: readBankroll,
+    recordNetWin
 }

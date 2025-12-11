@@ -1,7 +1,7 @@
 const express = require("express")
 const bodyParser = require("body-parser")
 const fetch = require("node-fetch")
-const logger = require("../utils/logger")
+const logger = require("../../shared/logger")
 const createAdminService = require("../../shared/services/adminService")
 const { constants, internalApi: internalApiConfig } = require("../../config")
 

@@ -9,9 +9,9 @@ const {
     Colors,
     MessageFlags
 } = require("discord.js")
-const createCommand = require("../utils/createCommand")
+const createCommand = require("../utils/commands/createCommand")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
-const logger = require("../utils/logger")
+const logger = require("../../shared/logger")
 const { canEditConfig } = require("../utils/canEditConfig")
 const { resolveTexasSettings, defaults: texasDefaults } = require("../games/texas/settings")
 const { resolveBlackjackSettings, defaults: blackjackDefaults } = require("../games/blackjack/settings")

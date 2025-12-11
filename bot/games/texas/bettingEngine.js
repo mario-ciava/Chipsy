@@ -9,7 +9,7 @@
  */
 
 const { validateAmount, MAX_SAFE_STACK } = require("../shared/playerStateSchema")
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 const { Hand } = require("pokersolver")
 
 class BettingEngine {

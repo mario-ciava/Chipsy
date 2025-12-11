@@ -1,6 +1,6 @@
 const { MessageFlags, EmbedBuilder, Colors } = require("discord.js")
 const config = require("../../config")
-const logger = require("./logger")
+const logger = require("../../shared/logger")
 
 const { logAndSuppress } = logger
 

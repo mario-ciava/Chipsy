@@ -1,7 +1,7 @@
 const { EventEmitter } = require("node:events")
 const { MessageFlags, DiscordAPIError } = require("discord.js")
 const config = require("../../config")
-const { logAndSuppress } = require("../utils/logger")
+const { logAndSuppress } = require("../../shared/logger")
 const { withAccessGuard } = require("../utils/interactionAccess")
 
 class LobbySession extends EventEmitter {

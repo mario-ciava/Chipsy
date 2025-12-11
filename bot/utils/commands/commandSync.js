@@ -1,5 +1,5 @@
 const { diffCommands, logDiff } = require("./commandDiffer")
-const logger = require("./logger")
+const logger = require("../../shared/logger")
 
 const createCommandSync = ({ client, config, logger: injectedLogger = logger }) => {
     if (!client) {

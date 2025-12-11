@@ -3,19 +3,26 @@ const features = require("../../../shared/features")
 const { sleep } = require("../../utils/helpers")
 const Game = require("../shared/baseGame.js")
 const cards = require("../shared/cards.js")
-const setSeparator = require("../../utils/setSeparator")
+const setSeparator = require("../../../shared/utils/setSeparator")
 const bankrollManager = require("../../utils/bankrollManager")
-const { recordNetWin } = require("../../utils/netProfitTracker")
+const { recordNetWin } = bankrollManager
 const { awardGoldForHand } = require("../../utils/goldRewardManager")
 const { buildProbabilityField } = require("../../utils/probabilityFormatter")
 const { hasWinProbabilityInsight } = require("../../utils/playerUpgrades")
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 const { logAndSuppress } = logger
 const { withAccessGuard } = require("../../utils/interactionAccess")
 const config = require("../../../config")
 const BlackjackRenderer = require("./blackjackRenderer")
 const { resolveBlackjackSettings, defaults: blackjackSettingDefaults } = require("./settings")
 const GameBroadcaster = require("../shared/gameBroadcaster")
+const HandEvaluator = require("./handEvaluator")
+const DealerEngine = require("./dealerEngine")
+const InsuranceManager = require("./insuranceManager")
+const SplitManager = require("./splitManager")
+const ActionHandler = require("./actionHandler")
+const BettingPhase = require("./bettingPhase")
+const RebuyManager = require("./rebuyManager")
 
 const EMPTY_TIMELINE_TEXT = "No actions yet."
 const AUTO_CLEAN_DELAY_MS = 15 * 1000
@@ -231,6 +238,15 @@ module.exports = class BlackJack extends Game {
             this.broadcaster.setPrimaryChannel(info.message.channel)
         }
 
+        // Game module initialization
+        this.handEvaluator = HandEvaluator // Static class
+        this.dealerEngine = new DealerEngine(this)
+        this.insuranceManager = new InsuranceManager(this)
+        this.splitManager = new SplitManager(this)
+        this.actionHandler = new ActionHandler(this)
+        this.bettingPhaseManager = new BettingPhase(this)
+        this.rebuyManager = new RebuyManager(this)
+
         this.applySettings(info?.settings)
     }
 
@@ -314,23 +330,15 @@ module.exports = class BlackJack extends Game {
     }
 
     isRebuyEnabled() {
-        return this.settings?.allowRebuyMode !== "off"
+        return this.rebuyManager.isRebuyEnabled()
     }
 
     getRebuyWindowMs() {
-        const fallback = blackjackSettingDefaults.rebuyWindowMs || (config?.blackjack?.rebuy?.offerTimeout?.default ?? 60 * 1000)
-        const min = blackjackSettingDefaults.minWindowMs || 30 * 1000
-        const max = blackjackSettingDefaults.maxWindowMs || 10 * 60 * 1000
-        const resolved = Number.isFinite(this.settings?.rebuyWindowMs) ? this.settings.rebuyWindowMs : fallback
-        return Math.max(min, Math.min(max, resolved))
+        return this.rebuyManager.getRebuyWindowMs()
     }
 
     canPlayerRebuy(player) {
-        if (!player || !this.isRebuyEnabled()) return false
-        const mode = this.settings?.allowRebuyMode || "on"
-        if (mode === "off") return false
-        if (mode === "once" && Number(player.rebuysUsed) >= 1) return false
-        return true
+        return this.rebuyManager.canPlayerRebuy(player)
     }
 
     updateActionTimeout(durationMs) {
@@ -1015,138 +1023,7 @@ module.exports = class BlackJack extends Game {
     }
 
     async handlePlayersOutOfFunds(players, options = {}) {
-        const { finalizeGame = false } = options
-        if (!Array.isArray(players) || players.length < 1) {
-            return { removed: 0, endedGame: false, waitingForRebuy: false }
-        }
-
-        const uniquePlayers = []
-        const seenIds = new Set()
-        for (const entry of players) {
-            const resolvedPlayer = typeof entry === "string" ? this.GetPlayer(entry) : entry
-            if (!resolvedPlayer || typeof resolvedPlayer !== "object") continue
-            const playerId = resolvedPlayer.id || resolvedPlayer.user?.id
-            if (!playerId || seenIds.has(playerId)) continue
-            const tablePlayer = this.GetPlayer(playerId) || resolvedPlayer
-            if (!tablePlayer || typeof tablePlayer !== "object") continue
-            seenIds.add(playerId)
-            uniquePlayers.push(tablePlayer)
-        }
-
-        if (uniquePlayers.length === 0) {
-            return { removed: 0, endedGame: false, waitingForRebuy: false }
-        }
-
-        for (const bustedPlayer of uniquePlayers) {
-            this.appendDealerTimeline(`${formatPlayerName(bustedPlayer)} lost all of their money.`)
-        }
-
-        const rebuyEnabled = this.isRebuyEnabled()
-        const rebuyCandidates = []
-        const removeImmediately = []
-        for (const bustedPlayer of uniquePlayers) {
-            if (rebuyEnabled && this.canPlayerRebuy(bustedPlayer)) {
-                bustedPlayer.status = bustedPlayer.status || {}
-                bustedPlayer.status.pendingRebuy = true
-                rebuyCandidates.push(bustedPlayer)
-            } else {
-                removeImmediately.push(bustedPlayer)
-            }
-        }
-
-        for (const bustedPlayer of removeImmediately) {
-            this.lastRemovalReason = "noMoney"
-            try {
-                await this.RemovePlayer(bustedPlayer, { skipStop: true })
-            } catch (error) {
-                logger.error("Failed to remove player with depleted stack", {
-                    scope: "blackjackGame",
-                    playerId: bustedPlayer?.id,
-                    error: error.message
-                })
-            }
-        }
-
-        const finalizeNotice = finalizeGame && rebuyCandidates.length === 0
-        if (!rebuyEnabled || rebuyCandidates.length === 0) {
-            const endedGame = finalizeNotice || this.players.length === 0
-            if (removeImmediately.length > 0) {
-                try {
-                    await this.SendMessage("playersOutOfMoney", null, {
-                        players: removeImmediately,
-                        finalizeGame: endedGame
-                    })
-                } catch (error) {
-                    logger.debug("Failed to send playersOutOfMoney notification", {
-                        scope: "blackjackGame",
-                        error: error.message
-                    })
-                }
-            }
-            return { removed: removeImmediately.length, endedGame, waitingForRebuy: false }
-        }
-
-        const windowMs = this.getRebuyWindowMs()
-        this.waitingForRebuy = true
-        const rebuyResults = await Promise.allSettled(
-            rebuyCandidates.map((player) => this.startRebuyOffer(player, windowMs))
-        )
-        this.waitingForRebuy = false
-
-        const expiredPlayers = []
-        rebuyResults.forEach((result, index) => {
-            const targetPlayer = rebuyCandidates[index]
-            if (!targetPlayer) return
-            const rebuyStatus = result?.status === "fulfilled"
-                ? result?.value?.status
-                : result?.reason?.status
-            if (rebuyStatus === "completed") {
-                targetPlayer.status = targetPlayer.status || {}
-                targetPlayer.status.pendingRebuy = false
-                targetPlayer.status.removed = false
-                targetPlayer.newEntry = false
-                return
-            }
-            expiredPlayers.push(targetPlayer)
-        })
-
-        for (const expiredPlayer of expiredPlayers) {
-            this.lastRemovalReason = "noMoney"
-            try {
-                if (expiredPlayer?.status) {
-                    expiredPlayer.status.pendingRebuy = false
-                }
-                await this.RemovePlayer(expiredPlayer, { skipStop: true })
-            } catch (error) {
-                logger.error("Failed to remove player after rebuy expiration", {
-                    scope: "blackjackGame",
-                    playerId: expiredPlayer?.id,
-                    error: error.message
-                })
-            }
-        }
-
-        const activePlayers = this.players.filter((pl) => Number.isFinite(pl?.stack) && pl.stack >= this.minBet)
-        const endedGame = activePlayers.length < this.getMinimumPlayers()
-        const eliminatedForNotice = [...removeImmediately, ...expiredPlayers].filter(Boolean)
-
-        if (eliminatedForNotice.length > 0) {
-            try {
-                await this.SendMessage("playersOutOfMoney", null, {
-                    players: eliminatedForNotice,
-                    finalizeGame: endedGame
-                })
-            } catch (error) {
-                logger.debug("Failed to send playersOutOfMoney notification after rebuys", {
-                    scope: "blackjackGame",
-                    error: error.message
-                })
-            }
-        }
-
-        this.UpdateInGame()
-
-        return { removed: removeImmediately.length + expiredPlayers.length, endedGame, waitingForRebuy: rebuyCandidates.length > 0 }
+        return await this.rebuyManager.handlePlayersOutOfFunds(players, options)
     }
 
     async AwaitBets() {
@@ -1489,7 +1366,7 @@ module.exports = class BlackJack extends Game {
                 )
 
                 // Check if bets collector has ended (timeout/closure)
-                if (!this.betsCollector || this.betsCollector.ended) {
+                if (!this.betsCollector) {
                     await sendEphemeralError(submission, "❌ Betting time has ended.")
                     return
                 }
@@ -1556,13 +1433,69 @@ module.exports = class BlackJack extends Game {
                     return player.bets ? player.bets.initial < 1 : true == false
                 }).length
 
-                if (remaining < 1) this.betsCollector.stop("allBetsPlaced")
+                if (remaining < 1) {
+                    this.broadcaster.stopCollectors("allBetsPlaced")
+                    this.betsCollector = null
+                }
             }
-        }, async (reason) => {
-            // On End
-            // ... (cleanup logic)
+        }, async (collected, reason) => {
+            // On End - betting phase complete
             this.betsCollector = null
-            // ...
+            this.isBettingPhaseOpen = false
+
+            // Determine appropriate close reason
+            let closeReason = "timeout"
+            if (reason === "allBetsPlaced") {
+                closeReason = "allBetsPlaced"
+            } else if (reason === "gameStopped" || reason === "cleanup") {
+                // Game was stopped externally, don't continue
+                return
+            }
+
+            try {
+                // Close bets message
+                await this.CloseBetsMessage(closeReason)
+
+                // Check if any players have placed bets
+                const playersWithBets = this.players.filter(p => p.bets && p.bets.initial > 0)
+
+                if (playersWithBets.length === 0) {
+                    // No bets placed - stop the game
+                    await this.Stop({ reason: "noBetsPlaced", notify: false })
+                    return
+                }
+
+                // Update inGame players
+                await this.UpdateInGame()
+
+                // Deal initial cards to dealer
+                this.dealer.cards = await this.PickRandom(this.cards, 2)
+                this.dealerEngine.evaluateDealerHand()
+
+                // Evaluate all player hands for blackjack
+                for (const player of this.inGamePlayers) {
+                    await this.ComputeHandsValue(player)
+                }
+
+                // Short delay before starting player turns
+                await sleep(config.delays.short.default)
+
+                // Start with the first player
+                if (this.inGamePlayers.length > 0) {
+                    await this.NextPlayer(this.inGamePlayers[0])
+                } else {
+                    // No players left, stop the game
+                    await this.Stop({ reason: "noPlayers", notify: false })
+                }
+            } catch (error) {
+                logger.error("Error in blackjack betting onEnd callback", {
+                    scope: "blackjackGame",
+                    error: error.message,
+                    stack: error.stack
+                })
+                // Try to stop the game gracefully
+                await this.Stop({ reason: "error", notify: false }).catch(() => null)
+            }
         })
     }
 
@@ -1817,7 +1750,8 @@ module.exports = class BlackJack extends Game {
         if (!this.isBettingPhaseOpen || panelVersion !== this.betsPanelVersion) return
 
         try {
-            await message.edit({ embeds: [embed], components })
+            // Use broadcaster to update all channels
+            await this.broadcaster.broadcast({ embeds: [embed], components })
         } catch (error) {
             logger.error("Failed to update bets message", {
                 scope: "blackjackGame",
@@ -1888,7 +1822,8 @@ module.exports = class BlackJack extends Game {
         const components = []
 
         try {
-            await this.betsMessage.edit({ embeds: [embed], components })
+            // Use broadcaster to update all channels
+            await this.broadcaster.broadcast({ embeds: [embed], components })
         } catch (error) {
             logger.error("Failed to close bets message", {
                 scope: "blackjackGame",
@@ -2015,259 +1950,53 @@ module.exports = class BlackJack extends Game {
     }
 
     async ComputeHandsValue(player, dealer) {
-        var inspectHand = (hand) => {
-            let aces = hand.cards.filter((card) => {
-                return card.split("")[0] == "A"
-            }).length
-            hand.value = 0
-
-            // Check for pair BEFORE the loop (only if we have exactly 2 cards)
-            if (hand.cards.length == 2 && !hand.pair) {
-                const firstCard = hand.cards[0].split("")[0]
-                const secondCard = hand.cards[1].split("")[0]
-                if (firstCard == secondCard) {
-                    hand.pair = true
-                }
-            }
-
-            // Check for blackjack (only if we have exactly 2 cards, 1 ace, and no pair)
-            if (!hand.pair && hand.cards.length == 2 && aces == 1 && (player ? player.hands.length < 2 : true == true)) {
-                let fig = hand.cards.filter((card) => {
-                    return ["K", "Q", "J", "T"].includes(card.split("")[0])
-                }).length
-                if (fig > 0) hand.BJ = true
-            }
-
-            // Calculate hand value
-            for (let card of hand.cards) {
-                let val = parseInt(card.split("")[0])
-                if (!isNaN(val)) hand.value += val
-                    else if (card.split("")[0] == "A") hand.value += 11
-                        else hand.value += 10
-            }
-
-            // Adjust for aces
-            while (hand.value > 21 && aces > 0) {
-                hand.value -= 10
-                aces--
-            }
-
-            if (hand.value > 21) hand.busted = true
-                else hand.busted = false
-            return hand
-        }
         if (player) {
-            for (let hand of player.hands)
-                await inspectHand(hand)
+            for (let hand of player.hands) {
+                HandEvaluator.evaluateHand(hand, {
+                    isPlayerHand: true,
+                    playerHandCount: player.hands.length
+                })
+            }
         } else if (dealer) {
-            await inspectHand(dealer)
+            HandEvaluator.evaluateHand(dealer, { isPlayerHand: false })
         }
     }
 
     async GetAvailableOptions(player, h) {
-        await this.ComputeHandsValue(player)
-        let available = []
-        const hand = player.hands[h]
-        available.push("stand")
-        const isSplitAceHand = hand.fromSplitAce && hand.cards.length >= 2
-        if (isSplitAceHand) return available
-        available.push("hit")
-        const canAffordBaseBet = bankrollManager.canAffordStack(player, player.bets?.initial)
-        if (hand.cards.length < 3 && canAffordBaseBet) available.push("double")
-        if (hand.pair && player.hands.length < 4 && canAffordBaseBet) available.push("split")
-        const insuranceBet = Math.floor(player.bets.initial / 2)
-        const dealerUpCard = (this.dealer?.cards?.[0] || "").split("")[0]
-        if (dealerUpCard == "A" && player.bets.insurance < 1 && hand.cards.length < 3 && insuranceBet > 0 && bankrollManager.canAffordStack(player, insuranceBet)) available.push("insurance")
-        return available
+        return await this.actionHandler.getAvailableActions(player, h)
     }
 
     async Action(type, player, hand, automatic) {
-        if (!player.availableOptions.includes(type) && !automatic) return
+        const result = await this.actionHandler.processAction(type, player, hand, automatic)
 
-        // Prevent race condition: if action is already in progress, ignore subsequent calls
-        if (player.status?.actionInProgress) {
-            logger.debug("Action already in progress, ignoring duplicate call", {
-                scope: "blackjackGame",
-                playerId: player.id,
-                action: type
-            })
+        if (!result.success) return
+
+        // Handle action result and game flow
+        if (result.continueHand) {
+            // Hit or split - update embed and continue same player's turn
+            if (result.shouldUpdateEmbed) {
+                const renderOptions = result.insuranceTaken ? {} : null
+                await this.updateRoundProgressEmbed(player, false, renderOptions || {})
+            }
             return
         }
 
-        // Mark action as in progress
-        if (!player.status) player.status = {}
-        player.status.actionInProgress = true
-
-        // Clear timer to prevent auto-stand from firing
-        if (this.timer) clearTimeout(this.timer)
-        this.timer = null
-
-        await this.ComputeHandsValue(player)
-
-        let shouldUpdateEmbed = false
-        let actionEndsHand = false
-        let postActionPauseMs = null
-
+        // Action ended hand - move to next hand or next player
         const resolvePostActionRenderOptions = () => {
-            if (!actionEndsHand) return null
+            if (!result.actionEndsHand) return null
             if (Array.isArray(player.hands) && player.hands.length > hand + 1) {
                 return { forceCurrentHandIndex: hand + 1 }
             }
             return { forceInactivePlayerId: player.id }
         }
-        try {
-        switch(type) {
-            case `stand`: {
-                const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
-                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} stands.`)
-                player.hands[hand].locked = true
-                shouldUpdateEmbed = true
-                actionEndsHand = true
-                break
-            }
-            case `hit`: {
-                const newCard = await this.PickRandom(this.cards, 1)
-                player.hands[hand].cards = player.hands[hand].cards.concat(newCard)
-                await this.ComputeHandsValue(player)
-                const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
-                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} hits (${formatCardLabel(newCard[0])}).`)
-                shouldUpdateEmbed = true
-                if (!player.hands[hand].busted) {
-                    player.status.actionInProgress = false
-                    return this.NextPlayer(player)
-                }
-                break
-            }
-            case `double`: {
-                const additionalBet = Number.isFinite(player.bets?.initial) ? player.bets.initial : 0
-                if (additionalBet < 1 || !bankrollManager.canAffordStack(player, additionalBet)) {
-                    await this.SendMessage("noMoneyBet", player)
-                    player.status.actionInProgress = false
-                    return this.NextPlayer(player)
-                }
-                const newCard = await this.PickRandom(this.cards, 1)
-                player.hands[hand].cards = player.hands[hand].cards.concat(newCard)
-                if (!bankrollManager.withdrawStackOnly(player, additionalBet)) {
-                    await this.SendMessage("noMoneyBet", player)
-                    player.status.actionInProgress = false
-                    return this.NextPlayer(player)
-                }
-                player.bets.total += additionalBet
-                player.hands[hand].bet += additionalBet
-                await this.ComputeHandsValue(player)
-                player.hands[hand].locked = true
-                player.hands[hand].doubleDown = true
-                const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
-                this.appendDealerTimeline(`${formatPlayerName(player)}${handLabel} doubles bet (${formatCardLabel(newCard[0])}).`)
-                shouldUpdateEmbed = true
-                actionEndsHand = true
-                if (!player.hands[hand].busted) {
-                    player.status.actionInProgress = false
-                    if (shouldUpdateEmbed || (Array.isArray(player.availableOptions) && player.availableOptions.length > 0)) {
-                        player.availableOptions = []
-                        await this.updateRoundProgressEmbed(player, false, resolvePostActionRenderOptions() || {})
-                    }
-                    return this.NextPlayer(player, true)
-                }
-                break
-            }
-            case `split`: {
-                const splitCost = Number.isFinite(player.bets?.initial) ? player.bets.initial : 0
-                if (splitCost < 1 || !bankrollManager.canAffordStack(player, splitCost)) {
-                    await this.SendMessage("noMoneyBet", player)
-                    player.status.actionInProgress = false
-                    return this.NextPlayer(player)
-                }
-                const currentHand = player.hands[hand]
-                let removedCard = await currentHand.cards.splice(1, 1)
-                currentHand.pair = false
-                const splitAce = currentHand.cards[0].split("")[0] == "A"
-                currentHand.fromSplitAce = splitAce
-                player.hands.push({
-                    cards: removedCard.concat(await this.PickRandom(this.cards, 1)),
-                    value: 0,
-                    pair: false,
-                    busted: false,
-                    BJ: false,
-                    push: false,
-                    bet: player.bets.initial,
-                    display: [],
-                    fromSplitAce: splitAce,
-                    result: null,
-                    payout: 0,
-                    locked: false,
-                    doubleDown: false
-                })
-                currentHand.cards = await currentHand.cards.concat(await this.PickRandom(this.cards, 1))
-                await this.ComputeHandsValue(player)
-                if (!bankrollManager.withdrawStackOnly(player, splitCost)) {
-                    await this.SendMessage("noMoneyBet", player)
-                    player.status.actionInProgress = false
-                    return this.NextPlayer(player)
-                }
-                player.bets.total += splitCost
-                this.appendDealerTimeline(`${formatPlayerName(player)} splits hand.`)
-                shouldUpdateEmbed = true
-                player.status.actionInProgress = false
-                return this.NextPlayer(player)
-            }
-            case `insurance`: {
-                const insuranceBet = Math.floor(player.bets.initial / 2)
-                if (insuranceBet < 1 || player.bets.insurance > 0) {
-                    player.status.actionInProgress = false
-                    return
-                }
-                if (!bankrollManager.canAffordStack(player, insuranceBet)) {
-                    await this.SendMessage("noMoneyBet", player)
-                    player.status.actionInProgress = false
-                    return
-                }
-                if (!bankrollManager.withdrawStackOnly(player, insuranceBet)) {
-                    await this.SendMessage("noMoneyBet", player)
-                    player.status.actionInProgress = false
-                    return
-                }
-                player.bets.insurance += insuranceBet
-                player.bets.total += insuranceBet
-                player.status.insurance = {
-                    wager: insuranceBet,
-                    settled: false
-                }
-                this.appendDealerTimeline(`${formatPlayerName(player)} buys insurance (${setSeparator(insuranceBet)}$).`)
-                // Don't call NextPlayer - just recalculate options and continue turn
-                player.availableOptions = await this.GetAvailableOptions(player, player.status.currentHand)
-                player.status.actionInProgress = false
-                // Update embed with insurance purchase and new options
-                await this.updateRoundProgressEmbed(player)
-                // Insurance doesn't end the turn - return to keep collecting actions
-                return
-            }
-        }
-
-        await this.ComputeHandsValue(player)
-
-        if (player.hands[hand].busted) {
-            const handLabel = player.hands.length > 1 ? ` (Hand #${hand + 1})` : ""
-            this.appendDealerTimeline(`${formatPlayerName(player)} busts${handLabel}.`)
-            player.hands[hand].locked = true
-            shouldUpdateEmbed = true
-            actionEndsHand = true
-            postActionPauseMs = config.delays.medium.default
-        }
 
         const hadAvailableOptions = Array.isArray(player.availableOptions) && player.availableOptions.length > 0
-        if (shouldUpdateEmbed || hadAvailableOptions) {
+        if (result.shouldUpdateEmbed || hadAvailableOptions) {
             player.availableOptions = []
             await this.updateRoundProgressEmbed(player, false, resolvePostActionRenderOptions() || {})
-            if (postActionPauseMs) {
-                await sleep(postActionPauseMs)
-            }
         }
 
         await sleep(config.delays.short.default)
-
-        // Reset action in progress flag
-        player.status.actionInProgress = false
 
         if (player.hands[hand + 1]) {
             player.status.currentHand++
@@ -2277,9 +2006,6 @@ module.exports = class BlackJack extends Game {
             let next = this.inGamePlayers[this.inGamePlayers.indexOf(player) + 1]
             if (next) this.NextPlayer(next)
                 else this.DealerAction()
-        }
-        } finally {
-            this.queueProbabilityUpdate("playerAction")
         }
     }
 
@@ -2544,49 +2270,24 @@ module.exports = class BlackJack extends Game {
                 await this.dataHandler.updateUserData(player.id, this.dataHandler.resolveDBUser(player))
             }
         } else {
-            // Update progressive embed to show dealer's turn
-            this.appendDealerTimeline(`**Dealer** reveals hidden card`)
-            await this.updateDealerProgressEmbed()
-            await sleep(config.delays.short.default)
-
-            // Dealer draws cards until 17 or higher
-            while (this.dealer.value < 17) {
-                const newCard = await this.PickRandom(this.cards, 1)
-                this.dealer.cards = this.dealer.cards.concat(newCard)
-                await this.ComputeHandsValue(null, this.dealer)
-                this.appendDealerTimeline(`**Dealer** draws ${formatCardLabel(newCard[0])} (total ${this.dealer.value}).`)
-
-                // Update the progressive embed
+            // Dealer plays hand using dealerEngine
+            await this.dealerEngine.playHand(async () => {
                 await this.updateDealerProgressEmbed()
-                await sleep(config.delays.short.default)
-            }
-
-            // Final dealer status update
-            const finalAction = this.dealer.busted ? "busted" : "stand"
-            if (finalAction === "busted") {
-                this.appendDealerTimeline("**Dealer** busts.")
-            } else {
-                this.appendDealerTimeline(`**Dealer** stands at ${this.dealer.value}.`)
-            }
-            await this.updateDealerProgressEmbed()
-            await sleep(config.delays.short.default)
+            })
 
             for (let player of this.inGamePlayers) {
                 player.status.won.expEarned += 10
                 // Count total hands played (important for split scenarios)
                 player.data.hands_played += player.hands.length
-                const insuranceWager = player.status.insurance?.wager || 0
-                if (this.dealer.BJ && insuranceWager > 0 && !player.status.insurance.settled) {
-                    const insurancePayout = insuranceWager * 3
-                    bankrollManager.depositStackOnly(player, insurancePayout)
-                    player.status.insurance.settled = true
-                    player.status.won.grossValue += insurancePayout
-                    const insuranceNet = insurancePayout - insuranceWager
-                    player.status.won.netValue += insuranceNet
-                    if (insuranceNet > 0) {
-                        recordNetWin(player, insuranceNet)
-                    }
-                    this.appendDealerTimeline(`${formatPlayerName(player)} receives insurance payout (+${setSeparator(insurancePayout)}$).`)
+                // Resolve insurance bets if dealer has blackjack
+                const insuranceResult = this.insuranceManager.resolveInsurance(
+                    this.dealer.BJ,
+                    player,
+                    formatPlayerName
+                )
+                if (insuranceResult.paidOut) {
+                    player.status.won.grossValue += insuranceResult.payoutAmount
+                    player.status.won.netValue += insuranceResult.netWin
                     await sleep(1000)
                 }
                 for (let hand of player.hands) {
@@ -2609,33 +2310,12 @@ module.exports = class BlackJack extends Game {
                         continue
                     }
 
-                    // Determine outcome and win factor
-                    if (this.dealer.busted) {
-                        // Dealer busted - player wins
-                        wf = hand.BJ ? 2.5 : 2
-                        handWon = true
-                        hand.result = "win"
-                    } else {
-                        // Dealer not busted
-                        if (hand.value < this.dealer.value) {
-                            // Player loses
-                            hand.result = "lose"
-                            hand.payout = -hand.bet
-                            applyGoldReward()
-                            continue
-                        } else if (hand.value == this.dealer.value) {
-                            // Push - return bet only (not counted as win)
-                            hand.push = true
-                            wf = 1
-                            handWon = false
-                            hand.result = "push"
-                        } else {
-                            // Player wins (hand.value > dealer.value)
-                            wf = hand.BJ ? 2.5 : 2
-                            handWon = true
-                            hand.result = "win"
-                        }
-                    }
+                    // Determine outcome using HandEvaluator
+                    const comparison = HandEvaluator.compareHands(hand, this.dealer)
+                    hand.result = comparison.result
+                    wf = comparison.winFactor
+                    handWon = comparison.result === "win"
+                    if (comparison.result === "push") hand.push = true
 
                     // Calculate winnings
                     if (hand.push) {
@@ -2704,203 +2384,7 @@ module.exports = class BlackJack extends Game {
     }
 
     async startRebuyOffer(player, windowMs) {
-        if (!player || !this.channel || typeof this.channel.send !== "function") {
-            return { status: "skipped", playerId: player?.id }
-        }
-        const customId = `bj_rebuy:${player.id}:${Date.now()}`
-        const seconds = Math.max(1, Math.round(windowMs / 1000))
-        const playerLabel = formatPlayerName(player)
-        const embed = new EmbedBuilder()
-            .setColor(Colors.Orange)
-            .setTitle("💸 Rebuy available")
-            .setDescription(`${playerLabel} ran out of chips.\nYou have **${seconds}s** to rebuy and stay in the game.`)
-            .setFooter({ text: `Window closes in ${seconds}s` })
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId(customId)
-                .setLabel("Rebuy")
-                .setStyle(ButtonStyle.Primary)
-        )
-
-        let message = null
-        try {
-            message = await this.channel.send({
-                embeds: [embed],
-                components: [row],
-                allowedMentions: { users: [] }
-            })
-        } catch (error) {
-            logger.warn("Failed to send rebuy offer", {
-                scope: "blackjackGame",
-                playerId: player?.id,
-                error: error?.message
-            })
-            return { status: "failed", playerId: player?.id }
-        }
-
-        const filter = withAccessGuard(
-            (interaction) => interaction.customId === customId,
-            { scope: "blackjack:rebuy" }
-        )
-
-        const collector = message.createMessageComponentCollector({
-            time: windowMs,
-            filter
-        })
-
-        const outcome = new Promise((resolve) => {
-            collector.on("collect", async(interaction) => {
-                if (interaction.user?.id !== player.id) {
-                    await interaction.reply({
-                        content: "❌ Only this player can rebuy.",
-                        flags: MessageFlags.Ephemeral
-                    }).catch(
-                        buildInteractionLog(interaction, "Failed to warn non-player on rebuy offer", {
-                            phase: "rebuy"
-                        })
-                    )
-                    return
-                }
-
-                if (this.__stopping) {
-                    await interaction.reply({
-                        content: "❌ This table is closing. Rebuy unavailable.",
-                        flags: MessageFlags.Ephemeral
-                    }).catch(
-                        buildInteractionLog(interaction, "Failed to warn about closing table on rebuy", {
-                            phase: "rebuy"
-                        })
-                    )
-                    return
-                }
-
-                const modalId = `bj_rebuy_modal:${interaction.id}`
-                const modal = new ModalBuilder()
-                    .setCustomId(modalId)
-                    .setTitle("Rebuy amount")
-                    .addComponents(
-                        new ActionRowBuilder().addComponents(
-                            new TextInputBuilder()
-                                .setCustomId("amount")
-                                .setLabel("Buy-in amount")
-                                .setStyle(TextInputStyle.Short)
-                                .setRequired(false)
-                                .setPlaceholder(`Min: ${setSeparator(this.minBuyIn)}$ | Max: ${setSeparator(this.maxBuyIn)}$`)
-                        )
-                    )
-
-                try {
-                    await interaction.showModal(modal)
-                } catch (error) {
-                    logger.debug("Failed to show rebuy modal", {
-                        scope: "blackjackGame",
-                        error: error?.message
-                    })
-                    return
-                }
-
-                let submission = null
-                try {
-                    submission = await interaction.awaitModalSubmit({
-                        time: config.blackjack.modalTimeout.default,
-                        filter: withAccessGuard(
-                            (i) => i.customId === modalId && i.user.id === interaction.user.id,
-                            { scope: "blackjack:rebuyModal" }
-                        )
-                    })
-                } catch (_) { return }
-
-                if (!submission) return
-
-                const rawAmount = submission.fields.getTextInputValue("amount")?.trim()
-                const parsedAmount = rawAmount ? features.inputConverter(rawAmount) : this.minBuyIn
-                const buyInResult = bankrollManager.normalizeBuyIn({
-                    requested: parsedAmount,
-                    minBuyIn: this.minBuyIn,
-                    maxBuyIn: this.maxBuyIn,
-                    bankroll: bankrollManager.getBankroll(submission.user)
-                })
-
-                if (!buyInResult.ok) {
-                    await sendEphemeralError(submission, "❌ Invalid amount for rebuy.")
-                    return
-                }
-
-                try {
-                    await this.commitBuyIn(submission.user, buyInResult.amount)
-                } catch (error) {
-                    await sendEphemeralError(submission, "❌ Rebuy failed. Please try again.")
-                    return
-                }
-
-                player.stack = buyInResult.amount
-                player.pendingBuyIn = buyInResult.amount
-                player.buyInAmount = buyInResult.amount
-                player.newEntry = false
-                player.rebuysUsed = (Number(player.rebuysUsed) || 0) + 1
-                player.status = player.status || {}
-                player.status.pendingRebuy = false
-                player.status.removed = false
-                player.status.leftThisHand = true
-                this.appendDealerTimeline(`${formatPlayerName(player)} rebuys for ${setSeparator(buyInResult.amount)}$.`)
-
-                await submission.reply({
-                    content: `✅ Rebuy successful: **${setSeparator(buyInResult.amount)}$**.`,
-                    flags: MessageFlags.Ephemeral
-                }).catch(
-                    buildInteractionLog(submission, "Failed to confirm rebuy", {
-                        phase: "rebuy"
-                    })
-                )
-
-                try {
-                    const disabledRow = new ActionRowBuilder().addComponents(
-                        ButtonBuilder.from(row.components[0]).setDisabled(true)
-                    )
-                    const updatedEmbed = EmbedBuilder.from(message.embeds?.[0] || embed)
-                        .setDescription(`✅ ${playerLabel} rejoined with **${setSeparator(buyInResult.amount)}$**.`)
-                        .setColor(Colors.Green)
-                        .setFooter({ text: "▶️ Game will resume shortly" })
-                    await message.edit({
-                        embeds: [updatedEmbed],
-                        components: [disabledRow]
-                    }).catch(() => null)
-                } catch (_) {
-                    // ignore edit errors
-                }
-
-                resolve({ status: "completed", playerId: player.id })
-                try { collector.stop("completed") } catch (_) { /* ignore */ }
-            })
-
-            collector.on("end", async(_collected, reason) => {
-                const disabledRow = new ActionRowBuilder().addComponents(
-                    ButtonBuilder.from(row.components[0]).setDisabled(true)
-                )
-                try {
-                    if (reason !== "completed") {
-                        const expiredEmbed = EmbedBuilder.from(message.embeds?.[0] || embed)
-                            .setDescription(`⏳ Rebuy window expired for ${playerLabel}.`)
-                            .setColor(Colors.DarkRed)
-                            .setFooter({ text: "Player remains out" })
-                        await message.edit({ embeds: [expiredEmbed], components: [disabledRow] }).catch(() => null)
-                        this.appendDealerTimeline(`${formatPlayerName(player)} did not rebuy in time.`)
-                    } else {
-                        await message.edit({ components: [disabledRow] }).catch(() => null)
-                    }
-                } catch (_) { /* ignore */ }
-
-                if (reason !== "completed") {
-                    resolve({ status: "expired", playerId: player?.id })
-                }
-
-                this.rebuyOffers.delete(player.id)
-            })
-        })
-
-        this.rebuyOffers.set(player.id, { message, collector, expiresAt: Date.now() + windowMs })
-        return outcome
+        return await this.rebuyManager.startRebuyOffer(player, windowMs)
     }
 
     GetNetValue(grossValue, player) {
@@ -3187,9 +2671,11 @@ module.exports = class BlackJack extends Game {
         await this.Reset()
         this.playing = false
         if (this.channel && this.channel.collector) this.channel.collector.stop()
-        if (this.betsCollector) this.betsCollector.stop()
+        if (this.betsCollector) {
+            this.broadcaster.stopCollectors("gameStopped")
+            this.betsCollector = null
+        }
         if (this.channel) this.channel.collector = null
-        this.betsCollector = null
         if (this.collector) this.collector.stop()
         if (this.timer) clearTimeout(this.timer)
         this.timer = null

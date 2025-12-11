@@ -1,5 +1,5 @@
 const fs = require("fs/promises");
-const logger = require("../utils/logger");
+const logger = require("../../shared/logger");
 const {
     CONFIG,
     DEBUG_PNG_PATH,

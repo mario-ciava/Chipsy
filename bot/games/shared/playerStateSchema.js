@@ -7,7 +7,7 @@
  * Purpose: Single source of truth for player state structure and validation.
  */
 
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 
 /**
  * MAX_SAFE_STACK: maximum allowed stack for a player.

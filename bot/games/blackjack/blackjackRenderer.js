@@ -8,7 +8,7 @@
  */
 
 const { AttachmentBuilder } = require("discord.js")
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 const {
     renderCardTable,
     createBlackjackTableState

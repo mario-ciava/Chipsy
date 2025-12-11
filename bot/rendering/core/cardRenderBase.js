@@ -1,6 +1,6 @@
 const path = require("path")
 const { createCanvas, loadImage } = require("canvas")
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 const { gameToImage, isValidGameCard } = require("../../utils/cardConverter")
 
 const PROJECT_ROOT = path.join(__dirname, "../../..")

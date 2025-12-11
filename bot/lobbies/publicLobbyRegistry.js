@@ -1,4 +1,4 @@
-const logger = require("../utils/logger")
+const logger = require("../../shared/logger")
 
 const DEFAULT_EXPIRY_MS = 30 * 60 * 1000
 

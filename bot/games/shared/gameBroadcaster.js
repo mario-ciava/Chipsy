@@ -1,5 +1,5 @@
 const { MessageFlags, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require("discord.js")
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 
 /**
  * GameBroadcaster
@@ -17,6 +17,10 @@ class GameBroadcaster {
         this.collectors = new Map()
         // The primary channel is always tracked separately to ensure it persists
         this.primaryChannelId = null
+        // Track which targets have collectors to avoid duplicates
+        this.collectorsInitialized = new Set()
+        // Store collector configuration for lazy creation
+        this.collectorConfig = null
     }
 
     /**
@@ -70,57 +74,103 @@ class GameBroadcaster {
      * @returns {Promise<Message|null>} Returns the primary message
      */
     async broadcast(payload) {
-        const promises = []
         let primaryMessage = null
 
         const basePayload = { ...payload }
         if (!basePayload.allowedMentions) {
             basePayload.allowedMentions = { parse: [] }
         }
-        
-        // Extract files to handle cloning
+
+        // Extract files and save raw data BEFORE any Discord operations
         const files = basePayload.files || []
         delete basePayload.files
 
-        for (const [channelId, target] of this.targets) {
-            const op = async () => {
-                try {
-                    // Clone payload for this target
-                    const targetPayload = { ...basePayload }
-                    
-                    // Clone attachments if present to prevent reuse issues (e.g. consumed streams)
-                    if (files.length > 0) {
-                        targetPayload.files = files.map(f => {
-                            if (f instanceof AttachmentBuilder) {
-                                // Create new AttachmentBuilder with same buffer/stream and options
-                                return new AttachmentBuilder(f.attachment, {
-                                    name: f.name,
-                                    description: f.description
-                                })
-                            }
-                            return f
-                        })
-                    }
-
-                    if (target.message) {
-                        // Edit existing
-                        await target.message.edit(targetPayload)
-                    } else {
-                        // Send new
-                        target.message = await target.channel.send(targetPayload)
-                    }
-
-                    if (channelId === this.primaryChannelId) {
-                        primaryMessage = target.message
-                    }
-                } catch (error) {
-                    this.#handleBroadcastError(channelId, error)
+        // Extract raw buffer data and metadata IMMEDIATELY to prevent Discord.js from modifying them
+        const attachmentDataCache = files.map(f => {
+            if (f instanceof AttachmentBuilder) {
+                const rawData = f.attachment
+                // Create a master copy of the buffer that will be used to create per-channel copies
+                let masterBuffer
+                if (Buffer.isBuffer(rawData)) {
+                    masterBuffer = Buffer.allocUnsafe(rawData.length)
+                    rawData.copy(masterBuffer)
+                } else if (rawData instanceof Uint8Array) {
+                    masterBuffer = Buffer.from(rawData.buffer.slice(rawData.byteOffset, rawData.byteOffset + rawData.byteLength))
+                } else {
+                    masterBuffer = rawData
+                }
+                return {
+                    type: 'attachment',
+                    buffer: masterBuffer,
+                    name: f.name,
+                    description: f.description
                 }
             }
-            promises.push(op())
+            return { type: 'other', data: f }
+        })
+
+        // Send messages sequentially to avoid attachment conflicts
+        for (const [channelId, target] of this.targets) {
+            try {
+                // Clone payload for this target
+                const targetPayload = { ...basePayload }
+
+                // Create BRAND NEW AttachmentBuilders for this specific channel
+                if (attachmentDataCache.length > 0) {
+                    targetPayload.files = attachmentDataCache.map(item => {
+                        if (item.type === 'attachment') {
+                            // Create a UNIQUE buffer for THIS channel only
+                            const channelBuffer = Buffer.allocUnsafe(item.buffer.length)
+                            item.buffer.copy(channelBuffer)
+                            // Create a completely new AttachmentBuilder
+                            return new AttachmentBuilder(channelBuffer, {
+                                name: item.name,
+                                description: item.description
+                            })
+                        }
+                        return item.data
+                    })
+                }
+
+                // Use CLEAN payload when we have attachments to avoid Discord cache issues
+                const finalPayload = attachmentDataCache.length > 0 ? {
+                    embeds: targetPayload.embeds || [],
+                    components: targetPayload.components || [],
+                    files: targetPayload.files,
+                    allowedMentions: targetPayload.allowedMentions
+                } : targetPayload
+
+                if (target.message) {
+                    // Edit existing
+                    if (attachmentDataCache.length > 0) {
+                        // Clear attachments first, then add new ones
+                        await target.message.edit({
+                            embeds: finalPayload.embeds,
+                            components: finalPayload.components,
+                            attachments: []
+                        })
+                        await target.message.edit(finalPayload)
+                    } else {
+                        await target.message.edit(finalPayload)
+                    }
+                } else {
+                    // Send new
+                    target.message = await target.channel.send(finalPayload)
+
+                    // Lazy collector creation: if we have collector config and this target just got a message
+                    if (this.collectorConfig) {
+                        this.#ensureCollectorForTarget(channelId, target)
+                    }
+                }
+
+                if (channelId === this.primaryChannelId) {
+                    primaryMessage = target.message
+                }
+            } catch (error) {
+                this.#handleBroadcastError(channelId, error)
+            }
         }
 
-        await Promise.all(promises)
         return primaryMessage
     }
 
@@ -149,7 +199,7 @@ class GameBroadcaster {
 
     /**
      * Creates interaction collectors on all active messages.
-     * 
+     *
      * @param {Object} options Collector options (filter, time)
      * @param {Function} onCollect Callback for interactions
      * @param {Function} onEnd Callback when collector ends
@@ -157,40 +207,61 @@ class GameBroadcaster {
     createCollectors(options, onCollect, onEnd) {
         this.stopCollectors() // Clear old ones first
 
+        // Store config for lazy collector creation on mirror channels
+        this.collectorConfig = { options, onCollect, onEnd }
+
         for (const [channelId, target] of this.targets) {
             if (!target.message) continue
+            this.#ensureCollectorForTarget(channelId, target)
+        }
+    }
 
-            try {
-                const collector = target.message.createMessageComponentCollector(options)
-                
-                collector.on("collect", async (i) => {
-                    // Centralize processing
-                    try {
-                        await onCollect(i)
-                    } catch (err) {
-                        logger.error("Collector handler error", { 
-                            scope: "gameBroadcaster", 
-                            error: err.message 
-                        })
-                    }
-                })
+    /**
+     * Ensures a collector exists for a specific target.
+     * Called lazily when messages are created after initial collector setup.
+     *
+     * @param {string} channelId
+     * @param {Object} target
+     */
+    #ensureCollectorForTarget(channelId, target) {
+        // Skip if no message or collector already exists
+        if (!target.message) return
+        if (this.collectorsInitialized.has(channelId)) return
+        if (!this.collectorConfig) return
 
-                if (onEnd) {
-                    collector.on("end", (collected, reason) => {
-                        // We only trigger the main onEnd once, typically handled by the game logic 
-                        // explicitly stopping, or we can use the primary channel's end.
-                        // For now, we just let them run until stopped manually.
+        const { options, onCollect, onEnd } = this.collectorConfig
+
+        try {
+            const collector = target.message.createMessageComponentCollector(options)
+
+            collector.on("collect", async (i) => {
+                // Centralize processing
+                try {
+                    await onCollect(i)
+                } catch (err) {
+                    logger.error("Collector handler error", {
+                        scope: "gameBroadcaster",
+                        error: err.message
                     })
                 }
+            })
 
-                this.collectors.set(channelId, collector)
-            } catch (error) {
-                logger.warn("Failed to create collector", { 
-                    scope: "gameBroadcaster", 
-                    channelId, 
-                    error: error.message 
+            if (onEnd) {
+                collector.on("end", (collected, reason) => {
+                    // We only trigger the main onEnd once, typically handled by the game logic
+                    // explicitly stopping, or we can use the primary channel's end.
+                    // For now, we just let them run until stopped manually.
                 })
             }
+
+            this.collectors.set(channelId, collector)
+            this.collectorsInitialized.add(channelId)
+        } catch (error) {
+            logger.warn("Failed to create collector", {
+                scope: "gameBroadcaster",
+                channelId,
+                error: error.message
+            })
         }
     }
 
@@ -203,6 +274,8 @@ class GameBroadcaster {
             }
         }
         this.collectors.clear()
+        this.collectorsInitialized.clear()
+        this.collectorConfig = null
     }
 
     /**
@@ -231,6 +304,7 @@ class GameBroadcaster {
             if (collector) {
                 collector.stop("target_lost")
                 this.collectors.delete(channelId)
+                this.collectorsInitialized.delete(channelId)
             }
         } else {
             logger.error("Broadcast error", { 

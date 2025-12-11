@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags } = require("discord.js")
-const createCommand = require("../utils/createCommand")
+const createCommand = require("../utils/commands/createCommand")
 
 const slashCommand = new SlashCommandBuilder()
     .setName("rules")

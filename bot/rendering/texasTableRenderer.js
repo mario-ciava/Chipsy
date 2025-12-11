@@ -1,5 +1,5 @@
-const logger = require("../utils/logger")
-const setSeparator = require("../utils/setSeparator")
+const logger = require("../../shared/logger")
+const setSeparator = require("../../shared/utils/setSeparator")
 const {
     CONFIG,
     DEBUG_PNG_PATH,

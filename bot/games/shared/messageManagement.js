@@ -8,8 +8,8 @@
  */
 
 const { EmbedBuilder, Colors, MessageFlags, AttachmentBuilder } = require("discord.js")
-const logger = require("../../utils/logger")
-const setSeparator = require("../../utils/setSeparator")
+const logger = require("../../../shared/logger")
+const setSeparator = require("../../../shared/utils/setSeparator")
 
 const EPHEMERAL_TIMEOUT = 8000  // Centralized here for consistency
 

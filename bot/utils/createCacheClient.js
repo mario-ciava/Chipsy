@@ -1,4 +1,4 @@
-const { info, warn, error } = require("./logger")
+const { info, warn, error } = require("../../shared/logger")
 
 const DEFAULT_TTL_SECONDS = 30
 

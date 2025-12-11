@@ -1,5 +1,5 @@
-const { normalizeUserExperience } = require("./experience")
-const logger = require("./logger")
+const { normalizeUserExperience } = require("../../shared/experience")
+const logger = require("../../shared/logger")
 
 const createSetData = (dataHandler) => async(user) => {
     const createResult = ({ data = null, created = false, error = null }) => ({ data, created, error })

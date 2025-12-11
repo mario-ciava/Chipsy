@@ -1,5 +1,5 @@
 const { MessageFlags, EmbedBuilder, Colors } = require("discord.js")
-const { logAndSuppress } = require("../utils/logger")
+const { logAndSuppress } = require("../../shared/logger")
 
 module.exports = async(interaction) => {
     if (!interaction?.client?.commandRouter) return

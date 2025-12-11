@@ -1,6 +1,6 @@
-const logger = require("../utils/logger");
+const logger = require("../../shared/logger");
 const config = require("../../config");
-const createCommandSync = require("../utils/commandSync");
+const createCommandSync = require("../utils/commands/commandSync");
 const { mapGuildRegistrationPayload } = require("../utils/interactionAccess");
 
 async function synchronizeBotIdentity(client) {

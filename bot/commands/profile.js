@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, Colors, MessageFlags, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder } = require("discord.js")
 const playerClass = require("../games/shared/classes.js")
-const setSeparator = require("../utils/setSeparator")
-const { normalizeUserExperience } = require("../utils/experience")
+const setSeparator = require("../../shared/utils/setSeparator")
+const { normalizeUserExperience } = require("../../shared/experience")
 const { formatRelativeTime, formatTimeUntil, progressBar } = require("../utils/helpers")
 const { upgrades } = require("../../config")
 const {
@@ -10,9 +10,9 @@ const {
     calculateValue: calculateUpgradeValue,
     getAllIds: getAllUpgradeIds
 } = upgrades
-const createCommand = require("../utils/createCommand")
+const createCommand = require("../utils/commands/createCommand")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
-const logger = require("../utils/logger")
+const logger = require("../../shared/logger")
 const { logAndSuppress } = logger
 const { withAccessGuard } = require("../utils/interactionAccess")
 const isUnlockUpgrade = (upgrade) => Boolean(upgrade?.unlockOnly || upgrade?.effect?.strategy === "unlock")

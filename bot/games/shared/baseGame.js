@@ -1,9 +1,9 @@
 const Discord = require("discord.js")
-const setSeparator = require("../../utils/setSeparator")
+const setSeparator = require("../../../shared/utils/setSeparator")
 const cards = require("./cards.js")
 const features = require("../../../shared/features")
 const { probabilityEngine } = require("../../../shared/probability")
-const { calculateRequiredExp, normalizeUserExperience } = require("../../utils/experience")
+const { calculateRequiredExp, normalizeUserExperience } = require("../../../shared/experience")
 module.exports = class Game {
     constructor(info) {
         if (!info) return

@@ -1,4 +1,4 @@
-const { error: logError } = require("./logger")
+const { error: logError } = require("../../shared/logger")
 const { Events } = require("discord.js")
 
 const handlers = {

@@ -1,7 +1,7 @@
 const fs = require("fs/promises")
 const path = require("path")
 const chokidar = require("chokidar")
-const logger = require("./logger")
+const logger = require("../../shared/logger")
 
 const COMMAND_FILE_EXTENSION = ".js"
 

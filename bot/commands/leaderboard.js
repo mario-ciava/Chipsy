@@ -7,11 +7,11 @@ const {
     StringSelectMenuBuilder
 } = require("discord.js")
 const config = require("../../config")
-const createCommand = require("../utils/createCommand")
-const setSeparator = require("../utils/setSeparator")
+const createCommand = require("../utils/commands/createCommand")
+const setSeparator = require("../../shared/utils/setSeparator")
 const playerClass = require("../games/shared/classes")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
-const logger = require("../utils/logger")
+const logger = require("../../shared/logger")
 const { withAccessGuard } = require("../utils/interactionAccess")
 const {
     buildMomentumSignature,

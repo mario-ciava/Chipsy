@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits, Partials, Collection, REST } = require("discord.js")
 const { constants } = require("../../config")
-const CommandRouter = require("./commandRouter")
+const CommandRouter = require("./commands/commandRouter")
 
 const createClient = (config) => {
     const client = new Client({

@@ -7,7 +7,7 @@
  * Note: coordinates game state, betting, and hand outcome.
  */
 
-const logger = require("../../utils/logger")
+const logger = require("../../../shared/logger")
 const { Hand } = require("pokersolver")
 
 class HandProgression {

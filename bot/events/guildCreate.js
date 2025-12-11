@@ -1,4 +1,4 @@
-const logger = require("../utils/logger")
+const logger = require("../../shared/logger")
 const { mapGuildRegistrationPayload } = require("../utils/interactionAccess")
 
 module.exports = async(guild) => {
