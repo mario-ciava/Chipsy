@@ -12,6 +12,7 @@ const {
 const createCommand = require("../utils/commands/createCommand")
 const { sendInteractionResponse } = require("../utils/interactionResponse")
 const logger = require("../../shared/logger")
+const config = require("../../config")
 const { canEditConfig } = require("../utils/canEditConfig")
 const { resolveTexasSettings, defaults: texasDefaults } = require("../games/texas/settings")
 const { resolveBlackjackSettings, defaults: blackjackDefaults } = require("../games/blackjack/settings")
@@ -572,7 +573,7 @@ const runConfigCommand = async(interaction, client) => {
     }
 
     const collector = responseMessage?.createMessageComponentCollector?.({
-        time: 5 * 60 * 1000,
+        time: config.lobby.collectorTimeout.default,
         filter: (i) => i.user.id === interaction.user.id
     })
 

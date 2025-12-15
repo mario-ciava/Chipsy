@@ -8,6 +8,7 @@
                 </p>
             </div>
         </div>
+        <div v-if="showHeader && !isEmbedded" class="chip-divider chip-divider--strong my-1"></div>
         <div :class="scrollClasses" :style="consoleStyle" ref="scrollContainer">
             <transition-group name="log-entry" tag="ul" class="chip-log-lines">
                 <li
@@ -99,7 +100,9 @@ export default {
             return this.isEmbedded ? "text-2xl font-semibold text-white" : "chip-card__title"
         },
         subtitleClasses() {
-            return this.isEmbedded ? "chip-card__subtitle chip-card__subtitle--tight text-sm text-slate-400" : "chip-card__subtitle"
+            return this.isEmbedded
+                ? "chip-card__subtitle chip-card__subtitle--tight text-sm text-slate-400"
+                : "chip-card__subtitle chip-card__subtitle--tight"
         },
         panelStyle() {
             if (!this.panelHeight) return null

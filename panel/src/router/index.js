@@ -57,11 +57,7 @@ const router = createRouter({
         {
             path: "/tables",
             name: "Tables",
-            component: TablesPage,
-            meta: {
-                requiresAuth: true,
-                requiresLogs: true
-            }
+            component: TablesPage
         },
         {
             path: "/users/:id",

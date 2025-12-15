@@ -13,12 +13,6 @@ const { createLobbySession, registerActiveSession, getActiveSession, registerPub
 const { resolveTexasSettings, defaults: texasSettingDefaults } = require("../games/texas/settings")
 const config = require("../../config")
 
-const EPHEMERAL_CLEANUP_MS = 8000
-const TEXAS_DEFAULT_MAX_PLAYERS = config.texas?.maxPlayers?.default ?? 9
-const TEXAS_DEFAULT_MIN_BET = config.texas?.minBet?.default ?? 100
-const DEFAULT_PUBLIC_LOBBY_TTL_MS = 30 * 60 * 1000
-const MAX_PUBLIC_LOBBIES_PER_USER = 1
-
 const buildTexasCommandLog = (interaction, message, extraMeta = {}) =>
     logAndSuppress(message, {
         scope: "commands.texas",
@@ -51,7 +45,7 @@ const runTexas = async(interaction, client) => {
         if (message && typeof message.delete === "function") {
             setTimeout(() => {
                 message.delete().catch(() => null)
-            }, EPHEMERAL_CLEANUP_MS)
+            }, config.delays.ephemeralDelete.default)
         }
     }
 
@@ -242,18 +236,18 @@ const runTexas = async(interaction, client) => {
                             new ActionRowBuilder().addComponents(
                                 new TextInputBuilder()
                                     .setCustomId("minBet")
-                                    .setLabel("Minimum Bet")
+                                    .setLabel(`Minimum Bet (${config.texas.minBet.allowedRange.min}-${config.texas.minBet.allowedRange.max})`)
                                     .setStyle(TextInputStyle.Short)
                                     .setRequired(true)
-                                    .setValue(String(TEXAS_DEFAULT_MIN_BET))
+                                    .setValue(String(config.texas.minBet.default))
                             ),
                             new ActionRowBuilder().addComponents(
                                 new TextInputBuilder()
                                     .setCustomId("maxPlayers")
-                                    .setLabel("Max Players (2-9)")
+                                    .setLabel(`Max Players (${config.texas.minPlayers.allowedRange.min}-${config.texas.maxPlayers.allowedRange.max})`)
                                     .setStyle(TextInputStyle.Short)
                                     .setRequired(false)
-                                    .setPlaceholder(String(TEXAS_DEFAULT_MAX_PLAYERS))
+                                    .setPlaceholder(String(config.texas.maxPlayers.default))
                             ),
                             new ActionRowBuilder().addComponents(
                                 new TextInputBuilder()
@@ -281,7 +275,7 @@ const runTexas = async(interaction, client) => {
                             filter: (i) => i.customId === modalCustomId && i.user.id === interaction.user.id
                         })
                         
-                        const minBetRaw = submission.fields.getTextInputValue("minBet")?.trim() || String(TEXAS_DEFAULT_MIN_BET)
+                        const minBetRaw = submission.fields.getTextInputValue("minBet")?.trim() || String(config.texas.minBet.default)
                         const maxPlayersRaw = submission.fields.getTextInputValue("maxPlayers")?.trim()
                         const maxPlayersInput = maxPlayersRaw ? Number.parseInt(maxPlayersRaw, 10) : null
                         const visibility = sanitizeVisibility(submission.fields.getTextInputValue("visibility") || "private")
@@ -352,7 +346,7 @@ const runTexas = async(interaction, client) => {
 
         if (isPublicLobby) {
             const currentCount = await countUserPublicLobbies(pool, interaction.user.id)
-            if (currentCount >= MAX_PUBLIC_LOBBIES_PER_USER) {
+            if (currentCount >= config.lobby.public.maxPerUser.default) {
                 await interaction.followUp({
                     embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(`❌ You already have ${currentCount} active public lobby. Please close it before creating a new one.`)],
                     flags: MessageFlags.Ephemeral
@@ -372,14 +366,44 @@ const runTexas = async(interaction, client) => {
             return
         }
 
-        const minPlayersAllowed = config.texas?.minPlayers?.default ?? 2
-        const maxPlayersAllowed = config.texas?.maxPlayers?.default ?? TEXAS_DEFAULT_MAX_PLAYERS
+        const safeMinBet = Math.max(1, Math.floor(minBet))
+        const minBetRange = config.texas.minBet.allowedRange || {}
+        const minBetMin = Number.isFinite(minBetRange.min) ? minBetRange.min : 1
+        const minBetMax = Number.isFinite(minBetRange.max) ? minBetRange.max : Number.MAX_SAFE_INTEGER
+
+        if (safeMinBet < minBetMin || safeMinBet > minBetMax) {
+            await interaction.followUp({
+                embeds: [new EmbedBuilder()
+                    .setColor(Colors.Red)
+                    .setDescription(`❌ Minimum bet must be between ${setSeparator(minBetMin)}$ and ${setSeparator(minBetMax)}$.`)],
+                flags: MessageFlags.Ephemeral
+            })
+            return
+        }
+
+        const minPlayersRange = config.texas.minPlayers.allowedRange || {}
+        const maxPlayersRange = config.texas.maxPlayers.allowedRange || {}
+        const minPlayersAllowed = Number.isFinite(minPlayersRange.min) ? minPlayersRange.min : config.texas.minPlayers.default
+        const maxPlayersAllowed = Number.isFinite(maxPlayersRange.max) ? maxPlayersRange.max : config.texas.maxPlayers.default
+        const defaultMaxPlayers = config.texas.maxPlayers.default
         const normalizedMaxPlayers = Number.isInteger(maxPlayersInput)
             ? Math.min(Math.max(maxPlayersInput, minPlayersAllowed), maxPlayersAllowed)
-            : maxPlayersAllowed
+            : defaultMaxPlayers
 
-        const safeMinBet = Math.max(1, Math.floor(minBet))
-        const maxBuyIn = Math.min(safeMinBet * 100, Number.MAX_SAFE_INTEGER)
+        const buyInConfig = config.lobby.buyIn || {}
+        const minBuyInMultiplier = Number.isFinite(Number(buyInConfig.minMultiplier?.default))
+            ? Number(buyInConfig.minMultiplier.default)
+            : 1
+        const maxBuyInMultiplier = Number.isFinite(Number(buyInConfig.maxMultiplier?.default))
+            ? Number(buyInConfig.maxMultiplier.default)
+            : minBuyInMultiplier
+
+        const minBuyIn = Math.max(1, Math.floor(safeMinBet * minBuyInMultiplier))
+        const rawMaxBuyIn = Math.floor(safeMinBet * maxBuyInMultiplier)
+        const maxBuyInRange = config.texas.maxBuyIn.allowedRange || {}
+        const maxBuyInMin = Number.isFinite(maxBuyInRange.min) ? maxBuyInRange.min : 1
+        const maxBuyInMax = Number.isFinite(maxBuyInRange.max) ? maxBuyInRange.max : Number.MAX_SAFE_INTEGER
+        const maxBuyIn = Math.max(minBuyIn, Math.min(Math.max(rawMaxBuyIn, maxBuyInMin), maxBuyInMax))
 
         logger.debug("Creating Texas Hold'em game", {
             scope: "commands",
@@ -440,6 +464,7 @@ const runTexas = async(interaction, client) => {
         game = new TexasGame({
             message: messageAdapter,
             minBet: safeMinBet,
+            minBuyIn,
             maxPlayers: normalizedMaxPlayers,
             maxBuyIn,
             settings: effectiveSettings
@@ -503,13 +528,15 @@ const runTexas = async(interaction, client) => {
             const lobbyStateOverrides = state?.settings || lobbyOverrides
             const resolution = mergeSettings(lobbyStateOverrides)
             const players = game?.players || []
-            const maxPlayersLimit = game?.maxPlayers || 9
+            const maxPlayersLimit = Number.isFinite(game?.maxPlayers) && game.maxPlayers > 0
+                ? game.maxPlayers
+                : config.texas.maxPlayers.default
             const status = state?.status || "waiting"
             const palette = statusConfig[status] || statusConfig.waiting
             const lobbyClosed = Boolean(state?.closed || status === "ended" || status === "canceled")
             const playerCountLabel = `${players.length}/${maxPlayersLimit}`
             const tableIsFull = players.length >= maxPlayersLimit
-            const hasPlayers = players.length > 1
+            const meetsMinimumPlayers = players.length >= config.texas.minPlayers.default
             const settings = resolution?.effectiveSettings || resolveTexasSettings({ overrides: lobbyStateOverrides })
             const actionTimeoutSeconds = Math.round((settings.actionTimeoutMs || game?.actionTimeoutMs || config.texas.actionTimeout.default) / 1000)
             const allowRebuyLabel = (() => {
@@ -523,7 +550,7 @@ const runTexas = async(interaction, client) => {
             const embed = new EmbedBuilder()
                 .setColor(palette.color)
                 .setTitle("♠️ Texas Hold'em — Lobby")
-                .setDescription("Press **Join** to buy in. The host can start when at least 2 players have joined.")
+                .setDescription(`Press **Join** to buy in and take a seat. When everyone is ready, the host can press **Start**. Minimum players to start: **${config.texas.minPlayers.default}**.`)
                 .setImage('attachment://Lobby.png')
                 .addFields(
                     { name: `👥 Players [${playerCountLabel}]`, value: formatPlayers(), inline: true },
@@ -538,16 +565,16 @@ const runTexas = async(interaction, client) => {
                 .setTimestamp()
 
             const components = []
-            if (!lobbyClosed) {
-                components.push(
-                    new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId("tx:join").setLabel("Join").setStyle(ButtonStyle.Success).setDisabled(tableIsFull),
-                        new ButtonBuilder().setCustomId("tx:leave").setLabel("Leave").setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId("tx:start").setLabel("Start").setStyle(ButtonStyle.Primary).setDisabled(!hasPlayers),
-                        new ButtonBuilder().setCustomId("tx:cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger),
-                        new ButtonBuilder().setCustomId("tx:settings").setLabel("Settings").setStyle(ButtonStyle.Secondary)
-                    )
-                )
+	            if (!lobbyClosed) {
+	                components.push(
+	                    new ActionRowBuilder().addComponents(
+	                        new ButtonBuilder().setCustomId("tx:join").setLabel("Join").setStyle(ButtonStyle.Success).setDisabled(tableIsFull),
+	                        new ButtonBuilder().setCustomId("tx:leave").setLabel("Leave").setStyle(ButtonStyle.Secondary),
+	                        new ButtonBuilder().setCustomId("tx:start").setLabel("Start").setStyle(ButtonStyle.Primary).setDisabled(!meetsMinimumPlayers),
+	                        new ButtonBuilder().setCustomId("tx:cancel").setLabel("Cancel").setStyle(ButtonStyle.Danger),
+	                        new ButtonBuilder().setCustomId("tx:settings").setLabel("Settings").setStyle(ButtonStyle.Secondary)
+	                    )
+	                )
 
                 if (state?.showSettings) {
                     const rebuySelect = new StringSelectMenuBuilder()
@@ -559,30 +586,54 @@ const runTexas = async(interaction, client) => {
                             { label: "Disallow rebuy", value: "off", default: settings.allowRebuyMode === "off", emoji: "⛔" }
                         )
 
-                    const currentActionSeconds = Math.round((settings.actionTimeoutMs || game?.actionTimeoutMs || 0) / 1000)
+                    const currentActionSeconds = Math.max(1, Math.round((settings.actionTimeoutMs || game?.actionTimeoutMs || 0) / 1000))
+                    const actionLimits = typeof game?.getActionTimeoutLimits === "function"
+                        ? game.getActionTimeoutLimits()
+                        : (config.texas.actionTimeout.allowedRange || {})
+                    const minActionSeconds = Number.isFinite(actionLimits?.min)
+                        ? Math.ceil(actionLimits.min / 1000)
+                        : 1
+                    const maxActionSeconds = Number.isFinite(actionLimits?.max)
+                        ? Math.floor(actionLimits.max / 1000)
+                        : currentActionSeconds
+                    const actionTimeoutOptions = [15, 30, 45, 60, 75, 90, 120]
+                        .filter((sec) => sec >= minActionSeconds && sec <= maxActionSeconds)
+                    if (!actionTimeoutOptions.includes(currentActionSeconds)) {
+                        actionTimeoutOptions.push(currentActionSeconds)
+                    }
                     const actionTimeoutSelect = new StringSelectMenuBuilder()
                         .setCustomId("tx:settings:actionTimeout")
                         .setPlaceholder(`⏱️ Table speed — ${currentActionSeconds}s per action`)
                         .addOptions(
-                            ["15","30","45","60","75","90","120","180","240"].map((label) => {
-                                const numeric = Number(label)
-                                return {
+                            Array.from(new Set(actionTimeoutOptions))
+                                .sort((a, b) => a - b)
+                                .map((label) => ({
                                     label: `⏱️ Table speed — ${label}s`,
-                                    value: label,
-                                    default: currentActionSeconds === numeric
-                                }
-                            })
+                                    value: String(label),
+                                    default: label === currentActionSeconds
+                                }))
                         )
 
+                    const rebuyWindowSeconds = Math.max(1, Math.round(settings.rebuyWindowMs / 1000))
+                    const rebuyWindowOptions = [30, 60, 90, 120, 180]
+                        .filter((sec) => {
+                            const ms = sec * 1000
+                            return ms >= texasSettingDefaults.minWindowMs && ms <= texasSettingDefaults.maxWindowMs
+                        })
+                    if (!rebuyWindowOptions.includes(rebuyWindowSeconds)) {
+                        rebuyWindowOptions.push(rebuyWindowSeconds)
+                    }
                     const rebuyWindowSelect = new StringSelectMenuBuilder()
                         .setCustomId("tx:settings:rebuyWindow")
-                        .setPlaceholder(`♻️ Rebuy window — ${Math.round(settings.rebuyWindowMs / 1000)}s`)
+                        .setPlaceholder(`♻️ Rebuy window — ${rebuyWindowSeconds}s`)
                         .addOptions(
-                            ["30","60","90"].map((label) => ({
-                                label: `♻️ Rebuy window — ${label}s`,
-                                value: label,
-                                default: Math.round(settings.rebuyWindowMs / 1000) === Number(label)
-                            }))
+                            Array.from(new Set(rebuyWindowOptions))
+                                .sort((a, b) => a - b)
+                                .map((label) => ({
+                                    label: `♻️ Rebuy window — ${label}s`,
+                                    value: String(label),
+                                    default: rebuyWindowSeconds === label
+                                }))
                         )
 
                     const cleanSelect = new StringSelectMenuBuilder()
@@ -634,7 +685,6 @@ const runTexas = async(interaction, client) => {
         const lobbySession = createLobbySession({
             send: sendLobbyMessage,
             logger,
-            collectorOptions: { time: 5 * 60 * 1000 },
             render: renderLobbyView
         })
         game.lobbySession = lobbySession
@@ -662,7 +712,7 @@ const runTexas = async(interaction, client) => {
                 minBet: safeMinBet,
                 maxPlayers: normalizedMaxPlayers,
                 currentPlayers: currentPlayersCount,
-                ttl: DEFAULT_PUBLIC_LOBBY_TTL_MS / 1000
+                ttl: config.lobby.public.ttlMs.default / 1000
             }).catch(() => null)
             await cleanupExpiredLobbies(pool).catch(() => null)
         }
@@ -766,6 +816,21 @@ const runTexas = async(interaction, client) => {
 
                 const submission = await lobbySession.presentModal(i, modal)
                 if (!submission) return
+
+                // Modal submissions may provide a different User instance than the button interaction.
+                // Ensure data is attached so bankroll checks work reliably for mirror channels too.
+                try {
+                    await ensureUserData(submission.user)
+                } catch (error) {
+                    if (error.message === "user-data-unavailable") return
+                    await submission.reply({
+                        embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription("❌ We could not load your profile right now. Please try again later.")],
+                        flags: MessageFlags.Ephemeral
+                    }).catch(
+                        logLobbyInteraction(submission, "Failed to respond after user data error")
+                    )
+                    return
+                }
 
                 // Re-check after modal to prevent race condition (user may have joined via another modal)
                 if (game.GetPlayer(submission.user.id)) {

@@ -17,7 +17,7 @@ This is a prototype for hobby servers. It is intentionally modest and it does no
 
 ## Table of contents
 
-- [architecture at a glance](#architecture-at-a-glance)
+- [architecture](#architecture)
 - [features](#features)
 - [quick start](#quick-start)
 - [bot commands](#bot-commands)
@@ -29,7 +29,7 @@ This is a prototype for hobby servers. It is intentionally modest and it does no
 - [roadmap](#roadmap)
 - [license](#license)
 
-## Architecture at a glance
+## Architecture
 
 | layer | component | summary |
 | --- | --- | --- |
@@ -90,6 +90,7 @@ Chipsy reads configuration from `.env` and `.env.local` through `config/index.js
 - `DISCORD_BOT_TOKEN`;
 - `DISCORD_OWNER_ID`;
 - `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`;
+- optional cache: `REDIS_URL` (or `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_TLS`, `REDIS_DATABASE`);
 - `FRONTEND_REDIRECT_ORIGIN` for the panel oauth redirect;
 - `INTERNAL_API_TOKEN` for the bot internal API;
 - `SESSION_SECRET` with at least 32 random characters.

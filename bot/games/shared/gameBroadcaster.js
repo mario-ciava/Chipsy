@@ -21,10 +21,35 @@ class GameBroadcaster {
         if (!lobbySession || !lobbySession.mirrors) return
         
         for (const [channelId, message] of lobbySession.mirrors) {
-            if (message && message.channel) {
-                this.addTarget(message.channel)
-            }
+            if (!message || !message.channel) continue
+            const existing = this.targets.get(channelId) || { channel: message.channel, message: null }
+            existing.channel = message.channel
+            // Preserve the existing mirror message so edits apply to it in later rounds
+            existing.message = message
+            this.targets.set(channelId, existing)
+            if (message.channel.id && !this.primaryChannelId) this.primaryChannelId = message.channel.id
         }
+    }
+
+    prepareForNewRound() {
+        // Stop collectors tied to old messages and clear message references, keep channels
+        this.stopCollectors("new_round")
+        for (const [channelId, target] of this.targets) {
+            this.targets.set(channelId, { ...target, message: null })
+        }
+    }
+
+    getCurrentMessages() {
+        const seen = new Set()
+        const messages = []
+        for (const target of this.targets.values()) {
+            const message = target?.message
+            const id = message?.id
+            if (!message || !id || seen.has(id)) continue
+            seen.add(id)
+            messages.push(message)
+        }
+        return messages
     }
 
     addTarget(channel) {
@@ -237,7 +262,22 @@ class GameBroadcaster {
     }
 
     #handleBroadcastError(channelId, error) {
-        if ([10008, 50001, 50013].includes(error.code) || error.message?.includes("Missing Permissions")) {
+        const missingMessage = error.code === 10008 // Unknown Message
+        const missingPermission = [50001, 50013].includes(error.code) || error.message?.includes("Missing Permissions")
+
+        if (missingMessage) {
+            logger.warn("Mirror message missing, will recreate on next broadcast", {
+                scope: "gameBroadcaster",
+                channelId
+            })
+            const target = this.targets.get(channelId)
+            if (target) this.targets.set(channelId, { ...target, message: null })
+            this.collectors.delete(channelId)
+            this.collectorsInitialized.delete(channelId)
+            return
+        }
+
+        if (missingPermission) {
             logger.warn("Target lost, removing from broadcast", { 
                 scope: "gameBroadcaster", 
                 channelId, 
@@ -250,13 +290,14 @@ class GameBroadcaster {
                 this.collectors.delete(channelId)
                 this.collectorsInitialized.delete(channelId)
             }
-        } else {
-            logger.error("Broadcast error", { 
-                scope: "gameBroadcaster", 
-                channelId, 
-                error: error.message 
-            })
+            return
         }
+
+        logger.error("Broadcast error", { 
+            scope: "gameBroadcaster", 
+            channelId, 
+            error: error.message 
+        })
     }
 }
 

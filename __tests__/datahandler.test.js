@@ -4,7 +4,7 @@ const createDataHandler = require("../shared/database/dataHandler")
 const ensureSchema = require("../shared/database/ensureSchema")
 const createSetData = require("../bot/utils/createSetData")
 const Game = require("../bot/games/shared/baseGame")
-const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp, normalizeUserExperience } = require("../bot/utils/experience")
+const { DEFAULT_PLAYER_LEVEL, calculateRequiredExp, normalizeUserExperience } = require("../shared/experience")
 
 beforeEach(() => {
     ensureSchema.mockClear()

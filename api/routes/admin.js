@@ -183,7 +183,7 @@ const createAdminRouter = (dependencies) => {
     router.post("/turnon", criticalActionLimiter, requireCsrfToken, handleTurnOn)
 
     router.get("/tables", adminReadLimiter, async(req, res, next) => {
-        if (!ensureLogsAccess(req, res)) return
+        if (!ensureAuthenticated(req, res)) return
         try {
             const payload = await resolvedAdminService.listTables()
             res.status(200).json(payload)
@@ -199,7 +199,7 @@ const createAdminRouter = (dependencies) => {
         validate(adminSchemas.tableAction, "body"),
         requireCsrfToken,
         async(req, res, next) => {
-        if (!ensurePanelAdmin(req, res)) return
+        if (!ensureLogsAccess(req, res)) return
         const tableId = req.params?.tableId
         const action = req.body?.action
         try {

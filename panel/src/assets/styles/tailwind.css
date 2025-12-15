@@ -1154,12 +1154,36 @@
         @apply flex flex-wrap items-center gap-4 rounded-2xl border border-white/5 bg-white/5 px-4 py-3;
     }
 
+    .chip-toolbar--dense {
+        @apply gap-3 px-5 py-3;
+    }
+
+    .chip-toolbar--solid {
+        @apply border-white/10 bg-slate-950 shadow-chip-soft;
+    }
+
+    .chip-toolbar--split {
+        @apply w-full justify-between;
+    }
+
     .chip-toolbar__group {
         @apply flex flex-1 flex-wrap items-center gap-3;
     }
 
+    .chip-toolbar__meta {
+        @apply flex flex-1 flex-wrap items-center gap-x-4 gap-y-1;
+    }
+
     .chip-toolbar__actions {
         @apply flex items-center gap-2;
+    }
+
+    .chip-toolbar__hint {
+        @apply text-xs font-medium text-slate-400;
+    }
+
+    .chip-toolbar--split .chip-toolbar__actions {
+        @apply ml-auto w-full justify-end sm:w-auto;
     }
 
     .chip-toolbar.leaderboard-page__toolbar {

@@ -138,6 +138,31 @@ class RebuyManager {
             return { status: "failed", playerId: player?.id }
         }
 
+        const mirrorMessages = []
+        const primaryChannelId = this.game.channel.id
+        if (this.game.broadcaster?.targets instanceof Map) {
+            for (const [channelId, target] of this.game.broadcaster.targets.entries()) {
+                if (channelId === primaryChannelId) continue
+                const channel = target?.channel
+                if (!channel || typeof channel.send !== "function") continue
+                try {
+                    const mirrorMessage = await channel.send({
+                        embeds: [embed],
+                        components: [],
+                        allowedMentions: { users: [] }
+                    })
+                    mirrorMessages.push(mirrorMessage)
+                } catch (error) {
+                    logger.debug("Failed to send rebuy mirror message", {
+                        scope: "rebuyManager",
+                        playerId: player?.id,
+                        channelId,
+                        error: error?.message
+                    })
+                }
+            }
+        }
+
         const filter = withAccessGuard(
             (interaction) => interaction.customId === customId,
             { scope: "blackjack:rebuy" }
@@ -222,6 +247,16 @@ class RebuyManager {
                 const result = await this.processRebuy(player, submission, row, message, embed, playerLabel)
 
                 if (result.success) {
+                    if (mirrorMessages.length > 0) {
+                        const mirrorEmbed = EmbedBuilder.from(embed)
+                            .setDescription(`✅ ${playerLabel} rejoined with **${setSeparator(result.amount)}$**.`)
+                            .setColor(Colors.Green)
+                            .setFooter({ text: "▶️ Game will resume shortly" })
+                        await Promise.all(mirrorMessages.map((mirrorMessage) => {
+                            if (!mirrorMessage || typeof mirrorMessage.edit !== "function") return null
+                            return mirrorMessage.edit({ embeds: [mirrorEmbed], components: [] }).catch(() => null)
+                        }))
+                    }
                     resolve({ status: "completed", playerId: player.id })
                     try {
                         collector.stop("completed")
@@ -249,6 +284,32 @@ class RebuyManager {
                     }
                 } catch (_) {
                     /* ignore */
+                }
+
+                if (this.game.settings?.autoCleanHands && typeof this.game.scheduleMessageCleanup === "function") {
+                    this.game.scheduleMessageCleanup(message)
+                }
+
+                if (mirrorMessages.length > 0) {
+                    const mirrorEmbed = reason !== "completed"
+                        ? EmbedBuilder.from(embed)
+                            .setDescription(`⏳ Rebuy window expired for ${playerLabel}.`)
+                            .setColor(Colors.DarkRed)
+                            .setFooter({ text: "Player remains out" })
+                        : EmbedBuilder.from(embed)
+                            .setColor(Colors.DarkGrey)
+                            .setFooter({ text: "Rebuy handled" })
+
+                    await Promise.all(mirrorMessages.map((mirrorMessage) => {
+                        if (!mirrorMessage || typeof mirrorMessage.edit !== "function") return null
+                        return mirrorMessage.edit({ embeds: [mirrorEmbed], components: [] }).catch(() => null)
+                    }))
+
+                    if (this.game.settings?.autoCleanHands && typeof this.game.scheduleMessageCleanup === "function") {
+                        for (const mirrorMessage of mirrorMessages) {
+                            this.game.scheduleMessageCleanup(mirrorMessage)
+                        }
+                    }
                 }
 
                 if (reason !== "completed") {

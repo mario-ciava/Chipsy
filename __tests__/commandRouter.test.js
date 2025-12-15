@@ -5,8 +5,25 @@ jest.mock("discord.js", () => {
         }
     }
 
+    class MockEmbedBuilder {
+        constructor() {
+            this.title = ""
+            this.description = ""
+            this.fields = []
+            this.footer = null
+            this.color = null
+        }
+        setColor(color) { this.color = color; return this }
+        setTitle(title) { this.title = title; return this }
+        setDescription(description) { this.description = description; return this }
+        addFields(...fields) { this.fields.push(...fields); return this }
+        setFooter(footer) { this.footer = footer; return this }
+    }
+
     return {
         Collection: MockCollection,
+        EmbedBuilder: MockEmbedBuilder,
+        Colors: { Red: 0xff0000, Orange: 0xffa500, DarkGrey: 0x333333 },
         MessageFlags: {
             Ephemeral: 1 << 6
         }
@@ -19,7 +36,7 @@ jest.mock("../bot/utils/interactionResponse", () => ({
     sendInteractionResponse: (...args) => mockSendInteractionResponse(...args)
 }))
 
-jest.mock("../bot/utils/logger", () => ({
+jest.mock("../shared/logger", () => ({
     error: jest.fn(),
     warn: jest.fn(),
     debug: jest.fn(),
@@ -27,7 +44,7 @@ jest.mock("../bot/utils/logger", () => ({
     logAndSuppress: jest.fn(() => jest.fn())
 }))
 
-const CommandRouter = require("../bot/utils/commandRouter")
+const CommandRouter = require("../bot/utils/commands/commandRouter")
 const { MessageFlags } = require("discord.js")
 
 const createSlashBuilder = () => ({
@@ -108,10 +125,10 @@ describe("CommandRouter.handleInteraction", () => {
 
         await router.handleInteraction(interaction)
 
-        expect(sendSpy).toHaveBeenCalledWith(interaction, {
-            content: "❌ Database connection failed. Please try again later.",
-            flags: MessageFlags.Ephemeral
-        })
+        expect(sendSpy).toHaveBeenCalledTimes(1)
+        const errorPayload = sendSpy.mock.calls[0][1]
+        expect(errorPayload.flags).toBe(MessageFlags.Ephemeral)
+        expect(errorPayload.embeds[0].description).toBe("❌ Database connection failed. Please try again later.")
         expect(router.commands.get("test").execute).not.toHaveBeenCalled()
     })
 
@@ -137,10 +154,10 @@ describe("CommandRouter.handleInteraction", () => {
         await router.handleInteraction(interaction)
 
         expect(execute).not.toHaveBeenCalled()
-        expect(mockSendInteractionResponse).toHaveBeenCalledWith(interaction, {
-            content: "🚫 You are blacklisted and cannot use Chipsy.",
-            flags: MessageFlags.Ephemeral
-        })
+        expect(mockSendInteractionResponse).toHaveBeenCalledTimes(1)
+        const denialPayload = mockSendInteractionResponse.mock.calls[0][1]
+        expect(denialPayload.flags).toBe(MessageFlags.Ephemeral)
+        expect(denialPayload.embeds[0].description).toBe("🚫 You are blacklisted and cannot use Chipsy.")
     })
 })
 
