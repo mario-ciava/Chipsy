@@ -1,6 +1,7 @@
 const logger = require("../../shared/logger")
+const config = require("../../config")
 
-const DEFAULT_EXPIRY_MS = 30 * 60 * 1000
+const DEFAULT_EXPIRY_MS = config.lobby.public.ttlMs.default
 
 const hasPool = (pool) => pool && typeof pool.query === "function"
 

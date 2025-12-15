@@ -22,7 +22,7 @@
                 <router-link exact to="/" class="chip-nav__link">Home</router-link>
                 <router-link v-if="isAdmin" to="/control_panel" class="chip-nav__link">Panel</router-link>
                 <router-link v-if="canViewLogs" to="/logs" class="chip-nav__link">Logs</router-link>
-                <router-link v-if="canViewLogs" to="/tables" class="chip-nav__link">Tables</router-link>
+                <router-link to="/tables" class="chip-nav__link">Tables</router-link>
             </nav>
             <div class="chip-shell__actions">
                 <span v-if="isAuthenticated" class="text-sm">

@@ -339,7 +339,7 @@ const ACTION_BADGE_STYLES = {
     call: { fill: "#2F80ED", textColor: "#FFFFFF" },
     bet: { fill: "#2F80ED", textColor: "#FFFFFF" },
     raise: { fill: "#2F80ED", textColor: "#FFFFFF" },
-    allin: { fill: CONFIG.loseColor, textColor: "#FFFFFF" }
+    allin: { fill: CONFIG.pushColor, textColor: "#2B1E00" }
 }
 
 const buildPlayerInfoSegments = (player, { includePot } = { includePot: true }) => {
@@ -440,7 +440,8 @@ const drawTexasPlayer = (ctx, player, { slotLeft, slotWidth, top, showdown = fal
             })
         } else if (player.allIn && !player.lastAction) {
             // Only show all-in badge if no action badge was already added
-            statusBadges.push({ text: "ALL-IN", fill: CONFIG.pushColor, textColor: "#2B1E00" })
+            const style = ACTION_BADGE_STYLES.allin
+            statusBadges.push({ text: "ALL-IN", fill: style.fill, textColor: style.textColor })
         }
 
         // Avoid duplicate FOLD badge (may already be added from lastAction)

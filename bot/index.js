@@ -134,7 +134,7 @@ const bootstrap = async() => {
                 cleanupExpiredLobbies(pool).catch((err) => {
                     logger.error("Failed to cleanup expired lobbies", { scope: "system", error: err.message })
                 })
-            }, 10 * 60 * 1000)
+            }, config.lobby.public.cleanupIntervalMs.default)
 
             // Ritorna l'oggetto con le funzioni di shutdown per graceful shutdown
             return {

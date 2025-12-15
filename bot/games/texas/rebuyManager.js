@@ -55,20 +55,24 @@ class TexasRebuyManager {
     async applyRebuyPauseFooter(windowMs) {
         const footerText = this.buildRebuyPauseFooter(windowMs)
         for (const [playerId, offer] of this.offers.entries()) {
-            const message = offer?.message
-            if (!message || !Array.isArray(message.embeds) || message.embeds.length === 0) continue
-            try {
-                const updatedEmbed = EmbedBuilder.from(message.embeds[0]).setFooter({ text: footerText })
-                await message.edit({
-                    embeds: [updatedEmbed],
-                    components: message.components || []
-                })
-            } catch (error) {
-                logger.debug("Failed to update rebuy pause footer", {
-                    scope: "texasGame",
-                    playerId,
-                    error: error?.message
-                })
+            const messages = Array.isArray(offer?.messages)
+                ? offer.messages
+                : offer?.message ? [offer.message] : []
+            for (const message of messages) {
+                if (!message || !Array.isArray(message.embeds) || message.embeds.length === 0) continue
+                try {
+                    const updatedEmbed = EmbedBuilder.from(message.embeds[0]).setFooter({ text: footerText })
+                    await message.edit({
+                        embeds: [updatedEmbed],
+                        components: message.components || []
+                    })
+                } catch (error) {
+                    logger.debug("Failed to update rebuy pause footer", {
+                        scope: "texasGame",
+                        playerId,
+                        error: error?.message
+                    })
+                }
             }
         }
     }
@@ -116,10 +120,13 @@ class TexasRebuyManager {
         if (!game.channel || typeof game.channel.send !== "function") return
 
         const existing = this.offers.get(player.id)
-        if (existing?.collector && !existing.collector.ended) {
-            try {
-                existing.collector.stop("replaced")
-            } catch (_) { /* ignore */ }
+        const existingCollectors = Array.isArray(existing?.collectors)
+            ? existing.collectors
+            : existing?.collector ? [existing.collector] : []
+        for (const collector of existingCollectors) {
+            if (collector && !collector.ended) {
+                try { collector.stop("replaced") } catch (_) {}
+            }
         }
 
         const customId = `tx_rebuy:${player.id}:${Date.now()}`
@@ -141,18 +148,41 @@ class TexasRebuyManager {
                 .setStyle(ButtonStyle.Primary)
         )
 
-        let message = null
-        try {
-            message = await game.channel.send({
-                embeds: [embed],
-                components: [row],
-                allowedMentions: { parse: [] }
-            })
-        } catch (error) {
+        const channels = new Map()
+        if (game.broadcaster?.targets instanceof Map) {
+            for (const target of game.broadcaster.targets.values()) {
+                if (target?.channel?.id && typeof target.channel.send === "function") {
+                    channels.set(target.channel.id, target.channel)
+                }
+            }
+        }
+        if (game.channel?.id && typeof game.channel.send === "function") {
+            channels.set(game.channel.id, game.channel)
+        }
+
+        const messages = []
+        for (const channel of channels.values()) {
+            try {
+                const sent = await channel.send({
+                    embeds: [embed],
+                    components: [row],
+                    allowedMentions: { parse: [] }
+                })
+                messages.push(sent)
+            } catch (error) {
+                logger.debug("Failed to send rebuy offer to mirror channel", {
+                    scope: "texasGame",
+                    playerId: player?.id,
+                    channelId: channel?.id,
+                    error: error?.message
+                })
+            }
+        }
+
+        if (messages.length === 0) {
             logger.warn("Failed to send rebuy offer", {
                 scope: "texasGame",
-                playerId: player?.id,
-                error: error?.message
+                playerId: player?.id
             })
             return
         }
@@ -162,12 +192,19 @@ class TexasRebuyManager {
             { scope: "texas:rebuy" }
         )
 
-        const collector = message.createMessageComponentCollector({
-            time: windowMs,
-            filter
-        })
+        const collectors = []
+        const offerState = {
+            messages,
+            collectors,
+            expiresAt: Date.now() + windowMs,
+            completed: false,
+            endedCount: 0
+        }
+        this.offers.set(player.id, offerState)
 
-        collector.on("collect", async (interaction) => {
+        const handleCollect = async (interaction) => {
+            const currentOffer = this.offers.get(player.id)
+            if (!currentOffer || currentOffer.completed) return
             if (interaction.user?.id !== player.id) {
                 await game.respondEphemeral(interaction, { content: "❌ Only this player can rebuy." })
                 return
@@ -251,23 +288,30 @@ class TexasRebuyManager {
                     content: `✅ Rebuy successful: **${setSeparator(buyInResult.amount)}$**.`
                 })
 
-                if (message) {
-                    const disabledRow = new ActionRowBuilder().addComponents(
-                        ButtonBuilder.from(row.components[0]).setDisabled(true)
-                    )
-                    const resumedEmbed = EmbedBuilder.from(message.embeds?.[0] || embed)
-                        .setDescription(`✅ ${playerLabel} rejoined with **${setSeparator(buyInResult.amount)}$**.`)
-                        .setFooter({ text: "▶️ Game resumed" })
-                        .setColor(Colors.Green)
-                    await message.edit({
+                const disabledRow = new ActionRowBuilder().addComponents(
+                    ButtonBuilder.from(row.components[0]).setDisabled(true)
+                )
+                const resumedEmbed = EmbedBuilder.from(
+                    messages[0]?.embeds?.[0] || embed
+                )
+                    .setDescription(`✅ ${playerLabel} rejoined with **${setSeparator(buyInResult.amount)}$**.`)
+                    .setFooter({ text: "▶️ Game resumed" })
+                    .setColor(Colors.Green)
+
+                currentOffer.completed = true
+                await Promise.all(messages.map((msg) => {
+                    if (!msg || typeof msg.edit !== "function") return null
+                    return msg.edit({
                         embeds: [resumedEmbed],
                         components: [disabledRow]
                     }).catch(() => null)
-                }
+                }))
 
-                try {
-                    collector.stop("completed")
-                } catch (_) { /* ignore */ }
+                for (const collector of collectors) {
+                    if (collector && !collector.ended) {
+                        try { collector.stop("completed") } catch (_) {}
+                    }
+                }
 
                 await this.onRebuyCompleted(player)
             } catch (error) {
@@ -280,23 +324,41 @@ class TexasRebuyManager {
                     content: "❌ Rebuy failed. Please try again."
                 })
             }
-        })
+        }
 
-        collector.on("end", async (_collected, reason) => {
-            try {
-                const disabled = new ActionRowBuilder().addComponents(
-                    ButtonBuilder.from(row.components[0]).setDisabled(true)
-                )
-                await message.edit({ components: [disabled] }).catch(() => null)
-            } catch (_) { /* ignore */ }
+        for (const message of messages) {
+            if (!message?.createMessageComponentCollector) continue
+            const collector = message.createMessageComponentCollector({
+                time: windowMs,
+                filter
+            })
+            collectors.push(collector)
 
-            this.offers.delete(player.id)
-            if (reason !== "completed" && reason !== "replaced") {
-                await this.onRebuyExpired(player)
-            }
-        })
+            collector.on("collect", handleCollect)
 
-        this.offers.set(player.id, { message, collector, expiresAt: Date.now() + windowMs })
+            collector.on("end", async (_collected, reason) => {
+                try {
+                    const disabled = new ActionRowBuilder().addComponents(
+                        ButtonBuilder.from(row.components[0]).setDisabled(true)
+                    )
+                    await message.edit({ components: [disabled] }).catch(() => null)
+                } catch (_) { /* ignore */ }
+
+                if (game.settings?.autoCleanHands && message && typeof game.scheduleMessageCleanup === "function") {
+                    game.scheduleMessageCleanup(message)
+                }
+
+                const currentOffer = this.offers.get(player.id)
+                if (!currentOffer) return
+                currentOffer.endedCount = (currentOffer.endedCount || 0) + 1
+                if (currentOffer.endedCount < (currentOffer.collectors?.length || 1)) return
+
+                this.offers.delete(player.id)
+                if (!currentOffer.completed && reason !== "replaced") {
+                    await this.onRebuyExpired(player)
+                }
+            })
+        }
     }
 
     async onRebuyExpired(player) {
@@ -327,15 +389,18 @@ class TexasRebuyManager {
         if (activePlayers.length >= this.game.getMinimumPlayers()) {
             if (this.game.waitingForRebuy) {
                 this.game.waitingForRebuy = false
-                if (!this.game.awaitingPlayerId && !this.game.timer) {
-                    try {
-                        await this.game.StartGame()
-                    } catch (error) {
-                        logger.warn("Failed to restart game after rebuy", {
-                            scope: "texasGame",
-                            error: error?.message
-                        })
-                    }
+                if (this.game.timer) {
+                    try { clearTimeout(this.game.timer) } catch (_) {}
+                    this.game.timer = null
+                }
+                this.game.awaitingPlayerId = null
+                try {
+                    await this.game.StartGame()
+                } catch (error) {
+                    logger.warn("Failed to restart game after rebuy", {
+                        scope: "texasGame",
+                        error: error?.message
+                    })
                 }
             }
             return

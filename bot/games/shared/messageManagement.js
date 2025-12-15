@@ -10,8 +10,9 @@
 const { EmbedBuilder, Colors, MessageFlags, AttachmentBuilder } = require("discord.js")
 const logger = require("../../../shared/logger")
 const setSeparator = require("../../../shared/utils/setSeparator")
+const config = require("../../../config")
 
-const EPHEMERAL_TIMEOUT = 8000  // Centralized here for consistency
+const EPHEMERAL_TIMEOUT = config.delays.ephemeralDelete.default
 
 class MessageManagement {
     constructor(gameInstance) {
@@ -151,16 +152,7 @@ class MessageManagement {
         const force = Boolean(options.force)
         if (!force && player.status?.lastReminderHand === this.game.hands) return false
 
-        // Auto-clean previous hole card message when enabled
-        if (this.game?.settings?.autoCleanHands && player.status?.holeCardMessage) {
-            const { message, hand } = player.status.holeCardMessage
-            if (hand < this.game.hands && message && typeof message.delete === "function") {
-                try {
-                    await message.delete().catch(() => null)
-                } catch (_) { /* ignore */ }
-            }
-            player.status.holeCardMessage = null
-        }
+        // Previous hole card reminders are cleaned up by the hand auto-clean timer.
 
         const interaction = player.lastInteraction
         const canFollowUp = interaction && typeof interaction.followUp === "function"
@@ -236,7 +228,7 @@ class MessageManagement {
                 const sent = await interaction.followUp(ephemeralPayload)
                 delivered = true
                 if (this.game?.settings?.autoCleanHands && player.status) {
-                    player.status.holeCardMessage = { hand: this.game.hands, message: sent }
+                    player.status.holeCardMessage = { hand: this.game.hands, message: sent, interaction }
                 }
             } catch (error) {
                 logger.debug("Failed to send hole cards reminder via interaction", {
@@ -282,6 +274,40 @@ class MessageManagement {
                     playerId: player?.id,
                     error: error?.message
                 })
+            }
+        }
+    }
+
+    async cleanupHoleCardsMessages(options = {}) {
+        if (!this.game?.settings?.autoCleanHands) return
+        const upToHand = Number.isFinite(options.upToHand) ? options.upToHand : null
+        for (const player of this.game.players) {
+            const entry = player?.status?.holeCardMessage
+            if (!entry) continue
+            const { message, interaction, hand } = entry
+            if (upToHand !== null && Number.isFinite(hand) && hand > upToHand) continue
+            let removed = false
+
+            if (message && typeof message.delete === "function") {
+                try {
+                    await message.delete()
+                    removed = true
+                } catch (_) {
+                    // ignore
+                }
+            }
+
+            if (!removed && interaction && typeof interaction.deleteReply === "function") {
+                try {
+                    await interaction.deleteReply(message?.id).catch(() => null)
+                } catch (_) {
+                    // ignore
+                }
+            }
+
+            if (player.status) {
+                player.status.holeCardMessage = null
+                player.status.holeCardPanel = null
             }
         }
     }

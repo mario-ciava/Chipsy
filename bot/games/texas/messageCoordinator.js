@@ -7,6 +7,7 @@ const {
 } = require("discord.js")
 const setSeparator = require("../../../shared/utils/setSeparator")
 const logger = require("../../../shared/logger")
+const config = require("../../../config")
 
 class TexasMessageCoordinator {
     constructor(game) {
@@ -100,7 +101,7 @@ class TexasMessageCoordinator {
         const revealRequests = new Map()
         
         game.broadcaster.createCollectors({
-            time: 10_000,
+            time: config.texas.revealWindow.default,
             filter: (i) => i.customId === `tx_reveal:${game.hands}:${revealWinnerId}` || i.customId === `tx_action:leave:${revealWinnerId || "any"}`
         }, async (interaction) => {
             if (interaction.customId.startsWith("tx_action:leave")) {
@@ -265,10 +266,7 @@ class TexasMessageCoordinator {
         }
 
         const fresh = Boolean(game.roundMessageFresh)
-        await game.broadcaster.broadcast(payload, {
-            fresh,
-            cleanupOld: Boolean(game.settings?.autoCleanHands)
-        })
+        await game.broadcaster.broadcast(payload, { fresh })
         if (fresh) {
             game.roundMessageFresh = false
         }

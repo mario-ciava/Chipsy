@@ -34,7 +34,7 @@ const {
     resolvePlayerStackDisplay
 } = require("../shared/messageHelpers")
 
-const AUTO_CLEAN_DELAY_MS = 15 * 1000
+const AUTO_CLEAN_DELAY_MS = config.delays.autoClean.default
 
 const DEFAULT_TIMELINE_MAX = 30
 const DEFAULT_TIMELINE_PREVIEW = 15
@@ -1366,7 +1366,7 @@ module.exports = class BlackJack extends Game {
             return true
         }, { scope: "blackjack:actions" })
 
-        this.broadcaster.createCollectors({ filter: actionFilter, time: 5 * 60 * 1000 }, async(interaction) => {
+        this.broadcaster.createCollectors({ filter: actionFilter, time: config.blackjack.collectorTimeout.default }, async(interaction) => {
             const logCollectorError = (message, meta = {}) =>
                 buildInteractionLog(interaction, message, {
                     phase: "actionCollector",

@@ -17,7 +17,7 @@
                         <button
                             type="button"
                             class="chip-btn chip-btn-secondary w-full justify-center"
-                            :disabled="launching || !authReady"
+                            :disabled="fetchingState || !authReady"
                             @click="openAuth"
                         >
                             <span v-if="launching" class="chip-spinner mr-2"></span>
@@ -181,9 +181,6 @@ export default {
             if (!this.clientId) {
                 // eslint-disable-next-line no-console
                 console.error("Missing VUE_APP_DISCORD_CLIENT_ID environment variable.")
-                return
-            }
-            if (this.launching) {
                 return
             }
             if (!this.authReady && !this.fetchingState) {

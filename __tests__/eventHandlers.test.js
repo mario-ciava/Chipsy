@@ -33,7 +33,12 @@ describe("interaction event handler", () => {
 
         await handleInteraction(interaction)
 
-        expect(reply).toHaveBeenCalledWith({ content: disabledNotice, flags: MessageFlags.Ephemeral })
+        expect(reply).toHaveBeenCalledTimes(1)
+        const payload = reply.mock.calls[0][0]
+        expect(payload.flags).toBe(MessageFlags.Ephemeral)
+        const embed = payload.embeds?.[0]
+        const desc = embed?.data?.description ?? embed?.description
+        expect(desc).toBe(disabledNotice)
         expect(interaction.client.commandRouter.handleInteraction).not.toHaveBeenCalled()
     })
 

@@ -12,7 +12,7 @@
     "bot": "node bot/index.js",
     "panel:build": "npm --prefix panel run build",
     "dev:stack": "docker compose -f docker-compose.local.yml up",
-    "build:images": "docker compose build bot api panel",
+    "build:images": "docker compose build bot api panel && docker builder prune -f",
     "sync:commands": "node scripts/syncCommands.js",
     "pm2:local": "npm run panel:build && npx pm2 start ecosystem.config.js --env local",
     "pm2:production": "npm run panel:build && npx pm2 start ecosystem.config.js --env production",

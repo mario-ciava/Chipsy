@@ -14,11 +14,7 @@ const { resolveBlackjackSettings, defaults: blackjackSettingDefaults } = require
 const config = require("../../config")
 
 const AUTO_START_DELAY_MS = config.lobby.autoStartDelay.default
-const MIN_PLAYERS_TO_START = Math.max(1, Number(config.blackjack.minPlayers?.default) || 1)
-const BLACKJACK_DEFAULT_MIN_BET = config.blackjack?.minBet?.default ?? 100
-const BLACKJACK_DEFAULT_MAX_PLAYERS = config.blackjack?.maxPlayersDefault?.default ?? 7
-const DEFAULT_PUBLIC_LOBBY_TTL_MS = 30 * 60 * 1000
-const MAX_PUBLIC_LOBBIES_PER_USER = 1
+const MIN_PLAYERS_TO_START = config.blackjack.minPlayers.default
 
 const buildCommandInteractionLog = (interaction, message, extraMeta = {}) =>
     logAndSuppress(message, {
@@ -248,18 +244,18 @@ const runBlackjack = async(interaction, client) => {
                             new ActionRowBuilder().addComponents(
                                 new TextInputBuilder()
                                     .setCustomId("minBet")
-                                    .setLabel("Minimum Bet")
+                                    .setLabel(`Minimum Bet (${config.blackjack.minBet.allowedRange.min}-${config.blackjack.minBet.allowedRange.max})`)
                                     .setStyle(TextInputStyle.Short)
                                     .setRequired(true)
-                                    .setValue(String(BLACKJACK_DEFAULT_MIN_BET))
+                                    .setValue(String(config.blackjack.minBet.default))
                             ),
                             new ActionRowBuilder().addComponents(
                                 new TextInputBuilder()
                                     .setCustomId("maxPlayers")
-                                    .setLabel("Max Players (1-7)")
+                                    .setLabel(`Max Players (${config.blackjack.minPlayers.allowedRange.min}-${config.blackjack.maxPlayersDefault.allowedRange.max})`)
                                     .setStyle(TextInputStyle.Short)
                                     .setRequired(false)
-                                    .setPlaceholder(String(BLACKJACK_DEFAULT_MAX_PLAYERS))
+                                    .setPlaceholder(String(config.blackjack.maxPlayersDefault.default))
                             ),
                             new ActionRowBuilder().addComponents(
                                 new TextInputBuilder()
@@ -287,7 +283,7 @@ const runBlackjack = async(interaction, client) => {
                             filter: (i) => i.customId === modalCustomId && i.user.id === interaction.user.id
                         })
                         
-                        const minBetRaw = submission.fields.getTextInputValue("minBet")?.trim() || String(BLACKJACK_DEFAULT_MIN_BET)
+                        const minBetRaw = submission.fields.getTextInputValue("minBet")?.trim() || String(config.blackjack.minBet.default)
                         const maxPlayersRaw = submission.fields.getTextInputValue("maxPlayers")?.trim()
                         const maxPlayersInput = maxPlayersRaw ? Number.parseInt(maxPlayersRaw, 10) : null
                         const visibility = sanitizeVisibility(submission.fields.getTextInputValue("visibility") || "private")
@@ -358,7 +354,7 @@ const runBlackjack = async(interaction, client) => {
 
         if (isPublicLobby) {
             const currentCount = await countUserPublicLobbies(pool, interaction.user.id)
-            if (currentCount >= MAX_PUBLIC_LOBBIES_PER_USER) {
+            if (currentCount >= config.lobby.public.maxPerUser.default) {
                 await interaction.followUp({
                     embeds: [new EmbedBuilder().setColor(Colors.Red).setDescription(`❌ You already have ${currentCount} active public lobby. Please close it before creating a new one.`)],
                     flags: MessageFlags.Ephemeral
@@ -380,14 +376,46 @@ const runBlackjack = async(interaction, client) => {
             return
         }
 
-        const minPlayersAllowed = config.blackjack?.minPlayers?.default ?? 1
-        const maxPlayersAllowed = config.blackjack?.maxPlayersDefault?.default ?? BLACKJACK_DEFAULT_MAX_PLAYERS
+        const safeMinBet = Math.max(1, Math.floor(minBet))
+        const minBetRange = config.blackjack.minBet.allowedRange || {}
+        const minBetMin = Number.isFinite(minBetRange.min) ? minBetRange.min : 1
+        const minBetMax = Number.isFinite(minBetRange.max) ? minBetRange.max : Number.MAX_SAFE_INTEGER
+
+        if (safeMinBet < minBetMin || safeMinBet > minBetMax) {
+            await interaction.followUp({
+                embeds: [new EmbedBuilder()
+                    .setColor(Colors.Red)
+                    .setDescription(`❌ Minimum bet must be between ${setSeparator(minBetMin)}$ and ${setSeparator(minBetMax)}$.`)],
+                flags: MessageFlags.Ephemeral
+            })
+            return
+        }
+
+        const minPlayersRange = config.blackjack.minPlayers.allowedRange || {}
+        const maxPlayersRange = config.blackjack.maxPlayersDefault.allowedRange || {}
+        const minPlayersAllowed = Number.isFinite(minPlayersRange.min) ? minPlayersRange.min : config.blackjack.minPlayers.default
+        const maxPlayersAllowed = Number.isFinite(maxPlayersRange.max)
+            ? maxPlayersRange.max
+            : config.blackjack.maxPlayersDefault.default
+        const defaultMaxPlayers = config.blackjack.maxPlayersDefault.default
         const normalizedMaxPlayers = Number.isInteger(maxPlayersInput)
             ? Math.min(Math.max(maxPlayersInput, minPlayersAllowed), maxPlayersAllowed)
-            : maxPlayersAllowed
+            : defaultMaxPlayers
 
-        const safeMinBet = Math.max(1, Math.floor(minBet))
-        const maxBuyIn = Math.min(safeMinBet * 100, Number.MAX_SAFE_INTEGER)
+        const buyInConfig = config.lobby.buyIn || {}
+        const minBuyInMultiplier = Number.isFinite(Number(buyInConfig.minMultiplier?.default))
+            ? Number(buyInConfig.minMultiplier.default)
+            : 1
+        const maxBuyInMultiplier = Number.isFinite(Number(buyInConfig.maxMultiplier?.default))
+            ? Number(buyInConfig.maxMultiplier.default)
+            : minBuyInMultiplier
+
+        const minBuyIn = Math.max(1, Math.floor(safeMinBet * minBuyInMultiplier))
+        const rawMaxBuyIn = Math.floor(safeMinBet * maxBuyInMultiplier)
+        const maxBuyInRange = config.blackjack.maxBuyIn.allowedRange || {}
+        const maxBuyInMin = Number.isFinite(maxBuyInRange.min) ? maxBuyInRange.min : 1
+        const maxBuyInMax = Number.isFinite(maxBuyInRange.max) ? maxBuyInRange.max : Number.MAX_SAFE_INTEGER
+        const maxBuyIn = Math.max(minBuyIn, Math.min(Math.max(rawMaxBuyIn, maxBuyInMin), maxBuyInMax))
 
         logger.debug("Creating BlackJack game", {
             scope: "commands",
@@ -449,6 +477,7 @@ const runBlackjack = async(interaction, client) => {
         channel.game = new BlackJack({
             message: messageAdapter,
             minBet: safeMinBet,
+            minBuyIn,
             maxPlayers: normalizedMaxPlayers,
             maxBuyIn,
             settings: effectiveSettings
@@ -742,7 +771,6 @@ const runBlackjack = async(interaction, client) => {
         const lobbySession = createLobbySession({
             send: sendLobbyMessage,
             logger,
-            collectorOptions: { time: 5 * 60 * 1000 },
             render: renderLobbyView
         })
         game.lobbySession = lobbySession
@@ -771,7 +799,7 @@ const runBlackjack = async(interaction, client) => {
                 minBet: safeMinBet,
                 maxPlayers: normalizedMaxPlayers,
                 currentPlayers: currentPlayersCount,
-                ttl: DEFAULT_PUBLIC_LOBBY_TTL_MS / 1000
+                ttl: config.lobby.public.ttlMs.default / 1000
             }).catch(() => null)
             await cleanupExpiredLobbies(pool).catch(() => null)
         }
@@ -949,7 +977,7 @@ const runBlackjack = async(interaction, client) => {
             let submission
             try {
                 submission = await lobbySession.presentModal(interactionComponent, modal, {
-                    time: 60_000,
+                    time: config.lobby.modalTimeout.default,
                     filter: (i) => i.customId === modalCustomId && i.user.id === interactionComponent.user.id
                 })
             } catch (modalError) {
@@ -1107,7 +1135,7 @@ const runBlackjack = async(interaction, client) => {
                                 replyId: reply.id
                             })
                         )
-                    }, 5000)
+                    }, config.delays.warningDelete.default)
                 }
                 return
             }
@@ -1126,7 +1154,7 @@ const runBlackjack = async(interaction, client) => {
                                 replyId: reply.id
                             })
                         )
-                    }, 5000)
+                    }, config.delays.warningDelete.default)
                 }
                 return
             }
@@ -1170,7 +1198,7 @@ const runBlackjack = async(interaction, client) => {
                                 replyId: reply.id
                             })
                         )
-                    }, 5000)
+                    }, config.delays.warningDelete.default)
                 }
                 return
             }
@@ -1236,7 +1264,7 @@ const runBlackjack = async(interaction, client) => {
                                 replyId: reply.id
                             })
                         )
-                    }, 5000)
+                    }, config.delays.warningDelete.default)
                 }
                 return
             }

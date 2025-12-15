@@ -32,6 +32,7 @@ const buildTexasInteractionLog = (interaction, message, extraMeta = {}) =>
     })
 
 const createWonState = () => ({ grossValue: 0, netValue: 0, expEarned: 0, goldEarned: 0 })
+const AUTO_CLEAN_DELAY_MS = config.delays.autoClean.default
 
 const toSafeInteger = (value) => {
     return validateAmount(value, MAX_SAFE_STACK)
@@ -46,7 +47,8 @@ module.exports = class TexasGame extends Game {
             minRaise: info.minBet,
             currentMax: 0,
             total: 0,
-            pots: []
+            pots: [],
+            displayTotal: 0
         }
         this.actionTimeoutMs = config.texas.actionTimeout.default
         this.actionCollector = null
@@ -64,6 +66,7 @@ module.exports = class TexasGame extends Game {
         this.waitingForRebuy = false
         this.rebuyResumeTimer = null
         this.dealerOffset = -1
+        this.cleanupTimers = new Set()
         this.lastHandMessage = null
         this.currentSmallBlindId = null
         this.currentBigBlindId = null
@@ -134,6 +137,67 @@ module.exports = class TexasGame extends Game {
         await this.broadcaster.notify({
             embeds: [new EmbedBuilder().setColor(color).setDescription(description)]
         })
+    }
+
+    scheduleMessageCleanup(target, delayMs = AUTO_CLEAN_DELAY_MS) {
+        if (!this.settings?.autoCleanHands) return
+        if (target && typeof target.delete === "function") {
+            const timer = setTimeout(() => {
+                this.cleanupTimers.delete(timer)
+                target.delete().catch(() => null)
+            }, delayMs)
+            this.cleanupTimers.add(timer)
+        }
+    }
+
+    scheduleHandCleanup(handNumber) {
+        if (!this.settings?.autoCleanHands) return
+        const hand = Number.isFinite(handNumber) ? handNumber : this.hands
+
+        if (this.broadcaster && typeof this.broadcaster.getCurrentMessages === "function") {
+            const messages = this.broadcaster.getCurrentMessages()
+            for (const msg of messages) {
+                this.scheduleMessageCleanup(msg)
+            }
+        }
+
+        const holeCardEntries = []
+        for (const player of this.players || []) {
+            const entry = player?.status?.holeCardMessage
+            if (entry && entry.hand === hand) {
+                holeCardEntries.push({ player, entry })
+            }
+        }
+
+        const timer = setTimeout(async () => {
+            this.cleanupTimers.delete(timer)
+            for (const { player, entry } of holeCardEntries) {
+                const { message, interaction } = entry || {}
+                let removed = false
+                if (message && typeof message.delete === "function") {
+                    try {
+                        await message.delete()
+                        removed = true
+                    } catch (_) {}
+                }
+                if (!removed && interaction && typeof interaction.deleteReply === "function") {
+                    try {
+                        await interaction.deleteReply(message?.id).catch(() => null)
+                    } catch (_) {}
+                }
+                if (player?.status?.holeCardMessage === entry) {
+                    player.status.holeCardMessage = null
+                    player.status.holeCardPanel = null
+                }
+            }
+        }, AUTO_CLEAN_DELAY_MS)
+        this.cleanupTimers.add(timer)
+    }
+
+    clearCleanupTimers() {
+        if (!this.cleanupTimers || this.cleanupTimers.size === 0) return
+        for (const timer of this.cleanupTimers) clearTimeout(timer)
+        this.cleanupTimers.clear()
     }
 
     async handleRemotePause(meta = {}) {
@@ -672,7 +736,7 @@ module.exports = class TexasGame extends Game {
             .setDescription("Game stopped due to inactivity.")
 
         const payload = { embeds: [embed], components: [] }
-        await this.broadcaster.broadcast(payload)
+        await this.broadcaster.broadcast(payload, { fresh: true })
     }
 
     async updateGameMessage(player, options = {}) {
@@ -693,6 +757,9 @@ module.exports = class TexasGame extends Game {
     }
 
     async StartGame() {
+        if (this.broadcaster && typeof this.broadcaster.prepareForNewRound === "function") {
+            this.broadcaster.prepareForNewRound()
+        }
         await this.Reset()
         this.Shuffle(this.cards)
         const eligiblePlayers = (this.players || []).filter((p) => {
@@ -750,7 +817,15 @@ module.exports = class TexasGame extends Game {
         this.currentHandHasInteraction = false
         this.gameMessage = null
         this.roundMessageFresh = true
-        const transitionDelay = Math.max(0, Math.min(config.texas.nextHandDelay.default, 2000))
+        const nextHandDelayConfig = config.texas?.nextHandDelay || {}
+        const rawNextHandDelay = Number(nextHandDelayConfig.default) || 0
+        const minNextHandDelay = Number.isFinite(nextHandDelayConfig.allowedRange?.min)
+            ? nextHandDelayConfig.allowedRange.min
+            : 0
+        const maxNextHandDelay = Number.isFinite(nextHandDelayConfig.allowedRange?.max)
+            ? nextHandDelayConfig.allowedRange.max
+            : rawNextHandDelay
+        const transitionDelay = Math.max(0, Math.min(Math.max(rawNextHandDelay, minNextHandDelay), maxNextHandDelay))
         if (transitionDelay > 0) {
             await sleep(transitionDelay)
         }
@@ -1105,8 +1180,6 @@ module.exports = class TexasGame extends Game {
         if (!opponents.length) return
         const opponentsNeedingAction = opponents.filter((p) => !p.status?.allIn)
         if (opponentsNeedingAction.length === 0) {
-            player.status.allIn = true
-            player.status.lastAllInAmount = player.bets?.total || 0
             player.status.movedone = true
         }
     }
@@ -1267,7 +1340,7 @@ module.exports = class TexasGame extends Game {
                 p.status.leftThisHand = false
             }
         })
-        this.bets = { minRaise: this.getTableMinBet(), currentMax: 0, total: 0, pots: [] }
+        this.bets = { minRaise: this.getTableMinBet(), currentMax: 0, total: 0, pots: [], displayTotal: 0 }
         if (this.timer) clearTimeout(this.timer)
         this.timer = null
         this.awaitingPlayerId = null
@@ -1287,7 +1360,43 @@ module.exports = class TexasGame extends Game {
 
     getDisplayedPotValue() {
         const settled = this.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
-        return settled + this.bets.total
+        const display = Number.isFinite(this.bets.displayTotal) ? this.bets.displayTotal : this.bets.total
+        return settled + display
+    }
+
+    updateDisplayPotForRender() {
+        const settled = Array.isArray(this.bets.pots)
+            ? this.bets.pots.reduce((sum, pot) => sum + (pot?.amount || 0), 0)
+            : 0
+        this.bets.displayTotal = settled + (Number(this.bets.total) || 0)
+    }
+
+    settleCurrentBetsForRender() {
+        for (const player of this.players) {
+            if (!player?.bets) continue
+            player.bets.current = 0
+        }
+        this.bets.currentMax = 0
+    }
+
+    async broadcastPhaseSnapshot(title, options = {}) {
+        const snapshot = await this.captureTableRender({
+            title,
+            ...options
+        })
+        if (!snapshot) return
+
+        const embed = new EmbedBuilder()
+            .setColor(Colors.Blurple)
+            .setTitle(title || "Table update")
+            .addFields(...this.buildInfoAndTimelineFields({ toCall: 0, pot: this.getDisplayedPotValue() }))
+            .setImage(`attachment://${snapshot.filename}`)
+
+        await this.broadcaster.broadcast({
+            embeds: [embed],
+            files: [snapshot.attachment],
+            components: []
+        })
     }
 
     buildSidePots() {
@@ -1309,6 +1418,15 @@ module.exports = class TexasGame extends Game {
     async Stop(options = {}) {
         const { reason = "unknown" } = options
 
+        const autoCleanHands = Boolean(this.settings?.autoCleanHands)
+        if (autoCleanHands) {
+            // Ensure the last round render + hole cards are still cleaned up even if the game stops
+            // before the usual end-of-hand cleanup timer fires.
+            this.scheduleHandCleanup(this.hands)
+        } else {
+            await this.messages.cleanupHoleCardsMessages()
+        }
+
         const refundedFromPot = this.refundOutstandingBets()
 
         if (typeof this.setRemoteMeta === "function") {
@@ -1328,8 +1446,13 @@ module.exports = class TexasGame extends Game {
         }
 
         for (const [, offer] of this.rebuyOffers.entries()) {
-            if (offer?.collector && !offer.collector.ended) {
-                try { offer.collector.stop("gameStopped") } catch (_) {}
+            const collectors = Array.isArray(offer?.collectors)
+                ? offer.collectors
+                : offer?.collector ? [offer.collector] : []
+            for (const collector of collectors) {
+                if (collector && !collector.ended) {
+                    try { collector.stop("gameStopped") } catch (_) {}
+                }
             }
         }
         this.rebuyOffers.clear()
@@ -1343,6 +1466,10 @@ module.exports = class TexasGame extends Game {
                 reason,
                 error: error?.message
             })
+        }
+
+        if (!autoCleanHands) {
+            this.clearCleanupTimers()
         }
     }
 

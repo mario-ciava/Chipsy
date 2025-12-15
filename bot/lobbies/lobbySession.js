@@ -118,10 +118,10 @@ class LobbySession extends EventEmitter {
     async refresh(overrides = {}) {
         if (this.isClosed && !overrides.force) return
         
-        const payload = this.#buildPayload(overrides)
         const promises = []
 
         if (this.statusMessage) {
+            const payload = this.#buildPayload(overrides)
             promises.push(
                 this.statusMessage.edit(payload).catch((error) => {
                     this.#logError("Failed to edit lobby message", error)
@@ -130,6 +130,7 @@ class LobbySession extends EventEmitter {
         }
 
         for (const [channelId, message] of this.mirrors) {
+            const payload = this.#buildPayload(overrides)
             promises.push(
                 message.edit(payload).catch((error) => {
                     this.#logError(`Failed to edit lobby mirror in ${channelId}`, error)

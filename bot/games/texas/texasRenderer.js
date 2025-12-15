@@ -10,6 +10,7 @@
 const { AttachmentBuilder, EmbedBuilder, Colors, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require("discord.js")
 const logger = require("../../../shared/logger")
 const setSeparator = require("../../../shared/utils/setSeparator")
+const config = require("../../../config")
 const { renderTexasTable, renderTexasPlayerPanel, createTexasTableState } = require("../../rendering/texasTableRenderer")
 
 class GameRenderer {
@@ -83,7 +84,7 @@ class GameRenderer {
                 playerId: player?.id
             })
             // Retry with small delay
-            await new Promise(r => setTimeout(r, 100))
+            await new Promise(r => setTimeout(r, config.delays.renderRetry.default))
             try {
                 buffer = await renderTexasPlayerPanel({ player: payload })
             } catch (error) {
@@ -123,7 +124,10 @@ class GameRenderer {
      */
     getDisplayedPotValue() {
         const settled = this.game.bets.pots.reduce((sum, pot) => sum + pot.amount, 0)
-        return settled + this.game.bets.total
+        const display = Number.isFinite(this.game.bets.displayTotal)
+            ? this.game.bets.displayTotal
+            : this.game.bets.total
+        return settled + display
     }
 
     /**

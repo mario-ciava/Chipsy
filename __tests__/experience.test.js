@@ -3,7 +3,7 @@ const {
     DEFAULT_PLAYER_LEVEL,
     calculateRequiredExp,
     normalizeUserExperience
-} = require("../bot/utils/experience")
+} = require("../shared/experience")
 
 describe("experience helpers", () => {
     test("calculateRequiredExp returns base for level 0", () => {

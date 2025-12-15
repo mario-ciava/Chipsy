@@ -38,9 +38,18 @@ class HandProgression {
         if (!phases.includes(phase)) return
 
         if (phase === "showdown") {
+            this.game.settleCurrentBetsForRender()
+            this.game.updateDisplayPotForRender()
+            // Show a final settle frame before the showdown resolution
+            await this.game.broadcastPhaseSnapshot("Preparing showdown", { showdown: false })
             await this.handleShowdown()
             return
         }
+
+        // End of betting round: lock display pot and show last action before revealing new cards
+        this.game.settleCurrentBetsForRender()
+        this.game.updateDisplayPotForRender()
+        await this.game.broadcastPhaseSnapshot(`Actions settled - preparing ${phase}`, { showdown: false })
 
         // Burn a card and deal community cards
         if (phase === "flop") {
@@ -55,14 +64,20 @@ class HandProgression {
         // Reset betting round
         this.game.betting.resetBettingRound()
         this.game.inGamePlayers.forEach((player) => {
-            if (!player.status.folded && !player.status.allIn) {
-                player.status.movedone = false
-            }
+            if (!player?.status) return
+            if (player.status.folded || player.status.removed || player.status.allIn) return
+            const hasOpponentsWithChips = typeof this.game.hasOpponentWithChips === "function"
+                ? this.game.hasOpponentWithChips(player)
+                : true
+            player.status.movedone = !hasOpponentsWithChips
         })
 
         this.game.UpdateInGame()
         this.game.updateActionOrder(this.game.getBettingStartIndex())
         this.game.queueProbabilityUpdate(`phase:${phase}`)
+
+        // Reveal newly dealt board before continuing
+        await this.game.broadcastPhaseSnapshot(phase.charAt(0).toUpperCase() + phase.slice(1), { showdown: false })
 
         // Find the next player who still needs to act
         const nextPlayer = this.game.findNextPendingPlayer()
@@ -92,11 +107,13 @@ class HandProgression {
             winners: [{ player: winner, amount: this.game.bets.total }]
         }]
         this.game.bets.total = 0
+        this.game.bets.displayTotal = 0
 
         this.game.clearProbabilitySnapshot()
         this.game.applyGoldRewards(this.game.players)
 
         await this.game.SendMessage("handEnded", { showdown: false, revealWinnerId: winner.id })
+        this.game.scheduleHandCleanup(this.game.hands)
 
         const stopped = await this.game.evaluateHandInactivity()
         if (!stopped) {
@@ -168,10 +185,12 @@ class HandProgression {
         }
 
         this.game.bets.total = 0
+        this.game.bets.displayTotal = 0
         this.game.clearProbabilitySnapshot()
         this.game.applyGoldRewards(this.game.players)
 
         await this.game.SendMessage("handEnded")
+        this.game.scheduleHandCleanup(this.game.hands)
 
         const stopped = await this.game.evaluateHandInactivity()
         if (!stopped) {

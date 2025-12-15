@@ -159,6 +159,12 @@ const createAdminService = ({
         }
     }
 
+    const toOptionalNumber = (value) => {
+        if (value === null || value === undefined || value === "") return null
+        const numeric = Number(value)
+        return Number.isFinite(numeric) ? numeric : null
+    }
+
     const buildTableSnapshot = (game) => {
         if (!game) return null
         const remoteState = typeof game.getRemoteState === "function"
@@ -220,6 +226,18 @@ const createAdminService = ({
             ? game.getTimelineSnapshot()
             : null
 
+        const settings = (() => {
+            const source = game?.settings
+            if (!source || typeof source !== "object") return null
+            return {
+                enabled: source.enabled !== undefined ? Boolean(source.enabled) : null,
+                allowRebuyMode: source.allowRebuyMode || null,
+                rebuyWindowMs: toOptionalNumber(source.rebuyWindowMs),
+                actionTimeoutMs: toOptionalNumber(source.actionTimeoutMs),
+                autoCleanHands: source.autoCleanHands !== undefined ? Boolean(source.autoCleanHands) : null
+            }
+        })()
+
         return {
             id,
             type: typeName,
@@ -237,13 +255,15 @@ const createAdminService = ({
             awaitingPlayer,
             stats: {
                 handsPlayed: Number(game.hands) || 0,
-                minBet: Number(game.getTableMinBet?.() ?? game.minBet ?? null),
-                maxBuyIn: Number(game.maxBuyIn) || null,
-                turnTimeoutMs: remoteState.turnTimeoutMs || game.actionTimeoutMs || null,
+                minBet: toOptionalNumber(game.getTableMinBet?.() ?? game.minBet),
+                minBuyIn: toOptionalNumber(game.minBuyIn),
+                maxBuyIn: toOptionalNumber(game.maxBuyIn),
+                turnTimeoutMs: toOptionalNumber(remoteState.turnTimeoutMs ?? game.actionTimeoutMs),
                 potValue: typeof game.getDisplayedPotValue === "function" ? game.getDisplayedPotValue() : null,
                 stage: derivePhase(game, typeName),
                 communityCards: Array.isArray(game.tableCards) ? game.tableCards.length : null
             },
+            settings,
             actions: computeActions(game, remoteState),
             timeline: timeline || null,
             meta: {
@@ -254,7 +274,8 @@ const createAdminService = ({
                 lobby: game.lobbySession
                     ? {
                         status: game.lobbySession.state?.status || null,
-                        closed: game.lobbySession.isClosed
+                        closed: game.lobbySession.isClosed,
+                        settings: game.lobbySession.state?.settings || null
                     }
                     : null,
                 pause: remoteState.pauseMeta || null

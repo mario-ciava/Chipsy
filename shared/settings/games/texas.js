@@ -17,7 +17,7 @@ const resolveActionTimeoutDefaults = () => {
 }
 
 const resolveTexasDefaults = () => {
-    const rebuyDefaults = resolveRebuyDefaults(config?.texas?.rebuy, { preferredDefaultMs: 60 * 1000 })
+    const rebuyDefaults = resolveRebuyDefaults(config?.texas?.rebuy)
     const actionTimeoutDefaults = resolveActionTimeoutDefaults()
     return Object.freeze({
         enabled: true,

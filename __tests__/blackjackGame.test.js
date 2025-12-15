@@ -110,7 +110,7 @@ jest.mock("../bot/rendering/blackjackTableRenderer", () => ({
     createBlackjackTableState: jest.fn((state) => state)
 }))
 
-jest.mock("../bot/utils/logger", () => {
+jest.mock("../shared/logger", () => {
     const logAndSuppress = jest.fn(() => jest.fn())
     return {
         info: jest.fn(),
@@ -130,6 +130,7 @@ jest.mock("../config", () => ({
         lobbyTimeout: { default: 1000, allowedRange: { min: 100, max: 10_000 } },
         betsTimeout: { default: 100, allowedRange: { min: 50, max: 2000 } },
         actionTimeout: { default: 100, allowedRange: { min: 50, max: 2000 } },
+        collectorTimeout: { default: 1000, allowedRange: { min: 100, max: 10_000 } },
         modalTimeout: { default: 100, allowedRange: { min: 50, max: 2000 } },
         autobetShortTimeout: { default: 50, allowedRange: { min: 25, max: 500 } },
         timelineMaxEntries: { default: 10, allowedRange: { min: 5, max: 50 } },
@@ -138,7 +139,8 @@ jest.mock("../config", () => ({
     delays: {
         short: { default: 0, allowedRange: { min: 0, max: 1000 } },
         medium: { default: 0, allowedRange: { min: 0, max: 1000 } },
-        long: { default: 0, allowedRange: { min: 0, max: 1000 } }
+        long: { default: 0, allowedRange: { min: 0, max: 1000 } },
+        autoClean: { default: 0, allowedRange: { min: 0, max: 1000 } }
     },
     cards: {
         suits: ["S", "H", "D", "C"],

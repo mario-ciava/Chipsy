@@ -100,7 +100,15 @@ const envSchema = z.object({
     INTERNAL_API_ENABLED: z.string().optional(),
     BOT_INTERNAL_HOST: z.string().optional(),
     BOT_INTERNAL_PATH: z.string().optional(),
-    BOT_SERVICE_HOST: z.string().optional()
+    BOT_SERVICE_HOST: z.string().optional(),
+
+    REDIS_URL: z.string().optional(),
+    REDIS_HOST: z.string().optional(),
+    REDIS_PORT: z.coerce.number().int().positive().optional(),
+    REDIS_TLS: z.string().optional(),
+    REDIS_PASSWORD: z.string().optional(),
+    REDIS_DATABASE: z.coerce.number().int().min(0).optional(),
+    REDIS_DB: z.coerce.number().int().min(0).optional()
 })
 
 const parsedEnv = envSchema.safeParse(process.env)
@@ -726,6 +734,16 @@ const config = {
         user: env.MYSQL_USER,
         password: env.MYSQL_PASSWORD
     },
+    cache: {
+        redis: {
+            url: env.REDIS_URL || null,
+            host: env.REDIS_HOST || null,
+            port: env.REDIS_PORT,
+            tls: parseBoolean(env.REDIS_TLS, false),
+            password: env.REDIS_PASSWORD || null,
+            database: env.REDIS_DATABASE ?? env.REDIS_DB
+        }
+    },
     web: {
         redirectOrigin: env.FRONTEND_REDIRECT_ORIGIN || constants.urls.vueDevLocal
     },
@@ -815,9 +833,13 @@ const config = {
             default: 1,
             allowedRange: { min: 1, max: 7 }
         },
-        lobbyTimeout: {
-            default: 5 * 60 * 1000,
-            allowedRange: { min: 60 * 1000, max: 15 * 60 * 1000 }
+        minBet: {
+            default: 100,
+            allowedRange: { min: 10, max: 1000 }
+        },
+        maxBuyIn: {
+            default: 10000,
+            allowedRange: { min: 100, max: 100000 }
         },
         betsTimeout: {
             default: 45 * 1000,
@@ -826,6 +848,10 @@ const config = {
         actionTimeout: {
             default: 45 * 1000,
             allowedRange: { min: 15 * 1000, max: 120 * 1000 }
+        },
+        collectorTimeout: {
+            default: 5 * 60 * 1000,
+            allowedRange: { min: 60 * 1000, max: 15 * 60 * 1000 }
         },
         modalTimeout: {
             default: 25 * 1000,
@@ -866,6 +892,10 @@ const config = {
             default: 60 * 1000,
             allowedRange: { min: 10 * 1000, max: 120 * 1000 }
         },
+        revealWindow: {
+            default: 10 * 1000,
+            allowedRange: { min: 1000, max: 60 * 1000 }
+        },
         nextHandDelay: {
             default: 8 * 1000,
             allowedRange: { min: 3 * 1000, max: 20 * 1000 }
@@ -891,7 +921,7 @@ const config = {
                 default: true
             },
             offerTimeout: {
-                default: 2 * 60 * 1000,
+                default: 60 * 1000,
                 allowedRange: { min: 30 * 1000, max: 10 * 60 * 1000 }
             }
         }
@@ -912,6 +942,30 @@ const config = {
         modalTimeout: {
             default: 60 * 1000,
             allowedRange: { min: 15 * 1000, max: 120 * 1000 }
+        },
+        buyIn: {
+            minMultiplier: {
+                default: 8,
+                allowedRange: { min: 1, max: 100 }
+            },
+            maxMultiplier: {
+                default: 100,
+                allowedRange: { min: 10, max: 1000 }
+            }
+        },
+        public: {
+            ttlMs: {
+                default: 30 * 60 * 1000,
+                allowedRange: { min: 5 * 60 * 1000, max: 24 * 60 * 60 * 1000 }
+            },
+            cleanupIntervalMs: {
+                default: 10 * 60 * 1000,
+                allowedRange: { min: 60 * 1000, max: 60 * 60 * 1000 }
+            },
+            maxPerUser: {
+                default: 1,
+                allowedRange: { min: 1, max: 5 }
+            }
         }
     },
     delays: {
@@ -926,6 +980,22 @@ const config = {
         long: {
             default: 5000,
             allowedRange: { min: 2000, max: 15000 }
+        },
+        autoClean: {
+            default: 15 * 1000,
+            allowedRange: { min: 5 * 1000, max: 60 * 1000 }
+        },
+        ephemeralDelete: {
+            default: 8000,
+            allowedRange: { min: 1000, max: 30 * 1000 }
+        },
+        warningDelete: {
+            default: 5000,
+            allowedRange: { min: 1000, max: 15 * 1000 }
+        },
+        renderRetry: {
+            default: 100,
+            allowedRange: { min: 50, max: 2000 }
         }
     },
     probabilities: {
